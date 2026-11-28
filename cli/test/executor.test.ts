@@ -600,7 +600,7 @@ describe("TestExecutor — explicit steps", () => {
 
   it("passes a blocked expectation when the block's auth block hasn't run or was skipped", async () => {
     const executor = await makeExecutor(
-      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" envFrom={["aws"]} command="echo deploy" />\n`,
     )
 
     const notRun = await executor.runTest({
@@ -672,7 +672,7 @@ describe("TestExecutor — explicit steps", () => {
 
   it("skips a block whose auth block hasn't run when the step expects skip", async () => {
     const executor = await makeExecutor(
-      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" awsAuthId="aws" command="echo deploy" />\n`,
+      `# Auth\n\n<AwsAuth id="aws" />\n\n<Command id="deploy" envFrom={["aws"]} command="echo deploy" />\n`,
     )
 
     const result = await executor.runTest({
@@ -713,6 +713,8 @@ describe("TestExecutor — session env and working dir", () => {
     "",
     `<Check id="report" command='${report}' />`,
     "",
+    `<Check id="report-gh" envFrom={["gh"]} command='${report}' />`,
+    "",
     `<Check id="report-in-sub" workingDir="sub" command='${report}' />`,
     "",
     `<Command id="make_dir" command='mkdir -p made; echo dir=made >> "$RUNBOOK_OUTPUT"' />`,
@@ -729,8 +731,8 @@ describe("TestExecutor — session env and working dir", () => {
     return executor
   }
 
-  const reported = (result: Awaited<ReturnType<TestExecutor["runTest"]>>) =>
-    result.stepResults.find((s) => s.block === "check:report")?.outputs ?? {}
+  const reported = (result: Awaited<ReturnType<TestExecutor["runTest"]>>, block = "report") =>
+    result.stepResults.find((s) => s.block === `check:${block}`)?.outputs ?? {}
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-session-"))
@@ -815,11 +817,11 @@ describe("TestExecutor — session env and working dir", () => {
       steps: [
         { block: "gh", expect: "success" },
         { block: "set-env", expect: "success" },
-        { block: "report", expect: "success" },
+        { block: "report-gh", expect: "success" },
       ],
     })
     expect(first.error).toBeUndefined()
-    expect(reported(first)).toMatchObject({
+    expect(reported(first, "report-gh")).toMatchObject({
       foo: "bar",
       tc_env: "from-first",
       token: "first-test-token",
@@ -827,7 +829,11 @@ describe("TestExecutor — session env and working dir", () => {
 
     const second = await executor.runTest({
       name: "second",
-      steps: [{ block: "report", expect: "success" }],
+      steps: [
+        { block: "report", expect: "success" },
+        // The sign-in was the first test case's
+        { block: "report-gh", expect: "blocked" },
+      ],
     })
 
     expect(second.error).toBeUndefined()
@@ -835,6 +841,24 @@ describe("TestExecutor — session env and working dir", () => {
     expect(reported(second).tc_env).toBe("unset")
     expect(reported(second).token).not.toBe("first-test-token")
     expect(reported(second).cwd).toBe(fs.realpathSync(tmp))
+  })
+
+  it("gives an auth block's credentials only to a block that names it in envFrom", async () => {
+    const executor = await makeExecutor()
+
+    const result = await executor.runTest({
+      name: "env-from",
+      env: { GITHUB_TOKEN: "", GH_TOKEN: "", RUNBOOKS_GITHUB_TOKEN: "block-token" },
+      steps: [
+        { block: "gh", expect: "success" },
+        { block: "report", expect: "success" },
+        { block: "report-gh", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(reported(result).token).toBe("unset")
+    expect(reported(result, "report-gh").token).toBe("block-token")
   })
 
   it("gives script assertions the test case's env before any bash block has run", async () => {
@@ -978,6 +1002,85 @@ describe("TestExecutor — block env", () => {
 })
 
 // ---------------------------------------------------------------------------
+// envFrom: a script gets an auth block's sign-in only by naming the block.
+// ---------------------------------------------------------------------------
+
+describe("TestExecutor — envFrom", () => {
+  let tmp: string
+
+  const report = ["AWS_ACCESS_KEY_ID", "AWS_SESSION_TOKEN", "AWS_REGION"]
+    .map((name) => `echo "${name.toLowerCase()}=\${${name}:-unset}" >> "$RUNBOOK_OUTPUT"`)
+    .join("; ")
+
+  const makeExecutor = async (blocks: string[]) => {
+    const rb = path.join(tmp, "runbook.mdx")
+    fs.writeFileSync(rb, ["# envFrom", ...blocks, ""].join("\n\n"))
+    const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
+    await executor.init()
+    return executor
+  }
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "rb-exec-envfrom-"))
+  })
+  afterEach(() => {
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  it("applies each named block's sign-in in order, removing what a later one doesn't set, then env", async () => {
+    const executor = await makeExecutor([
+      `<AwsAuth id="sso" />`,
+      `<AwsAuth id="keys" />`,
+      `<Command id="report" envFrom={["sso", "keys"]} env={{ AWS_REGION: "eu-west-1" }} command='${report}' />`,
+    ])
+
+    const result = await executor.runTest({
+      name: "order",
+      env: {
+        SSO_AWS_ACCESS_KEY_ID: "sso-key",
+        SSO_AWS_SECRET_ACCESS_KEY: "sso-secret",
+        SSO_AWS_SESSION_TOKEN: "sso-token",
+        KEYS_AWS_ACCESS_KEY_ID: "iam-key",
+        KEYS_AWS_SECRET_ACCESS_KEY: "iam-secret",
+        // The environment's own, which the sign-ins replace
+        AWS_SESSION_TOKEN: "ambient-token",
+        AWS_REGION: "us-east-1",
+      },
+      steps: [
+        { block: "sso", expect: "success", env_prefix: "SSO_" },
+        { block: "keys", expect: "success", env_prefix: "KEYS_" },
+        { block: "report", expect: "success" },
+      ],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[2]?.outputs).toEqual({
+      aws_access_key_id: "iam-key",
+      // Neither the SSO sign-in's token nor the environment's reaches an IAM key
+      aws_session_token: "unset",
+      aws_region: "eu-west-1",
+    })
+  })
+
+  it("refuses a block that names an auth block with awsAuthId, pointing to envFrom", async () => {
+    const executor = await makeExecutor([
+      `<AwsAuth id="aws" />`,
+      `<Command id="deploy" awsAuthId="aws" command="echo deploy" />`,
+    ])
+
+    const result = await executor.runTest({
+      name: "old-prop",
+      steps: [{ block: "deploy", expect: "config_error", error_contains: "envFrom" }],
+    })
+
+    expect(result.error).toBeUndefined()
+    expect(result.stepResults[0]?.error).toBe(
+      '<Command id="deploy">: Runbooks doesn\'t support the awsAuthId prop. Name the block in envFrom instead: envFrom={["aws"]}.',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
 // <Finish>: an optional final check that runs like a <Check>. Without one the
 // block has nothing to run, and succeeds.
 // ---------------------------------------------------------------------------
@@ -1088,7 +1191,7 @@ describe("TestExecutor — Finish block", () => {
 
   it("is blocked when the auth block its final check needs was skipped", async () => {
     const executor = await makeExecutor(
-      `# Auth\n\n<GitAuth id="git" />\n\n<Finish id="finish" gitAuthId="git" command="echo done" />\n`,
+      `# Auth\n\n<GitAuth id="git" />\n\n<Finish id="finish" envFrom={["git"]} command="echo done" />\n`,
     )
 
     const result = await executor.runTest({
@@ -2074,11 +2177,11 @@ describe("TestExecutor — PR blocks", () => {
     "",
     `<Command id="hello" command="echo hello" />`,
     "",
-    `<GitPullRequest id="pr" gitAuthId="git-auth" />`,
+    `<GitPullRequest id="pr" envFrom={["git-auth"]} />`,
     "",
     `<GitHubPullRequest id="gh-pr" />`,
     "",
-    `<GitLabMergeRequest id="mr" gitAuthId="git-auth" />`,
+    `<GitLabMergeRequest id="mr" envFrom={["git-auth"]} />`,
     "",
   ].join("\n")
 
@@ -2197,7 +2300,7 @@ describe("TestExecutor — PR blocks", () => {
 
 // ---------------------------------------------------------------------------
 // Git auth: GitHubAuth, GitLabAuth and GitAuth (either provider) find a token
-// in the provider's env vars and write the session vars the app writes.
+// in the provider's env vars and export what the app's blocks export.
 // ---------------------------------------------------------------------------
 
 describe("TestExecutor — git auth blocks", () => {
@@ -2227,7 +2330,7 @@ describe("TestExecutor — git auth blocks", () => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(
       rb,
-      `# Git auth\n\n${authBlock}\n\n<Command id="report" gitAuthId="auth" command='${report}' />\n`,
+      `# Git auth\n\n${authBlock}\n\n<Command id="report" envFrom={["auth"]} command='${report}' />\n`,
     )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
@@ -2258,7 +2361,7 @@ describe("TestExecutor — git auth blocks", () => {
   it.each([
     ["GitLabAuth", `<GitLabAuth id="auth" />`],
     ["GitAuth provider=gitlab", `<GitAuth id="auth" provider="gitlab" />`],
-  ])("%s injects GITLAB_TOKEN and GITLAB_HOST", async (_name, authBlock) => {
+  ])("%s exports GITLAB_TOKEN and GITLAB_HOST", async (_name, authBlock) => {
     const executor = await makeExecutor(authBlock)
 
     const result = await runAuthThenReport(executor, { GITLAB_ACCESS_TOKEN: "fake-gitlab-token" })
@@ -2270,7 +2373,7 @@ describe("TestExecutor — git auth blocks", () => {
     })
   })
 
-  it("GitAuth defaults to GitHub and injects GITHUB_TOKEN", async () => {
+  it("GitAuth defaults to GitHub and exports GITHUB_TOKEN", async () => {
     const executor = await makeExecutor(`<GitAuth id="auth" />`)
 
     const result = await runAuthThenReport(executor, { RUNBOOKS_GITHUB_TOKEN: "fake-github-token" })
@@ -2364,7 +2467,7 @@ describe("TestExecutor — GitClone authentication", () => {
     fs.writeFileSync(
       rb,
       // Port 1 refuses the connection, so the clone fails fast.
-      `# Clone\n\n<GitLabAuth id="auth" />\n\n<GitClone id="clone" gitAuthId="auth" prefilledUrl="https://127.0.0.1:1/group/infra.git" />\n`,
+      `# Clone\n\n<GitLabAuth id="auth" />\n\n<GitClone id="clone" envFrom={["auth"]} prefilledUrl="https://127.0.0.1:1/group/infra.git" />\n`,
     )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()
@@ -2524,9 +2627,9 @@ describe("TestExecutor — GoogleAuth gcloud credential override", () => {
       [
         "# Google",
         `<GoogleAuth id="file-auth" />`,
-        `<Command id="after-file" command='${report}' />`,
+        `<Command id="after-file" envFrom={["file-auth"]} command='${report}' />`,
         `<GoogleAuth id="token-auth" />`,
-        `<Command id="after-token" command='${report}' />`,
+        `<Command id="after-token" envFrom={["token-auth"]} command='${report}' />`,
         "",
       ].join("\n\n"),
     )
@@ -3005,7 +3108,7 @@ describe("TestExecutor — AzureAuth env", () => {
     const rb = path.join(tmp, "runbook.mdx")
     fs.writeFileSync(
       rb,
-      `# Azure\n\n<AzureAuth id="azure" />\n\n<Command id="show" azureAuthId="azure" command='echo "\${ARM_TENANT_ID:-unset} \${AZURE_TENANT_ID:-unset} \${ARM_SUBSCRIPTION_ID:-unset} \${ARM_USE_CLI:-unset}" > "${marker}"' />\n`,
+      `# Azure\n\n<AzureAuth id="azure" />\n\n<Command id="show" envFrom={["azure"]} command='echo "\${ARM_TENANT_ID:-unset} \${AZURE_TENANT_ID:-unset} \${ARM_SUBSCRIPTION_ID:-unset} \${ARM_USE_CLI:-unset}" > "${marker}"' />\n`,
     )
     const executor = new TestExecutor(rb, tmp, "generated", { timeout: 30_000, verbose: false })
     await executor.init()

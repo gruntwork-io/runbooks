@@ -70,7 +70,8 @@ function installApi(handlers: Handlers) {
   testApi = makeTestApi({
     "aws:sso-start": startsInOrder(),
     "aws:sso-poll": () => PENDING,
-    "session:set-env": () => ({ ok: true }),
+    "session:set-env-export": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     ...handlers,
   })
@@ -313,7 +314,7 @@ describe("useAwsAuth — SSO poll lifecycle", () => {
 
     expect(polledDeviceCodes()).toEqual(["D1"])
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(channelsCalled()).not.toContain("session:set-env")
+    expect(channelsCalled()).not.toContain("session:set-env-export")
   })
 
   it("stops polling on 'Check again'", async () => {
@@ -361,7 +362,7 @@ describe("useAwsAuth — SSO account and role steps after a cancel", () => {
     expect(result.current.authStatus).toBe("pending")
     expect(result.current.accountInfo).toBeNull()
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(channelsCalled()).not.toContain("session:set-env")
+    expect(channelsCalled()).not.toContain("session:set-env-export")
   })
 
   it("ignores an aws:sso-roles reply that lands after the account picker's Cancel", async () => {
@@ -405,7 +406,7 @@ describe("useAwsAuth — Re-authenticate", () => {
     act(() => result.current.handleManualAuth())
 
     // registerOutputs replaces the block's whole output map, so the AWS_* keys
-    // go with it and `awsAuthId` steps see an unauthenticated block.
+    // go with it and scripts that name the block in envFrom wait for a sign-in.
     expect(registerOutputs).toHaveBeenCalledTimes(1)
     expect(registerOutputs).toHaveBeenCalledWith("aws", { __AUTHENTICATED: "false" })
     expect(result.current.authStatus).toBe("pending")

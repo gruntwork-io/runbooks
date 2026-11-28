@@ -15,7 +15,8 @@ const INVOKE_CHANNELS = {
   "runbook:reload-script": true,
   "session:get": true,
   "session:reset": true,
-  "session:set-env": true,
+  "session:set-env-export": true,
+  "session:clear-env-export": true,
   "session:rename": true,
   "session:record-event": true,
   "session:finish": true,
@@ -137,7 +138,6 @@ const EVENT_CHANNELS = {
   "menu:find": true,
   "menu:open-command-palette": true,
   "registry:updated": true,
-  "vcs:session-changed": true,
 } satisfies Record<EventChannel, true>
 
 const ALLOWED_INVOKE_CHANNELS: Set<string> = new Set(Object.keys(INVOKE_CHANNELS))

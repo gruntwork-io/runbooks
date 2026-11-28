@@ -167,7 +167,8 @@ describe("AwsAuth — detection", () => {
         secretAccessKey: "env-secret",
         region: "us-east-1",
       }),
-      "session:set-env": () => ({ ok: true }),
+      "session:set-env-export": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
       "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
@@ -208,7 +209,8 @@ describe("AwsAuth — detection", () => {
         region: "us-east-1",
         expiresAt,
       }),
-      "session:set-env": () => ({ ok: true }),
+      "session:set-env-export": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
       "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
@@ -237,7 +239,8 @@ describe("AwsAuth — detection", () => {
         secretAccessKey: "env-secret",
         region: "us-east-1",
       }),
-      "session:set-env": () => ({ ok: true }),
+      "session:set-env-export": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
       "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)
@@ -263,7 +266,8 @@ describe("AwsAuth — detection", () => {
         region: "us-east-1",
         expiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString(),
       }),
-      "session:set-env": () => ({ ok: true }),
+      "session:set-env-export": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
       "aws:check-region": () => ({ enabled: true }),
     })
     renderBlock(<AwsAuth id="test-aws" />)

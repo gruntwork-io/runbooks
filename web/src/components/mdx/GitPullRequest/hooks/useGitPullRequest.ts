@@ -22,6 +22,7 @@ interface CreateRequestBody {
   headBranch: string
   commitMessage: string
   labels: string[]
+  envFrom: readonly string[]
 }
 
 /** Body for the git:push channel. */
@@ -29,6 +30,7 @@ interface PushRequestBody {
   worktreePath: string
   branchName: string
   provider?: GitProvider
+  envFrom: readonly string[]
 }
 
 /** What a create or push invoke resolves with: the PR/MR's url and number
@@ -76,10 +78,10 @@ interface UseGitPullRequestOptions {
   id: string
   /** Provider configuration driving channels, token var, and copy. */
   cfg: PRProviderConfig
-  /** Linked auth block id (gitAuthId ?? githubAuthId), if any. */
-  authId?: string | undefined
+  /** The auth blocks whose sign-in pushes and opens the request, in the order they apply. */
+  envFrom: readonly string[]
   /**
-   * Provider derived from the linked auth block (auth outputs ONLY). Used to
+   * Provider derived from the linked auth blocks (auth outputs ONLY). Used to
    * detect a wrong-auth-block link; undefined means "not derivable" and must
    * never trip the wrong-provider guard.
    */
@@ -95,7 +97,7 @@ interface UseGitPullRequestOptions {
 export function useGitPullRequest({
   id,
   cfg,
-  authId,
+  envFrom,
   authDerivedProvider,
   restored,
 }: UseGitPullRequestOptions) {
@@ -147,30 +149,32 @@ export function useGitPullRequest({
     }
   }, [])
 
-  // Check if the linked auth dependency is met. Met once the referenced block
-  // has emitted this provider's token (or an alt) or the __AUTHENTICATED marker
-  // (env-prefilled credentials stored server-side). Token var comes from the
-  // provider config, never a literal.
-  const authMet = useMemo((): boolean => {
-    if (!authId) return true
-
-    const outputs = allOutputs[normalizeBlockId(authId)]?.values
-    if (!outputs) return false
-    // A token counts only if it isn't empty, which needs its real value
-    const values: Partial<Record<string, string>> = revealOutputs(outputs)
-    if (values[cfg.env.tokenVar] && values[cfg.env.tokenVar] !== "") return true
-    if (cfg.env.altTokenVars.some((v) => values[v] && values[v] !== "")) return true
-    if (values.__AUTHENTICATED === "true") return true
-    return false
-  }, [authId, allOutputs, cfg])
+  // Whether every block envFrom names has signed in: it has emitted this
+  // provider's token (or an alt) or the __AUTHENTICATED marker (a credential
+  // kept in the main process). Token var comes from the provider config,
+  // never a literal.
+  const authMet = useMemo(
+    (): boolean =>
+      envFrom.every((authId) => {
+        const outputs = allOutputs[normalizeBlockId(authId)]?.values
+        if (!outputs) return false
+        // A token counts only if it isn't empty, which needs its real value
+        const values: Partial<Record<string, string>> = revealOutputs(outputs)
+        if (values[cfg.env.tokenVar] && values[cfg.env.tokenVar] !== "") return true
+        if (cfg.env.altTokenVars.some((v) => values[v] && values[v] !== "")) return true
+        return values.__AUTHENTICATED === "true"
+      }),
+    [envFrom, allOutputs, cfg],
+  )
 
   // True only when a linked auth block resolves to a DIFFERENT provider than
   // this block's. Driven exclusively by the auth-derived provider: when the
   // provider isn't derivable (no link, or auth not resolved yet) this is false
   // and the block falls back to its normal "waiting for auth" state.
   const wrongProvider = useMemo(
-    (): boolean => !!authId && authDerivedProvider !== undefined && authDerivedProvider !== cfg.id,
-    [authId, authDerivedProvider, cfg],
+    (): boolean =>
+      envFrom.length > 0 && authDerivedProvider !== undefined && authDerivedProvider !== cfg.id,
+    [envFrom, authDerivedProvider, cfg],
   )
 
   // Monotonic label request counter: only the latest request may commit, so a
@@ -185,7 +189,10 @@ export function useGitPullRequest({
       const seq = ++labelsSeqRef.current
       setLabelsLoading(true)
       try {
-        const data = await api.invoke(cfg.channels.labels, omitUndefined({ owner, repo, host }))
+        const data = await api.invoke(
+          cfg.channels.labels,
+          omitUndefined({ owner, repo, host, envFrom }),
+        )
         if (seq !== labelsSeqRef.current) return
         setLabels((data.labels ?? []).map((name) => ({ name, color: "" })))
       } catch {
@@ -195,7 +202,7 @@ export function useGitPullRequest({
         if (seq === labelsSeqRef.current) setLabelsLoading(false)
       }
     },
-    [api, cfg],
+    [api, cfg, envFrom],
   )
 
   // Shared helper for IPC-based requests with event streaming
@@ -378,9 +385,9 @@ export function useGitPullRequest({
   // Create the pull/merge request.
   //
   // The token is intentionally NOT passed: the main process resolves it from
-  // the session environment (populated by the auth block) by provider, so it
-  // never crosses the IPC boundary. Field names match the create channel
-  // contract (PullRequestRequest).
+  // the exports of the auth blocks envFrom names, by provider, so it never
+  // crosses the IPC boundary. Field names match the create channel contract
+  // (PullRequestRequest).
   const createPullRequest = useCallback(
     async (params: {
       owner: string
@@ -404,17 +411,18 @@ export function useGitPullRequest({
 
       await executeIPCRequest({
         channel: cfg.channels.create,
-        body: params,
+        body: { ...params, envFrom },
         onError: setErrorMessage,
         errorStatus: "fail",
         errorPrefix: "Error",
       })
     },
-    [executeIPCRequest, cfg],
+    [executeIPCRequest, cfg, envFrom],
   )
 
   // Push additional changes. The provider is passed so the main process resolves
-  // the matching host token (works for self-hosted instances too).
+  // the matching host token (works for self-hosted instances too). Without
+  // envFrom, git pushes with the user's own credential helpers.
   const pushChanges = useCallback(
     async (localPath: string, branchName: string) => {
       setStatus("pushing")
@@ -423,14 +431,14 @@ export function useGitPullRequest({
 
       await executeIPCRequest({
         channel: cfg.channels.push,
-        body: { worktreePath: localPath, branchName, provider: cfg.id },
+        body: { worktreePath: localPath, branchName, provider: cfg.id, envFrom },
         onError: setPushError,
         // The PR/MR already exists: keep showing it, with the push error inline.
         errorStatus: "success",
         errorPrefix: "Push error",
       })
     },
-    [executeIPCRequest, cfg],
+    [executeIPCRequest, cfg, envFrom],
   )
 
   // Cancel operation.

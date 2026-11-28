@@ -15,7 +15,7 @@ settings:
 tests:
   - name: skip-without-credentials
     description: With no GitLab token in the env, git-auth skips and the
-      gitAuthId-dependent verify step skips too.
+      verify step, which names it in envFrom, skips too.
     env:
       GITLAB_TOKEN: ""
       GITLAB_ACCESS_TOKEN: ""

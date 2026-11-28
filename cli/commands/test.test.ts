@@ -398,7 +398,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
         repo: "infra",
         host: "gitlab.com",
         authBlock: `<GitLabAuth id="auth" />`,
-        cloneProps: `gitAuthId="auth"`,
+        cloneProps: `envFrom={["auth"]}`,
         env: ["GITLAB_TOKEN: fake-gitlab-token"],
       })
 
@@ -419,7 +419,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
         host: "gitlab.corp.example",
         gitlabHost: "gitlab.corp.example",
         authBlock: `<GitLabAuth id="auth" />`,
-        cloneProps: `gitAuthId="auth"`,
+        cloneProps: `envFrom={["auth"]}`,
         env: ["GITLAB_TOKEN: fake-gitlab-token"],
       })
 
@@ -437,7 +437,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
       const { status, stdout, sentAuth } = runCloneWithAuth({
         repo: "infra",
         authBlock: `<GitLabAuth id="auth" />`,
-        cloneProps: `gitAuthId="auth"`,
+        cloneProps: `envFrom={["auth"]}`,
         env: ["GITLAB_TOKEN: fake-gitlab-token"],
       })
 
@@ -457,7 +457,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
         repo: "app.gitops",
         host: "github.com",
         authBlock: `<GitAuth id="auth" provider="github" />`,
-        cloneProps: `gitAuthId="auth"`,
+        cloneProps: `envFrom={["auth"]}`,
         env: ["RUNBOOKS_GITHUB_TOKEN: fake-github-token"],
       })
 
@@ -469,7 +469,7 @@ describe("runbooks-cli test — GitClone authentication", () => {
   )
 
   it(
-    "clones a github.com URL with no auth reference using the CLI's own GITHUB_TOKEN",
+    "clones with no token when the GitClone names no auth block, even with the CLI's own GITHUB_TOKEN",
     () => {
       const { status, stdout, sentAuth } = runCloneWithAuth({
         repo: "app",
@@ -477,27 +477,10 @@ describe("runbooks-cli test — GitClone authentication", () => {
         env: [],
         cliEnv: {
           GITHUB_TOKEN: "ambient-secret",
-          GH_TOKEN: undefined,
+          GH_TOKEN: "ambient-secret",
           GITHUB_HOST: undefined,
           GH_HOST: undefined,
         },
-      })
-
-      expect(stdout).toContain("1 passed, 0 failed")
-      expect(status).toBe(0)
-      expect(sentAuth).toEqual(["x-access-token:ambient-secret"])
-    },
-    CLI_TIMEOUT,
-  )
-
-  it(
-    "clones with no token when the test's env blanks the CLI's own GITHUB_TOKEN and GH_TOKEN",
-    () => {
-      const { status, stdout, sentAuth } = runCloneWithAuth({
-        repo: "app",
-        host: "github.com",
-        env: ['GITHUB_TOKEN: ""', 'GH_TOKEN: ""'],
-        cliEnv: { GITHUB_TOKEN: "ambient-secret", GH_TOKEN: "ambient-secret" },
       })
 
       expect(stdout).toContain("1 passed, 0 failed")

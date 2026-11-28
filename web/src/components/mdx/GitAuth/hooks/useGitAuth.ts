@@ -48,8 +48,8 @@ interface UseGitAuthOptions {
   /**
    * The sign-in to start from, from the session's history: it must be for
    * `provider`. The block shows it and publishes its outputs at once, then
-   * validates the session's credential for its host, and goes back to
-   * sign-in if that no longer works.
+   * validates its own saved credential for its host, and goes back to sign-in
+   * if that no longer works.
    */
   restored?: Extract<SavedGitAuth, { status: "signed-in" }> | undefined
 }
@@ -82,7 +82,6 @@ type CredentialDetails = {
   tokenType?: GitTokenType | undefined
   meta?: GitSuccessMeta | null | undefined
   divergenceHint?: string | undefined
-  sessionEnvWarning?: string | undefined
 }
 
 /**
@@ -94,13 +93,11 @@ function blockCredentialDetails(result: {
   expiresAt?: string | undefined
   tokenType?: GitTokenType | undefined
   validatedVia?: "direct" | "cli" | undefined
-  sessionEnvWarning?: string | undefined
 }): CredentialDetails {
   return {
     scopes: result.scopes,
     expiresAt: result.expiresAt,
     tokenType: result.tokenType,
-    sessionEnvWarning: result.sessionEnvWarning,
     meta: result.validatedVia ? { validatedVia: result.validatedVia } : null,
   }
 }
@@ -220,7 +217,6 @@ export function useGitAuth({
     restored ? warnsMissingScope(provider, restored.scopes ?? undefined) : false,
   )
   const [detectionWarning, setDetectionWarning] = useState<string | null>(null)
-  const [sessionEnvWarning, setSessionEnvWarning] = useState<string | null>(null)
   const [unreachableInfo, setUnreachableInfo] = useState<GitUnreachableInfo | null>(null)
   // Manual-UI hint copy from main (e.g. the glab keyring contracts) —
   // informational, distinct from any warning chip.
@@ -231,10 +227,6 @@ export function useGitAuth({
   const [successMeta, setSuccessMeta] = useState<GitSuccessMeta | null>(() =>
     restored?.meta ? omitUndefined(restored.meta) : null,
   )
-  // set when another block's auth replaced this provider's single
-  // session credential with a different host (vcs:session-changed).
-  const [sessionStale, setSessionStale] = useState(false)
-  const authenticatedHostRef = useRef<string | undefined>(undefined)
   // Set by reAuthenticate: focus re-detection stays off until detection is
   // re-armed explicitly (Check again, Retry, Reload, a host pick or a
   // provider switch). State, not a ref, because it gates focusRedetectArmed.
@@ -378,9 +370,9 @@ export function useGitAuth({
   )
 
   // Helper to check for credentials from block outputs. A referenced GitAuth
-  // block (marked __AUTHENTICATED) is metadata-only — its credential
-  // lives in the session env and is resolved MAIN-SIDE via the validate
-  // channels' useSessionToken mode.
+  // block (marked __AUTHENTICATED) is metadata-only — its credential is that
+  // block's export, resolved MAIN-SIDE via the validate channels' fromBlock
+  // mode.
   const getBlockCredentials = useCallback(
     (
       blockId: string,
@@ -403,8 +395,8 @@ export function useGitAuth({
         provider.env.altTokenVars.map((v) => outputs[v]).find(Boolean)
       if (!token) {
         if (isGitAuthBlock) {
-          // The referenced GitAuth block authenticated; its token is in the
-          // session env (main-side), not in outputs.
+          // The referenced GitAuth block authenticated; its token is in its
+          // export (main-side), not in outputs.
           return { found: true, isGitAuthBlock: true }
         }
         const names = [provider.env.tokenVar, ...provider.env.altTokenVars].join(" or ")
@@ -436,14 +428,14 @@ export function useGitAuth({
     [blockOutputs, provider],
   )
 
-  // Register credentials as BLOCK OUTPUTS only (main writes the session
-  // env during validation). Used by the PAT path and the non-GitAuth
+  // Register credentials as BLOCK OUTPUTS (main saves the block's export
+  // during validation). Used by the PAT path and the non-GitAuth
   // {block:'id'} path, where the renderer legitimately holds the token.
   // GIT_PROVIDER lets a downstream PR/MR block derive its channel;
-  // __AUTHENTICATED is the session-env chaining marker. The token is a
+  // __AUTHENTICATED marks a signed-in block for its readers. The token is a
   // sensitive output, whatever it came from (including a block that marked it
-  // `sensitive:`), so a template that shows it shows <redacted>. Its readers
-  // (gitAuthId/githubAuthId, a {block} source) reveal the real value.
+  // `sensitive:`), so a template that shows it shows <redacted>. A {block}
+  // source reveals the real value.
   const registerCredentials = useCallback(
     (token: string, user: GitUserInfo): void => {
       registerOutputs(id, {
@@ -457,7 +449,7 @@ export function useGitAuth({
     [id, provider, registerOutputs],
   )
 
-  // Metadata-only output registration for the env/cli/oauth/session-chained
+  // Metadata-only output registration for the env/cli/oauth/block-chained
   // paths — no raw token ever enters block outputs for these.
   const registerMetadataOutputs = useCallback(
     (user?: GitUserInfo): void => {
@@ -471,15 +463,18 @@ export function useGitAuth({
     [id, provider, registerOutputs],
   )
 
-  // Clear this block's registered outputs. When the user explicitly switches
-  // providers, pass `retainProvider` so the new provider's id is written
-  // immediately — downstream blocks (e.g. GitPullRequest) need GIT_PROVIDER
-  // to derive the right channel even before authentication completes.
+  // Clear this block's registered outputs and its export, so a block that
+  // names it in envFrom waits for the next sign-in. When the user explicitly
+  // switches providers, pass `retainProvider` so the new provider's id is
+  // written immediately — downstream blocks (e.g. GitPullRequest) need
+  // GIT_PROVIDER to derive the right channel even before authentication
+  // completes.
   const clearRegisteredOutputs = useCallback(
     (retainProvider?: string) => {
       registerOutputs(id, retainProvider ? { GIT_PROVIDER: retainProvider } : {})
+      void api.invoke("session:clear-env-export", { componentId: id }).catch(() => {})
     },
-    [id, registerOutputs],
+    [api, id, registerOutputs],
   )
 
   // The host an unreachable card should name: the effective (picked/pinned/
@@ -511,7 +506,6 @@ export function useGitAuth({
       setDetectedTokenType(details.tokenType ?? null)
       setSuccessMeta(details.meta ?? null)
       setDivergenceHint(details.divergenceHint ?? null)
-      setSessionEnvWarning(details.sessionEnvWarning ?? null)
     },
     [shouldWarnMissingScope],
   )
@@ -545,13 +539,14 @@ export function useGitAuth({
   )
 
   // Validate a token via the provider's API. `registerSession` makes MAIN
-  // write the session env on success (the PAT and block paths);
-  // `useSessionToken` validates the provider's session credential instead of
-  // sending one (the GitAuth-block chaining mode — no token crosses IPC).
+  // save the credential as this block's export on success; `fromBlock`
+  // validates that auth block's saved credential instead of sending one (a
+  // GitAuth-block source, or this block's restored sign-in — no token
+  // crosses IPC).
   const validateToken = useCallback(
     async (
       token: string | undefined,
-      opts?: { registerSession?: boolean; useSessionToken?: boolean },
+      opts?: { registerSession?: boolean; fromBlock?: string },
     ): Promise<{
       valid: boolean
       user?: GitUserInfo | undefined
@@ -562,14 +557,14 @@ export function useGitAuth({
       errorKind?: GitErrorKind | undefined
       coldReadOk?: boolean | undefined
       validatedVia?: "direct" | "cli" | undefined
-      sessionEnvWarning?: string | undefined
     }> => {
       try {
         // A manually-entered instance URL takes precedence over the picked host.
         const data = await api.invoke(provider.channels.validate, {
           ...(token !== undefined ? { token } : {}),
+          componentId: id,
           ...(opts?.registerSession ? { registerSession: true } : {}),
-          ...(opts?.useSessionToken ? { useSessionToken: true } : {}),
+          ...(opts?.fromBlock !== undefined ? { fromBlock: opts.fromBlock } : {}),
           ...(instanceUrlForIpc
             ? { instanceUrl: instanceUrlForIpc }
             : omitUndefined({ host: effectiveHostRef.current })),
@@ -584,7 +579,6 @@ export function useGitAuth({
           errorKind: data.errorKind as GitErrorKind | undefined,
           coldReadOk: data.coldReadOk,
           validatedVia: data.validatedVia,
-          sessionEnvWarning: data.sessionEnvWarning,
         }
       } catch (error) {
         return {
@@ -593,7 +587,7 @@ export function useGitAuth({
         }
       }
     },
-    [api, provider, instanceUrlForIpc],
+    [api, id, provider, instanceUrlForIpc],
   )
 
   // Try to detect credentials from environment variables
@@ -612,7 +606,6 @@ export function useGitAuth({
       envVar?: string | undefined
       divergenceHint?: string | undefined
       validatedVia?: "direct" | "cli" | undefined
-      sessionEnvWarning?: string | undefined
       unreachable?:
         | { errorKind: GitErrorKind; host?: string | undefined; coldReadOk?: boolean | undefined }
         | undefined
@@ -620,6 +613,7 @@ export function useGitAuth({
       try {
         const data = (await api.invoke(provider.channels.envCredentials, {
           prefix: options?.prefix || "",
+          componentId: id,
           ...(instanceUrlForIpc
             ? { instanceUrl: instanceUrlForIpc }
             : omitUndefined({ host: effectiveHostRef.current })),
@@ -662,7 +656,6 @@ export function useGitAuth({
           divergenceHint: data.divergenceHint,
           envVar: data.envVar,
           validatedVia: data.validatedVia,
-          sessionEnvWarning: data.sessionEnvWarning,
         }
       } catch (error) {
         return {
@@ -671,7 +664,7 @@ export function useGitAuth({
         }
       }
     },
-    [api, provider, instanceUrlForIpc],
+    [api, id, provider, instanceUrlForIpc],
   )
 
   // Try to detect credentials from the provider's CLI
@@ -688,18 +681,17 @@ export function useGitAuth({
     host?: string | undefined
     source?: "env" | "cli" | "config" | undefined
     validatedVia?: "direct" | "cli" | undefined
-    sessionEnvWarning?: string | undefined
     unreachable?:
       | { errorKind: GitErrorKind; host?: string | undefined; coldReadOk?: boolean | undefined }
       | undefined
   }> => {
     try {
-      const data = (await api.invoke(
-        provider.channels.cliCredentials,
-        instanceUrlForIpc
+      const data = (await api.invoke(provider.channels.cliCredentials, {
+        componentId: id,
+        ...(instanceUrlForIpc
           ? { instanceUrl: instanceUrlForIpc }
-          : omitUndefined({ host: effectiveHostRef.current }),
-      )) as unknown as GitCliCredentialsResponse
+          : omitUndefined({ host: effectiveHostRef.current })),
+      })) as unknown as GitCliCredentialsResponse
 
       if (data.outcome === "unreachable" && data.errorKind) {
         return {
@@ -737,7 +729,6 @@ export function useGitAuth({
         host: data.host,
         source: data.source,
         validatedVia: data.validatedVia,
-        sessionEnvWarning: data.sessionEnvWarning,
       }
     } catch (error) {
       return {
@@ -745,12 +736,13 @@ export function useGitAuth({
         error: error instanceof Error ? error.message : "Failed to check CLI credentials",
       }
     }
-  }, [api, provider, instanceUrlForIpc])
+  }, [api, id, provider, instanceUrlForIpc])
 
   // Try to detect credentials from block outputs (block-chaining):
-  // a referenced GitAuth block resolves against the SESSION env in main
-  // (useSessionToken mode — no token crosses IPC); any other block's
-  // renderer-held output value flows as today, with main writing the session.
+  // a referenced GitAuth block resolves against that block's export in main
+  // (fromBlock mode — no token crosses IPC); any other block's renderer-held
+  // output value is validated like a PAT. Either way main saves the result as
+  // this block's export.
   // Publishes nothing: the caller does, via finishAuthenticated, once it has
   // checked the detection run survived the validation await.
   const tryBlockCredentials = useCallback(
@@ -764,7 +756,6 @@ export function useGitAuth({
       tokenType?: GitTokenType | undefined
       validatedVia?: "direct" | "cli" | undefined
       error?: string | undefined
-      sessionEnvWarning?: string | undefined
       unreachable?: { errorKind: GitErrorKind; coldReadOk?: boolean | undefined } | undefined
     }> => {
       const result = getBlockCredentials(blockId)
@@ -773,9 +764,9 @@ export function useGitAuth({
         return { success: false, error: result.error || "Could not read token from block" }
       }
 
-      const useSessionToken = result.token === undefined && result.isGitAuthBlock === true
-      const validation = useSessionToken
-        ? await validateToken(undefined, { useSessionToken: true })
+      const chained = result.token === undefined && result.isGitAuthBlock === true
+      const validation = chained
+        ? await validateToken(undefined, { fromBlock: blockId, registerSession: true })
         : await validateToken(result.token, { registerSession: true })
 
       if (!validation.valid || !validation.user) {
@@ -793,12 +784,11 @@ export function useGitAuth({
       return {
         success: true,
         user: validation.user,
-        // Absent on the session-chained path, whose outputs stay metadata-only.
+        // Absent on the GitAuth-chained path, whose outputs stay metadata-only.
         token: result.token,
         scopes: validation.scopes,
         tokenType: validation.tokenType,
         validatedVia: validation.validatedVia,
-        sessionEnvWarning: validation.sessionEnvWarning,
       }
     },
     [getBlockCredentials, validateToken],
@@ -900,7 +890,6 @@ export function useGitAuth({
                 expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
                 divergenceHint: result.divergenceHint,
-                sessionEnvWarning: result.sessionEnvWarning,
                 meta: { source: "env", envVar: result.envVar, validatedVia: result.validatedVia },
               },
             }
@@ -939,7 +928,6 @@ export function useGitAuth({
                 scopes: result.scopes,
                 expiresAt: result.expiresAt,
                 tokenType: result.tokenType,
-                sessionEnvWarning: result.sessionEnvWarning,
                 meta: { source: result.source ?? "cli", validatedVia: result.validatedVia },
               },
             }
@@ -1129,7 +1117,7 @@ export function useGitAuth({
     setErrorMessage(null)
     setUnreachableInfo(null)
 
-    // registerSession makes MAIN write the session env; the PAT transits
+    // registerSession makes MAIN save the block's export; the PAT transits
     // renderer→main once.
     const validation = await validateToken(patToken, { registerSession: true })
 
@@ -1158,7 +1146,6 @@ export function useGitAuth({
       scopes: validation.scopes,
       expiresAt: validation.expiresAt,
       tokenType: validation.tokenType,
-      sessionEnvWarning: validation.sessionEnvWarning,
       meta: validation.validatedVia ? { validatedVia: validation.validatedVia } : null,
     })
   }, [patToken, applyCredentialDetails, validateToken, registerCredentials, markUnreachable])
@@ -1197,6 +1184,7 @@ export function useGitAuth({
             ...(effectiveClientId ? { clientId: effectiveClientId } : {}),
             deviceCode,
             host: oauthHost,
+            componentId: id,
           })
 
           if (stale()) return
@@ -1216,8 +1204,8 @@ export function useGitAuth({
               void poll()
             }, currentInterval)
           } else if (data.status === "complete") {
-            // Success! The completion is METADATA-ONLY: main already wrote
-            // the session env; the token never reaches the renderer.
+            // Success! The completion is METADATA-ONLY: main already saved
+            // the block's export; the token never reaches the renderer.
             const user = data.user as unknown as GitUserInfo
             registerMetadataOutputs(user)
             setAuthStatus("authenticated")
@@ -1226,7 +1214,6 @@ export function useGitAuth({
               scopes: data.scopes,
               expiresAt: data.expiresAt,
               tokenType: data.tokenType as GitTokenType | undefined,
-              sessionEnvWarning: data.sessionEnvWarning,
             })
           } else if (data.status === "expired") {
             setAuthStatus("failed")
@@ -1247,7 +1234,7 @@ export function useGitAuth({
 
       void poll()
     },
-    [api, effectiveClientId, oauthHost, registerMetadataOutputs, applyCredentialDetails],
+    [api, id, effectiveClientId, oauthHost, registerMetadataOutputs, applyCredentialDetails],
   )
 
   // Start OAuth device flow
@@ -1329,8 +1316,6 @@ export function useGitAuth({
     setDetectionHint(null)
     setDivergenceHint(null)
     setSuccessMeta(null)
-    setSessionStale(false)
-    setSessionEnvWarning(null)
   }, [stopOAuthPolling])
 
   // Reset the card to the sign-in form. Leaves the block's outputs alone:
@@ -1343,10 +1328,9 @@ export function useGitAuth({
   }, [clearDetectionState])
 
   // "Re-authenticate" on the success card. The card going back to the form
-  // takes the block's outputs with it (GIT_PROVIDER stays for downstream
-  // PR/MR blocks), so an `*AuthId` step stays gated until the new sign-in
-  // instead of running with the replaced credential. The session env keeps
-  // the old token until the next sign-in replaces it; this does not clear it.
+  // takes the block's outputs and export with it (GIT_PROVIDER stays for
+  // downstream PR/MR blocks), so a step that names it in envFrom stays gated
+  // until the new sign-in instead of running with the replaced credential.
   // Focus re-detection stays off until the user asks for a check: it would
   // sign straight back in with the ambient env/CLI credential the user is
   // trying to replace, e.g. while they are away creating a new token.
@@ -1373,10 +1357,10 @@ export function useGitAuth({
 
   // Clear transient auth/detection state and arm the detection effect to fire
   // again. Shared by host switching, the manual config reload and Retry.
-  // Leaving an authenticated card also withdraws its outputs, as
+  // Leaving an authenticated card also withdraws its outputs and export, as
   // reAuthenticate does (GIT_PROVIDER stays): e.g. a host pick that finds
   // nothing on the new host must not leave the old host's credential
-  // published, and an `*AuthId` step must not run with it while "Checking…".
+  // published, and an envFrom step must not run with it while "Checking…".
   const beginRedetect = useCallback(() => {
     if (authStatus === "authenticated") clearRegisteredOutputs(provider.id)
     clearDetectionState()
@@ -1479,29 +1463,6 @@ export function useGitAuth({
     setDetectionNonce((n) => n + 1)
   }, [beginRedetect, invalidateMainCache])
 
-  // Track which host this block authenticated against, and watch for another
-  // block replacing the provider's single session credential.
-  if (authStatus !== "authenticated" && sessionStale) {
-    setSessionStale(false)
-  }
-  useEffect(() => {
-    authenticatedHostRef.current =
-      authStatus === "authenticated"
-        ? (effectiveHostRef.current ?? provider.defaultHost)
-        : undefined
-  }, [authStatus, provider])
-
-  useEffect(() => {
-    const unsubscribe = api.on("vcs:session-changed", (payload) => {
-      if (payload.provider !== provider.id) return
-      const myHost = authenticatedHostRef.current
-      if (myHost && payload.host !== myHost) {
-        setSessionStale(true)
-      }
-    })
-    return unsubscribe
-  }, [api, provider])
-
   // re-run detection automatically on window focus
   // while sitting IDLE in the manual UI — makes the terminal-`gh auth login`
   // flow genuinely zero-click. Debounced. Armed ONLY in 'pending': the OAuth
@@ -1530,11 +1491,10 @@ export function useGitAuth({
 
   // A restored sign-in is published at once, and then checked: the session's
   // history says the credential worked when the session was last open, not
-  // that it still does (a token can be revoked or expire, and another block
-  // can have replaced the provider's single session credential). The check
-  // validates the session's own credential for the host, so no token crosses
-  // IPC. An unreachable host says nothing
-  // about the credential, so it leaves the sign-in as it is.
+  // that it still does (a token can be revoked or expire). The check
+  // validates this block's own saved export for the host, so no token crosses
+  // IPC. An unreachable host says nothing about the credential, so it leaves
+  // the sign-in as it is.
   const [restoredAtMount] = useState(restored)
   useEffect(() => {
     if (restoredAtMount === undefined) return
@@ -1547,7 +1507,7 @@ export function useGitAuth({
       detectionRunRef.current === runId &&
       patSubmitRef.current === submit &&
       oauthFlowRef.current === flow
-    void validateToken(undefined, { useSessionToken: true }).then((check) => {
+    void validateToken(undefined, { fromBlock: id }).then((check) => {
       if (!current()) return
       if (!check.valid && check.errorKind) return
       const login = restoredAtMount.user.login
@@ -1557,7 +1517,7 @@ export function useGitAuth({
       setAuthStatus("failed")
       setErrorMessage(
         check.valid
-          ? `The session's ${provider.label} credential now belongs to ${check.user?.login ?? "another user"}, not ${login}. Sign in again.`
+          ? `This block's ${provider.label} credential now belongs to ${check.user?.login ?? "another user"}, not ${login}. Sign in again.`
           : `The sign-in saved with this session no longer works (${check.error ?? "the credential was refused"}). Sign in again.`,
       )
     })
@@ -1660,7 +1620,6 @@ export function useGitAuth({
     detectedTokenType,
     missingScope,
     detectionWarning,
-    sessionEnvWarning,
     // The wait ends when the block runs, before the resumed walk settles.
     waitingForBlockId:
       waitingForBlockId && blockPending(waitingForBlockId) ? waitingForBlockId : null,
@@ -1675,7 +1634,6 @@ export function useGitAuth({
     divergenceHint,
     cliStatus,
     successMeta,
-    sessionStale,
 
     // Host selection
     hostSelectable,

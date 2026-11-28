@@ -328,7 +328,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(recorded()).toEqual([])
   })
 
-  it("checks the session's credential for the saved host", async () => {
+  it("checks the block's own saved credential for the saved host", async () => {
     renderInSession(
       githubAnswers(() => ({ valid: true, user: { login: "octo" } })),
       <GitAuth id="git" />,
@@ -337,12 +337,13 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
     await waitFor(() => expect(callsTo("github:validate")).toHaveLength(1))
     expect(callsTo("github:validate")[0]).toEqual({
-      useSessionToken: true,
+      componentId: "git",
+      fromBlock: "git",
       host: "github.example.com",
     })
   })
 
-  it("keeps the sign-in when the session's credential is still the saved user's", async () => {
+  it("keeps the sign-in when the block's credential is still the saved user's", async () => {
     renderInSession(
       githubAnswers(() => ({ valid: true, user: { login: "octo" } })),
       <GitAuth id="git" />,
@@ -369,7 +370,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     await waitFor(() => expect(screen.getByTestId("runbook-progress")).toHaveTextContent("0/1"))
   })
 
-  it("goes back to sign-in when the session's credential now belongs to someone else", async () => {
+  it("goes back to sign-in when the block's credential now belongs to someone else", async () => {
     renderInSession(
       githubAnswers(() => ({ valid: true, user: { login: "mallory" } })),
       <GitAuth id="git" />,
@@ -378,7 +379,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
     expect(
       await screen.findByText(
-        "The session's GitHub credential now belongs to mallory, not octo. Sign in again.",
+        "This block's GitHub credential now belongs to mallory, not octo. Sign in again.",
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Authenticated to GitHub/)).not.toBeInTheDocument()
@@ -462,7 +463,8 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.getByText(/Authenticated to GitLab \(git\.corp\.example\)/)).toBeInTheDocument()
     await waitFor(() => expect(callsTo("gitlab:validate")).toHaveLength(1))
     expect(callsTo("gitlab:validate")[0]).toEqual({
-      useSessionToken: true,
+      componentId: "git",
+      fromBlock: "git",
       instanceUrl: "https://git.corp.example",
     })
     expect(publishedOutputs()).toMatchObject({ GITLAB_TOKEN: "glpat-secret" })
@@ -536,7 +538,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
     expect(screen.queryByTestId("host-no-credential-git")).not.toBeInTheDocument()
   })
 
-  it("goes back to sign-in when the session's credential validates as no one", async () => {
+  it("goes back to sign-in when the block's credential validates as no one", async () => {
     renderInSession(
       githubAnswers(() => ({ valid: true })),
       <GitAuth id="git" />,
@@ -545,7 +547,7 @@ describe("GitAuth in a session: resuming a sign-in", () => {
 
     expect(
       await screen.findByText(
-        "The session's GitHub credential now belongs to another user, not octo. Sign in again.",
+        "This block's GitHub credential now belongs to another user, not octo. Sign in again.",
       ),
     ).toBeInTheDocument()
   })

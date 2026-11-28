@@ -14,7 +14,6 @@ import {
   executableRegistry,
   sessionManager,
   sessionPersistence,
-  vcsSessionMeta,
   manifestStore,
   setExecutableRegistry,
   setRunbookConfig,
@@ -25,7 +24,6 @@ import { resetAzureSignIns } from "./azure-signin.ts"
 import { startWatcher, watchScripts } from "./watch.ts"
 import { runbookAssetHost } from "./path-guard.ts"
 import { ExecutableRegistry } from "../../../src/domain/registry/executable.ts"
-import { protectedEnvVarsForRunbook } from "../../../src/domain/aws/protected-env.ts"
 import { readFileMetadata, resolveRunbookPath } from "../../../src/domain/workspace/file.ts"
 import { WarmRenderDispatcher } from "../../../src/services/WarmRenderDispatcher.ts"
 import type { RunbookConfig } from "../../../src/types.ts"
@@ -164,12 +162,19 @@ export function isSessionOpen(id: string): boolean {
 
 /**
  * Session tokens for log redaction. A resumed session has the tokens its auth
- * blocks set in an earlier run, which nothing registered in this one.
+ * blocks exported, and its scripts set, in an earlier run, which nothing
+ * registered in this one.
  */
 function registerSessionSecrets(): Effect.Effect<void, SessionNotFoundError> {
   return Effect.map(sessionManager.getSession(), (session) => {
-    for (const tokenVar of VCS_TOKEN_ENV_VARS) {
-      registerSecret(session.env.get(tokenVar))
+    const envs = [
+      Object.fromEntries(session.env),
+      ...[...session.envExports.values()].map((e) => e.env),
+    ]
+    for (const env of envs) {
+      for (const tokenVar of VCS_TOKEN_ENV_VARS) {
+        registerSecret(env[tokenVar])
+      }
     }
   })
 }
@@ -269,11 +274,6 @@ export function registerRunbookHandlers(): void {
             setExecutableRegistry(null)
             watchScripts([])
           }
-          // A runbook with <AwsAuth> starts without the inherited AWS keys, so
-          // no script sees them until the user confirms an account. Set on
-          // every new session (even to []) so one runbook's list can't carry
-          // over.
-          sessionManager.setProtectedEnvVars(protectedEnvVarsForRunbook(fileData.content))
           await runtime.runPromise(
             Effect.andThen(
               persistence.open({
@@ -301,15 +301,6 @@ export function registerRunbookHandlers(): void {
         resetGoogleCredentialRegistry()
         resetAzureSignIns()
         resetAzureConfigDirRegistry()
-        vcsSessionMeta.clear()
-        // A resumed session's git credentials stay bound to the hosts they
-        // were bound to: the env's GITHUB_HOST and GH_HOST alone would let a
-        // GitHub Enterprise token go to github.com.
-        const bindings = persistence.currentSession()?.vcsBindings ?? {}
-        for (const provider of ["github", "gitlab"] as const) {
-          const binding = bindings[provider]
-          if (binding) vcsSessionMeta.set(provider, binding)
-        }
         // Template render state is keyed by the author-chosen Template id,
         // which the next runbook may reuse for a different template or
         // output dir. Drop the warm-render bundles, handles and vars

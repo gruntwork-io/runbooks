@@ -147,6 +147,15 @@ export function registerExecHandlers(): void {
               (params.templateVarValues ?? {}) as Record<string, unknown>,
             )
             const workDir = nodePath.resolve(context.workDir, workingDir)
+
+            // The sign-ins of the auth blocks the registry's copy of envFrom
+            // names. Run waits for them, so a missing one signed out since.
+            const envExports = sessionManager.getEnvExports(executable.envFrom)
+            if (!envExports.ok) {
+              throw new Error(
+                `${envExports.missing} isn't signed in. Sign in with it, then run this block again.`,
+              )
+            }
             const workTreePath = sessionManager.getActiveWorkTreePath()
             const outputPath = (yield* resolveGeneratedDir()).absolutePath
             const logsDir = yield* resolveRunLogsDir(executable.componentId)
@@ -171,6 +180,7 @@ export function registerExecHandlers(): void {
                     logs: logsDir,
                     scripts: yield* resolveRunScriptsDir(),
                   },
+                  envExports.exports,
                   blockEnv,
                 )
 

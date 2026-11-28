@@ -115,17 +115,17 @@ describe("GitClone — repository source picker", () => {
   })
 
   it("keeps the directory form usable while a linked auth block is pending", () => {
-    renderGitClone({ source: "local", gitAuthId: "git-auth" })
+    renderGitClone({ source: "local", envFrom: ["git-auth"] })
     // Browsing and checking a directory needs no credentials...
     expect(repoDirInput()).not.toBeDisabled()
     expect(screen.getByRole("button", { name: /Browse/i })).not.toBeDisabled()
   })
 
   it("waits for a linked auth block before a checkout can be confirmed", async () => {
-    renderGitClone({ source: "local", gitAuthId: "git-auth", prefilledRepoDir: "/home/me/infra" })
+    renderGitClone({ source: "local", envFrom: ["git-auth"], prefilledRepoDir: "/home/me/infra" })
 
     // ...but confirming does wait, because the GitHub org/repo ids are resolved
-    // from the session token at confirm time and can't be filled in later.
+    // from the auth block's token at confirm time and can't be filled in later.
     expect(screen.getByText(/Waiting for git authentication/i)).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/Git repository found/i)).toBeInTheDocument(), {
       timeout: 2000,
@@ -209,6 +209,7 @@ describe("GitClone — local checkout", () => {
     expect(testApi.invoke).toHaveBeenCalledWith("git:local-repo", {
       path: "/home/me/infra",
       register: true,
+      envFrom: [],
     })
     expect(registerWorkTree).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -9,7 +9,8 @@
  * service stays Bun-test-safe.
  */
 import { Effect, Exit } from "effect"
-import { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } from "./runtime.ts"
+import { runtime, sessionManager } from "./runtime.ts"
+import { authEnvExport } from "../../../src/domain/exec/authEnv.ts"
 import type { GitProvider } from "./runtime.ts"
 import { VcsCredentials, type VcsCredentialsShape } from "../../../src/services/VcsCredentials.ts"
 import type {
@@ -19,52 +20,38 @@ import type {
 } from "../../../src/services/VcsCredentials.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { refreshSystemTrust } from "../system-trust.ts"
-import { getMainWindow } from "../window.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
-
-/**
- * Record a successful session-env credential write and push the
- * vcs:session-changed event: the session holds one credential per
- * provider, so every write may invalidate another block's success card.
- */
-export function recordSessionAuth(provider: GitProvider, host: string, source?: string): void {
-  vcsSessionMeta.set(provider, { host, source })
-  saveVcsSessionMeta()
-  getMainWindow()?.webContents.send("vcs:session-changed", { provider, host, source })
-}
 
 export interface OrchestratedDetection extends DetectionResult {
   readonly coldReadOk?: boolean
 }
 
 /**
- * The session-credential write: append the env vars, then record the auth
- * and broadcast vcs:session-changed. A failed write must never void a
- * credential the API just validated — it returns the success-card warning
- * copy (`sessionEnvWarning`) instead of failing; undefined on success.
+ * Save a validated credential as auth block `componentId`'s export (see
+ * authEnv.ts): the variables a script or git block that names it in envFrom
+ * gets. Fails when the export can't be saved, so the sign-in fails as the
+ * cloud blocks' do, rather than showing a sign-in no block can use.
  *
  * `generation` is the session generation the handler captured before its
  * first await. If a different runbook opened while the credential was being
- * validated, nothing is written, recorded or broadcast: the credential
- * belongs to a block that is no longer on screen, and must not become the
- * new runbook's session credential.
+ * validated, nothing is saved: the credential belongs to a block that is no
+ * longer on screen.
  */
-export async function appendSessionEnvAndRecord(
+export async function saveVcsExport(
   provider: GitProvider,
-  host: string,
-  source: string | undefined,
+  componentId: string,
   env: Record<string, string>,
   generation: number,
-): Promise<string | undefined> {
+): Promise<void> {
+  const envExport = authEnvExport(provider, env)
   try {
-    await runtime.runPromise(sessionManager.appendToEnv(env, generation))
+    if (!envExport.ok) throw new Error(envExport.error)
+    await runtime.runPromise(sessionManager.setEnvExport(componentId, envExport.export, generation))
   } catch (err) {
-    const message = errorMessage(err)
-    return `Authenticated, but the credential could not be saved to the session (${redactSecrets(message)}). Blocks that consume it may not see it.`
+    throw new Error(`Runbooks couldn't save the sign-in: ${redactSecrets(errorMessage(err))}`, {
+      cause: err,
+    })
   }
-  if (!sessionManager.isCurrentGeneration(generation)) return undefined
-  recordSessionAuth(provider, host, source)
-  return undefined
 }
 
 export const withVcs = <A>(use: (vcs: VcsCredentialsShape) => Effect.Effect<A>): Promise<A> =>

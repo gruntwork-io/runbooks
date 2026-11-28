@@ -18,14 +18,14 @@ Pair it with `<GitAuth>` and `<GitClone>`. The provider comes from the linked `<
 
 <GitClone
   id="clone-repo"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Clone Repository"
   prefilledUrl="https://github.com/acme-corp/infrastructure"
 />
 
 <GitPullRequest
   id="create-pr"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Open Pull Request"
   description="Create a PR with the changes made in this runbook"
 />
@@ -36,12 +36,12 @@ Pair it with `<GitAuth>` and `<GitClone>`. The provider comes from the linked `<
 `<GitPullRequest>` determines which provider (GitHub or GitLab) to talk to in this order:
 
 1. An explicit `provider` prop, if set.
-2. The `GIT_PROVIDER` output of the block referenced by `gitAuthId` (or `githubAuthId`).
-3. The host of the cloned repository's remote URL. `github.com` and `*.ghe.com` tenants are recognized as GitHub and `gitlab.com` as GitLab. A GitHub Enterprise Server or self-managed GitLab host is recognized only through the linked auth block.
+2. The `GIT_PROVIDER` output of the auth block its `envFrom` names.
+3. The host of the cloned repository's remote URL. `github.com` and `*.ghe.com` tenants are recognized as GitHub and `gitlab.com` as GitLab. A GitHub Enterprise Server or self-managed GitLab host is recognized only through the auth block in `envFrom`.
 4. Otherwise, `github`.
 
 <Aside type="note">
-If the linked auth block authenticated to a different provider than the one the block is locked to, the block shows a blocking error. The provider is locked by the `provider` prop or by the [provider-locked aliases](#provider-locked-aliases), so a GitLab `<GitAuth>` block linked to a `<GitHubPullRequest>` block shows the error. Without `provider`, the linked auth block decides the provider, so there is no mismatch to show. A GitLab `<GitAuth>` block linked while the cloned repo is on GitHub fails when you create the merge request instead, before anything is committed, because the repository's `origin` isn't on the auth block's GitLab host.
+If the auth block in `envFrom` authenticated to a different provider than the one the block is locked to, the block shows a blocking error. The provider is locked by the `provider` prop or by the [provider-locked aliases](#provider-locked-aliases), so a GitLab `<GitAuth>` block in a `<GitHubPullRequest>` block's `envFrom` shows the error. Without `provider`, the auth block decides the provider, so there is no mismatch to show. A GitLab `<GitAuth>` block in `envFrom` while the cloned repo is on GitHub fails when you create the merge request instead, before anything is committed, because the repository's `origin` isn't on the auth block's GitLab host.
 </Aside>
 
 ### GitLab instance
@@ -61,7 +61,7 @@ You can pre-populate the PR/MR title, description, labels, branch name, and comm
 ```mdx
 <GitPullRequest
   id="create-pr"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   prefilledPullRequestTitle="Add VPC module configuration"
   prefilledPullRequestDescription="## Changes\n- Added VPC module\n- Configured NAT gateway"
   prefilledPullRequestLabels={["enhancement", "terraform"]}
@@ -81,7 +81,7 @@ The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBr
 ```mdx
 <GitPullRequest
   id="create-pr"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   prefilledPullRequestTitle="Add {{ .outputs.config.MODULE_NAME }} module"
   prefilledBranchName="feature/{{ .outputs.config.MODULE_NAME }}"
 />
@@ -99,8 +99,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `autoCollapse` | `boolean` | No | Folds the block down to its title once the pull or merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `provider` | `'github' \| 'gitlab'` | No | Locks the provider. Left unset, the provider is derived as described in [Provider detection](#provider-detection). Write the value in lowercase. Any other value, such as `"GitHub"`, makes the block fail to render. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
-| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) block (either provider). The block waits for authentication to complete and uses its token/provider for this execution. |
-| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. GitHub only. Prefer `gitAuthId`. |
+| `envFrom` | `string[]` | No | IDs of [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) blocks. The block waits for them to sign in, and uses the token of the one signed in to the repository's host. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
@@ -157,9 +156,9 @@ The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR/MR is created against. With `gitAuthId` or `githubAuthId`, it also needs the auth block it names to have signed in. It checks both and shows an amber warning for whichever is missing. The create button stays disabled until both are met.
+The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR/MR is created against. With `envFrom`, it also needs the auth blocks it names to have signed in. It checks both and shows an amber warning for whichever is missing. The create button stays disabled until both are met.
 
-For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `gitAuthId` or `githubAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for &lt;provider&gt; authentication" and links to the block to complete. Without `gitAuthId` or `githubAuthId`, the block doesn't wait for an auth block. It creates the PR/MR with the session's token for the provider, and fails if the session has none.
+For authentication, the block waits for each auth block in `envFrom` to sign in, whichever way the user signed in. Until then, the block displays "Waiting for &lt;provider&gt; authentication" and links to the block to complete. Without `envFrom`, Runbooks supplies no token. git pushes the branch with your own credentials, such as a credential helper, and the block can't create the PR/MR, which needs a token for the provider's API.
 
 For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 
@@ -173,9 +172,9 @@ On GitHub, labels are applied after the pull request opens. If applying them fai
 
 GitLab merge requests use the instance of the repository's remote, as described above. On GitHub, the pull request is opened against the host of the cloned repository's `origin` remote: `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`. The block uses that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`) and fetches labels from it.
 
-That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error. Links to token settings shown by the block also follow the authenticated host.
+That host must be the one the auth block in `envFrom` authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error. Links to token settings shown by the block also follow the authenticated host.
 
-For both providers, the token is sent only over HTTPS, and only to the host the linked auth block authenticated to (the `GITHUB_HOST` or `GITLAB_HOST` it set). Runbooks never assumes `github.com` or `gitlab.com`. The block fails before sending the token if `origin` is on another host, is a plain `http://` URL, is missing, or names no host Runbooks can read (a local path, or an address it can't parse). Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
+For both providers, the token is sent only over HTTPS, and only to the host the auth block authenticated to (its `GITHUB_HOST` or `GITLAB_HOST`). Runbooks never assumes `github.com` or `gitlab.com`. The block fails before sending the token if `origin` is on another host, is a plain `http://` URL, is missing, or names no host Runbooks can read (a local path, or an address it can't parse). Point `origin` at the repository on your GitHub or GitLab host (an `https://` URL or a `git@<host>:<owner>/<repo>.git` address) and try again.
 
 ```mdx
 <GitAuth
@@ -186,13 +185,13 @@ For both providers, the token is sent only over HTTPS, and only to the host the 
 
 <GitClone
   id="clone-repo"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   prefilledUrl="https://github.example.com/platform/infrastructure-live"
 />
 
 <GitPullRequest
   id="create-pr"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Open Pull Request"
 />
 ```
@@ -216,7 +215,7 @@ Two aliases lock `<GitPullRequest>` to a single provider:
 
 <GitClone
   id="clone-infra"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Clone Infrastructure Repo"
   prefilledUrl="https://github.com/acme-corp/infrastructure-live"
 />
@@ -230,7 +229,7 @@ Two aliases lock `<GitPullRequest>` to a single provider:
 
 <GitPullRequest
   id="open-pr"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Open Pull Request"
   prefilledPullRequestTitle="Update infrastructure configuration"
   prefilledPullRequestLabels={["infrastructure"]}

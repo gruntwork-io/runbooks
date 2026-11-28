@@ -93,6 +93,9 @@ afterAll(() => {
 const sessionEnv = () =>
   Effect.runSync(sessionManager.getSession().pipe(Effect.map((s) => Object.fromEntries(s.env))))
 
+/** The variables block `blockId`'s export sets, or none when it has no export. */
+const exported = (blockId: string) => sessionManager.getEnvExport(blockId)?.env ?? {}
+
 const authenticated = (result: unknown) => {
   const r = result as AzureSignInResultIpc
   if (r.status !== "authenticated")
@@ -122,7 +125,7 @@ beforeEach(() => {
 })
 
 describe("azure:service-principal", () => {
-  it("signs in to a dir of the block's own, and writes the session env", async () => {
+  it("signs in to a dir of the block's own, and exports it", async () => {
     az.token = { oid: "sp-oid", tid: GUEST_TENANT, appid: "app-id", idtyp: "app" }
     const result = authenticated(
       await handleServicePrincipal({
@@ -137,11 +140,14 @@ describe("azure:service-principal", () => {
     expect(fs.existsSync(result.configDir)).toBe(true)
     expect(result.env.ARM_CLIENT_SECRET).toBe("s3cret")
 
-    const env = sessionEnv()
+    const env = exported("sp")
     expect(env.AZURE_CONFIG_DIR).toBe(result.configDir)
     expect(env.ARM_CLIENT_ID).toBe("app-id")
     expect(env.ARM_TENANT_ID).toBe(GUEST_TENANT)
     expect(env.ARM_USE_CLI).toBeUndefined()
+    expect(sessionManager.getEnvExport("sp")?.clears).toContain("ARM_USE_CLI")
+    // The env every script gets keeps what the app started with
+    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
 
     const login = spawner.calls.find((call) => call.args[0] === "login")!
     expect(login.env?.AZURE_CONFIG_DIR).toBe(result.configDir)
@@ -162,7 +168,7 @@ describe("azure:service-principal", () => {
     expect(JSON.stringify(result)).not.toContain("hunter2")
     const login = spawner.calls.find((call) => call.args[0] === "login")!
     expect(fs.existsSync(login.env!.AZURE_CONFIG_DIR!)).toBe(false)
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    expect(sessionManager.getEnvExport("sp")).toBeUndefined()
   })
 
   it("needs a client ID and a tenant", async () => {
@@ -216,19 +222,19 @@ describe("tenant and subscription choice", () => {
     })
     expect(result.tenantName).toBe("LZ Testing")
     expect(result.authType).toBe("cli")
-    expect(sessionEnv()).toMatchObject({
+    expect(exported("lz")).toMatchObject({
       AZURE_TENANT_ID: GUEST_TENANT,
       ARM_SUBSCRIPTION_ID: "sub-1",
       ARM_USE_CLI: "true",
       AZURE_PRINCIPAL_TYPE: "guest",
     })
-    expect(sessionEnv().ARM_TENANT_ID).toBeUndefined()
+    expect(exported("lz").ARM_TENANT_ID).toBeUndefined()
     expect(result.env.ARM_TENANT_ID).toBeUndefined()
     const set = spawner.calls.find((call) => call.args[1] === "set")!
     expect(set.args).toEqual(expect.arrayContaining(["--subscription", "sub-1"]))
   })
 
-  it("fails on missing required roles without touching the session", async () => {
+  it("fails on missing required roles without exporting anything", async () => {
     az.assignments = [{ roleDefinitionName: "Reader", scope: "/" }]
     const result = await handleServicePrincipal({
       blockId: "sp",
@@ -241,7 +247,7 @@ describe("tenant and subscription choice", () => {
       status: "failed",
       missingRoles: [{ role: "Owner", scope: "/subscriptions/sub-1" }],
     })
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    expect(sessionManager.getEnvExport("sp")).toBeUndefined()
   })
 })
 
@@ -268,10 +274,10 @@ describe("resuming a detected sign-in", () => {
       }),
     )
     expect(result.principal.objectId).toBe("sp-oid")
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe(result.configDir)
+    expect(exported("sp").AZURE_CONFIG_DIR).toBe(result.configDir)
   })
 
-  it("refuses another principal without touching the session, and releases the dir", async () => {
+  it("refuses another principal without exporting it, and releases the dir", async () => {
     envSp()
     const result = await handleConfirmDetected({
       blockId: "sp",
@@ -280,7 +286,7 @@ describe("resuming a detected sign-in", () => {
       principalObjectId: "someone-else",
     })
     expect(result).toMatchObject({ status: "failed" })
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    expect(sessionManager.getEnvExport("sp")).toBeUndefined()
     const login = spawner.calls.find((call) => call.args[0] === "login")
     expect(fs.existsSync(login!.env!.AZURE_CONFIG_DIR!)).toBe(false)
   })
@@ -325,7 +331,7 @@ describe("pins and cancellation", () => {
       tenantId: "99999999-9999-9999-9999-999999999999",
     })
     expect(result).toMatchObject({ status: "failed" })
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    expect(sessionManager.getEnvExport("sp")).toBeUndefined()
   })
 
   it("drops a sign-in cancelled while it was finishing", async () => {
@@ -337,7 +343,7 @@ describe("pins and cancellation", () => {
     })
     handleCancel({ blockId: "sp" })
     expect(await pending).toEqual({ status: "failed", error: "This sign-in was cancelled" })
-    expect(sessionEnv().AZURE_CONFIG_DIR).toBe("/old")
+    expect(sessionManager.getEnvExport("sp")).toBeUndefined()
   })
 })
 
@@ -422,7 +428,7 @@ describe("detection", () => {
     }
   })
 
-  it("signs in with the user's own az login without ARM_TENANT_ID, and removes one an earlier block set", async () => {
+  it("exports the user's own az login without ARM_TENANT_ID, clearing one another block exports", async () => {
     authenticated(
       await handleServicePrincipal({
         blockId: "sp",
@@ -431,7 +437,7 @@ describe("detection", () => {
         clientSecret: "x",
       }),
     )
-    expect(sessionEnv().ARM_TENANT_ID).toBe(GUEST_TENANT)
+    expect(exported("sp").ARM_TENANT_ID).toBe(GUEST_TENANT)
 
     const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "user-azure-"))
     fs.writeFileSync(path.join(userDir, "azureProfile.json"), "{}")
@@ -443,13 +449,16 @@ describe("detection", () => {
       )
       expect(result.authType).toBe("cli")
       expect(result.env.ARM_TENANT_ID).toBeUndefined()
-      const env = sessionEnv()
+      const env = exported("cli")
       expect(env.ARM_TENANT_ID).toBeUndefined()
+      expect(sessionManager.getEnvExport("cli")?.clears).toContain("ARM_TENANT_ID")
       expect(env).toMatchObject({
         AZURE_TENANT_ID: GUEST_TENANT,
         ARM_SUBSCRIPTION_ID: "sub-1",
         ARM_USE_CLI: "true",
       })
+      // Each block keeps its own export
+      expect(exported("sp").ARM_TENANT_ID).toBe(GUEST_TENANT)
     } finally {
       if (previous === undefined) delete process.env.AZURE_CONFIG_DIR
       else process.env.AZURE_CONFIG_DIR = previous

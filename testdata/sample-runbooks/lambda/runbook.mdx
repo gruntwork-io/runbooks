@@ -140,7 +140,7 @@ In this case, you can go ahead and manually run the plan and apply commands:
   successMessage="Plan completed successfully! Review the changes above."
   failMessage="Terragrunt plan failed. See logs for details."
   inputsId={["lambda-config", "repo-config"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 <Command
@@ -158,7 +158,7 @@ In this case, you can go ahead and manually run the plan and apply commands:
   successMessage="Lambda function deployed successfully!"
   failMessage="Terragrunt apply failed. See logs for details."
   inputsId={["lambda-config", "repo-config"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 ## Test the function
@@ -177,7 +177,7 @@ Congratulations! Your Lambda function has been deployed. Let's test it!
   successMessage="Lambda function invoked successfully!"
   failMessage="Failed to invoke Lambda function. See logs for details on what went wrong."
   inputsId="lambda-config"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 

@@ -32,7 +32,8 @@ function installApi(replies: {
   testApi = makeTestApi({
     "aws:env-credentials": () => replies.detect ?? { found: false },
     "aws:env-credentials-confirm": () => replies.confirm ?? { valid: false },
-    "session:set-env": () => ({ ok: true }),
+    "session:set-env-export": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
   })
 }
@@ -208,8 +209,11 @@ describe("useAwsAuth — env credential confirm", () => {
       AWS_SECRET_ACCESS_KEY: sensitiveOutput("prod-secret"),
       AWS_SESSION_TOKEN: sensitiveOutput(""),
     })
-    // The renderer, not MAIN's confirm handler, writes the session env, with the real values.
-    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env", { env })
+    // The renderer, not MAIN's confirm handler, sends the block's export, with the real values.
+    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env-export", {
+      componentId: "aws",
+      env,
+    })
   })
 
   it("asks again, publishing nothing, when the credentials now belong to another account", async () => {
@@ -247,7 +251,7 @@ describe("useAwsAuth — env credential confirm", () => {
       hasSessionToken: true,
     })
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env")
+    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env-export")
   })
 
   it("fails without publishing anything when confirm reports invalid", async () => {
@@ -307,7 +311,7 @@ describe("useAwsAuth — env confirm reply after the block is gone", () => {
 
     expect(registerOutputs).not.toHaveBeenCalled()
     // MAIN's confirm handler writes nothing itself, and the renderer never
-    // gets to publish: the session env is untouched.
-    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env")
+    // gets to publish: nothing is exported.
+    expect(testApi.calls.map(({ channel }) => channel)).not.toContain("session:set-env-export")
   })
 })

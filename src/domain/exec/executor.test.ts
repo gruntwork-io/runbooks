@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test"
-import { Effect, Layer, Result, Stream } from "effect"
-import { ExecEnvOverrideError } from "../../errors/index.ts"
+import { Effect, Layer, Stream } from "effect"
 import { executeScript, type ExecEvent } from "./executor.ts"
+import type { EnvExport } from "./authEnv.ts"
 import { encodeOutputs } from "./outputValues.ts"
 import { makeTestLayer } from "../../test-utils/TestLayer.ts"
 import { makeTestFileSystem } from "../../test-utils/TestFileSystem.ts"
@@ -17,7 +17,6 @@ async function collectEvents(
     workDir?: string
     workTreePath?: string
     outputPath?: string
-    envVarsOverride?: Record<string, string>
     outputLines?: string[]
     exitCode?: number
   } = {},
@@ -28,7 +27,6 @@ async function collectEvents(
     workDir = "/work",
     workTreePath = "",
     outputPath = "/output",
-    envVarsOverride,
     outputLines = ["line 1", "line 2"],
     exitCode = 0,
   } = options
@@ -50,9 +48,11 @@ async function collectEvents(
       const { logStream, completionEffect } = yield* executeScript(
         scriptContent,
         { path: scriptPath, interpreter: "" },
-        { envVarsOverride },
+        {},
         { env, workDir },
         { workTree: workTreePath, generated: outputPath, logs: "/logs/block", scripts: "/scripts" },
+        [],
+        {},
       )
       const logEvents = yield* Stream.runCollect(logStream)
       // Run completion to get remaining events
@@ -168,14 +168,16 @@ describe("executeScript", () => {
 })
 
 // ---------------------------------------------------------------------------
-// envVarsOverride: an auth block's vars only
+// envExports: the sign-ins of the auth blocks a block's envFrom names
 // ---------------------------------------------------------------------------
 
-describe("executeScript — env overrides", () => {
-  /** Run with `envVarsOverride`, recording the env the script would get if spawned. */
-  async function runWithOverride(envVarsOverride: Record<string, string>) {
+describe("executeScript — envFrom exports", () => {
+  /** Run with `envExports` and `blockEnv`, recording the env the script is spawned with. */
+  async function runWithExports(
+    envExports: readonly EnvExport[],
+    blockEnv: Record<string, string> = {},
+  ) {
     let spawnedEnv: Record<string, string> | undefined
-    const files: Record<string, string> = {}
     const spawner = Layer.succeed(ProcessSpawner, {
       spawn: (_command, _args, options) =>
         Effect.sync(() => {
@@ -188,81 +190,64 @@ describe("executeScript — env overrides", () => {
         }),
     })
     const layer = Layer.mergeAll(
-      makeTestFileSystem(files, ["/work"]),
+      makeTestFileSystem({}, ["/work"]),
       spawner,
       makeTestEnvironment({ PATH: "/usr/bin" }),
     )
-    const result = await Effect.runPromise(
-      Effect.result(
-        Effect.scoped(
-          Effect.gen(function* () {
-            const { completionEffect } = yield* executeScript(
-              "aws sts get-caller-identity",
-              { path: "", interpreter: "" },
-              { envVarsOverride },
-              {
-                env: { PATH: "/usr/bin", AWS_ACCESS_KEY_ID: "AKIA_SESSION", GITHUB_TOKEN: "ghp_x" },
-                workDir: "/work",
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { completionEffect } = yield* executeScript(
+            "aws sts get-caller-identity",
+            { path: "", interpreter: "" },
+            {},
+            {
+              env: {
+                PATH: "/usr/bin",
+                AWS_ACCESS_KEY_ID: "AKIA_SHELL",
+                AWS_SESSION_TOKEN: "shell-token",
+                GITHUB_TOKEN: "ghp_shell",
               },
-              { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
-            )
-            return yield* completionEffect
-          }),
-        ),
+              workDir: "/work",
+            },
+            { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+            envExports,
+            blockEnv,
+          )
+          return yield* completionEffect
+        }),
       ).pipe(Effect.provide(layer)),
     )
-    return { result, spawnedEnv, files }
+    return spawnedEnv
   }
 
-  it("refuses names no auth block passes, before creating or spawning anything", async () => {
-    const { result, spawnedEnv, files } = await runWithOverride({
-      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
-      PATH: "/tmp/evil-bin",
-      BASH_ENV: "/tmp/evil.sh",
-      ENV: "/tmp/evil.sh",
-      LD_PRELOAD: "/tmp/evil.so",
-      DYLD_INSERT_LIBRARIES: "/tmp/evil.dylib",
-      NODE_OPTIONS: "--require /tmp/evil.js",
-      RUNBOOK_ERROR_LOG: "/elsewhere",
+  it("runs with the session's env when envFrom names nothing", async () => {
+    expect(await runWithExports([])).toMatchObject({
+      AWS_ACCESS_KEY_ID: "AKIA_SHELL",
+      AWS_SESSION_TOKEN: "shell-token",
+      GITHUB_TOKEN: "ghp_shell",
     })
-
-    expect(Result.isFailure(result)).toBe(true)
-    if (Result.isFailure(result)) {
-      expect(result.failure).toBeInstanceOf(ExecEnvOverrideError)
-      expect((result.failure as ExecEnvOverrideError).names).toEqual([
-        "BASH_ENV",
-        "DYLD_INSERT_LIBRARIES",
-        "ENV",
-        "LD_PRELOAD",
-        "NODE_OPTIONS",
-        "PATH",
-        "RUNBOOK_ERROR_LOG",
-      ])
-    }
-    expect(spawnedEnv).toBeUndefined()
-    expect(Object.keys(files)).toEqual([])
   })
 
-  it("passes every auth block's vars over the session's", async () => {
-    const { result, spawnedEnv } = await runWithOverride({
-      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
-      AWS_SESSION_TOKEN: "",
-      GITHUB_TOKEN: "ghp_block",
-      GITLAB_TOKEN: "glpat_block",
-      GOOGLE_CLOUD_PROJECT: "proj",
-      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
-    })
+  it("replaces a provider's variables with the export's, removing the ones it doesn't set", async () => {
+    const env = await runWithExports([
+      { env: { AWS_ACCESS_KEY_ID: "AKIA_BLOCK" }, clears: ["AWS_SESSION_TOKEN", "AWS_REGION"] },
+    ])
 
-    expect(Result.isSuccess(result)).toBe(true)
-    expect(spawnedEnv).toMatchObject({
-      PATH: "/usr/bin",
-      AWS_ACCESS_KEY_ID: "AKIA_BLOCK",
-      AWS_SESSION_TOKEN: "",
-      GITHUB_TOKEN: "ghp_block",
-      GITLAB_TOKEN: "glpat_block",
-      GOOGLE_CLOUD_PROJECT: "proj",
-      CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
-    })
+    expect(env).toMatchObject({ AWS_ACCESS_KEY_ID: "AKIA_BLOCK", GITHUB_TOKEN: "ghp_shell" })
+    expect(env).not.toHaveProperty("AWS_SESSION_TOKEN")
+  })
+
+  it("applies the exports in order, so a later one wins, and the block's env over all of them", async () => {
+    const env = await runWithExports(
+      [
+        { env: { AWS_ACCESS_KEY_ID: "AKIA_FIRST", AWS_REGION: "us-east-1" }, clears: [] },
+        { env: { AWS_ACCESS_KEY_ID: "AKIA_SECOND" }, clears: ["AWS_SESSION_TOKEN"] },
+      ],
+      { AWS_REGION: "eu-west-1" },
+    )
+
+    expect(env).toMatchObject({ AWS_ACCESS_KEY_ID: "AKIA_SECOND", AWS_REGION: "eu-west-1" })
   })
 })
 
@@ -288,9 +273,11 @@ describe("executeScript — missing Google credential file", () => {
         const { logStream, completionEffect } = yield* executeScript(
           "gcloud iam service-accounts describe sa@p.iam.gserviceaccount.com",
           { path: "", interpreter: "" },
-          { envVarsOverride: { GOOGLE_APPLICATION_CREDENTIALS: credentialsPath } },
+          {},
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+          [{ env: { GOOGLE_APPLICATION_CREDENTIALS: credentialsPath }, clears: [] }],
+          {},
         )
         const logEvents = Array.from(yield* Stream.runCollect(logStream))
         return [...logEvents, ...(yield* completionEffect)]
@@ -380,6 +367,8 @@ describe("executeScript — log files", () => {
             {},
             { env: { PATH: "/usr/bin" }, workDir: "/work" },
             { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+            [],
+            {},
           )
           const logs = Array.from(yield* Stream.runCollect(logStream))
           return [...logs, ...(yield* completionEffect)]
@@ -445,9 +434,10 @@ describe("executeScript — block env", () => {
           const { logStream, completionEffect } = yield* executeScript(
             'aws s3 mb "s3://$BUCKET"',
             { path: "", interpreter: "" },
-            { envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_AUTH", AWS_REGION: "us-east-1" } },
+            {},
             { env: { PATH: "/usr/bin", BUCKET: "session-bucket" }, workDir: "/work" },
             { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+            [{ env: { AWS_ACCESS_KEY_ID: "AKIA_AUTH", AWS_REGION: "us-east-1" }, clears: [] }],
             // parseBlockEnv refuses RUNBOOK_OUTPUT; it is here to show the
             // runbook's own value wins even so.
             { BUCKET: "block-bucket", AWS_REGION: "eu-west-1", RUNBOOK_OUTPUT: "/elsewhere" },
@@ -503,6 +493,8 @@ describe("executeScript — captured files", () => {
           {},
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+          [],
+          {},
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect
@@ -574,6 +566,8 @@ describe("executeScript — outputs", () => {
           {},
           { env: { PATH: "/usr/bin" }, workDir: "/work" },
           { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+          [],
+          {},
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect
@@ -645,6 +639,8 @@ describe("executeScript — session env", () => {
           {},
           { env: { PATH: "/usr/bin" }, workDir },
           { workTree: "", generated: "/output", logs: "/logs/block", scripts: "/scripts" },
+          [],
+          {},
         )
         yield* Stream.runDrain(logStream)
         return yield* completionEffect

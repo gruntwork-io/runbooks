@@ -10,10 +10,14 @@ export interface GitCloneProps {
   autoCollapse?: boolean | undefined
   /** ID or array of IDs of Inputs components to get variable values from */
   inputsId?: string | string[] | undefined
-  /** Reference to a GitHubAuth block by ID for credentials. Matches the `githubAuthId` prop used by every other block (Command, Check, GitHubPullRequest). */
-  githubAuthId?: string | undefined
-  /** Reference to a GitAuth block by ID (GitHub or GitLab) for credentials. */
-  gitAuthId?: string | undefined
+  /**
+   * The auth blocks (GitHubAuth, GitLabAuth or GitAuth) whose sign-in clones a
+   * private repository and browses GitHub, in the order they apply (a later
+   * one wins). Their token is sent only to the host they signed in to.
+   * Without one, Runbooks sends no token and git uses your own credential
+   * helpers.
+   */
+  envFrom?: readonly string[] | undefined
   /** Pre-fill the Git URL input (supports template expressions like {{ .inputs.repo_url }}) */
   prefilledUrl?: string | undefined
   /** Pre-fill the ref (branch or tag) to clone (supports template expressions) */

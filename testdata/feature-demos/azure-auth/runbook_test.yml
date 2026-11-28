@@ -8,7 +8,7 @@ settings:
 tests:
   - name: skip-without-credentials
     description: With no service principal and no Azure CLI sign-in, azure-auth
-      skips and the azureAuthId steps skip too.
+      skips and the steps that name it in envFrom skip too.
     env:
       ARM_CLIENT_ID: ""
       ARM_TENANT_ID: ""
@@ -31,7 +31,7 @@ tests:
 
   - name: service-principal-wiring
     description: A service principal under the RUNBOOKS_TEST_ prefix reaches
-      the azureAuthId Check under the names azurerm and the Azure SDKs read.
+      the Check that names it in envFrom under the names azurerm and the Azure SDKs read.
     env:
       ARM_CLIENT_ID: ""
       AZURE_CLIENT_ID: ""

@@ -360,11 +360,9 @@ function GitAuthInteractive({
                 detectedScopes={auth.detectedScopes}
                 detectedTokenType={auth.detectedTokenType}
                 missingScope={auth.missingScope}
-                sessionEnvWarning={auth.sessionEnvWarning}
                 host={auth.selectedHost}
                 successMeta={auth.successMeta}
                 divergenceHint={auth.divergenceHint}
-                sessionStale={auth.sessionStale}
                 gitSslBackend={auth.cliStatus?.git?.sslBackend}
                 onApplySchannel={auth.applySchannel}
                 onReAuthenticate={auth.reAuthenticate}

@@ -86,7 +86,6 @@ describe("useApiExec state machine", () => {
     expect(testApi.invoke).toHaveBeenCalledWith("exec:run", {
       executableId: "test-executable",
       templateVarValues: { region: "us-west-2" },
-      envVarsOverride: undefined,
       usePty: undefined,
       timeoutMs: undefined,
       executionId: expect.any(String),

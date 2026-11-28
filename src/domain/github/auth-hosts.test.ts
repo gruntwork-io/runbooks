@@ -15,7 +15,6 @@ import {
   githubEnvBindings,
   githubEnvCredentialForHost,
   githubEnvTokenVarsForHost,
-  githubSessionCredential,
   githubSessionEnv,
   oauthUnavailableMessage,
   parseGhHosts,
@@ -534,104 +533,5 @@ describe("githubSessionEnv", () => {
 
   it("omits GITHUB_USER without a login", () => {
     expect("GITHUB_USER" in githubSessionEnv("github.com", "t")).toBe(false)
-  })
-})
-
-describe("githubSessionCredential", () => {
-  it("auth-host binding: releases the session token for that host only", () => {
-    const env = { ...githubSessionEnv(GHES, "t_ghes", "alice") }
-    expect(githubSessionCredential(env, GHES, GHES)).toEqual({ token: "t_ghes", host: GHES })
-    expect(githubSessionCredential(env, "https://GHES.example.com/o/r", GHES)).toEqual({
-      token: "t_ghes",
-      host: GHES,
-    })
-    expect(githubSessionCredential(env, "github.com", GHES)).toBeUndefined()
-    expect(githubSessionCredential(env, GHEC, GHES)).toBeUndefined()
-    expect(githubSessionCredential(env, "other-ghes.example.com", GHES)).toBeUndefined()
-  })
-
-  it("auth-host binding for a ghe.com tenant never serves github.com", () => {
-    const env = githubSessionEnv(GHEC, "t_ghec")
-    expect(githubSessionCredential(env, GHEC, GHEC)).toEqual({ token: "t_ghec", host: GHEC })
-    expect(githubSessionCredential(env, "github.com", GHEC)).toBeUndefined()
-  })
-
-  it("auth-host binding for github.com never serves an enterprise host", () => {
-    const env = githubSessionEnv("github.com", "t_dotcom")
-    expect(githubSessionCredential(env, "github.com", "github.com")?.token).toBe("t_dotcom")
-    expect(githubSessionCredential(env, GHES, "github.com")).toBeUndefined()
-  })
-
-  it("host undefined → the auth block's host", () => {
-    const env = githubSessionEnv(GHES, "t_ghes")
-    expect(githubSessionCredential(env, undefined, GHES)).toEqual({ token: "t_ghes", host: GHES })
-  })
-
-  it("releases nothing when env GITHUB_HOST no longer matches the auth host (fail closed)", () => {
-    // A script changed or removed GITHUB_HOST while the auth block's token may
-    // still be in GITHUB_TOKEN: reinterpreting it with gh's conventions could
-    // send a GHES token to github.com, so nothing is released for any host.
-    const env = { GITHUB_TOKEN: "t_ghes", GH_HOST: GHES }
-    expect(githubSessionCredential(env, GHES, GHES)).toBeUndefined()
-    expect(githubSessionCredential(env, "github.com", GHES)).toBeUndefined()
-    expect(githubSessionCredential(env, undefined, GHES)).toBeUndefined()
-    // a GITHUB_HOST for a DIFFERENT host doesn't bind either
-    expect(
-      githubSessionCredential({ GITHUB_TOKEN: "x", GITHUB_HOST: "github.com" }, GHES, GHES),
-    ).toBeUndefined()
-  })
-
-  it("without an auth host, uses the gh env binding (GH_ENTERPRISE_TOKEN for the GH_HOST GHES)", () => {
-    const env = { GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }
-    expect(githubSessionCredential(env, GHES)).toEqual({ token: "e", host: GHES })
-    expect(githubSessionCredential(env, "github.com")).toEqual({ token: "d", host: "github.com" })
-    expect(githubSessionCredential({ GITHUB_TOKEN: "d" }, GHES)).toBeUndefined()
-    expect(githubSessionCredential({ GITHUB_TOKEN: "d" }, GHEC)).toBeUndefined()
-    expect(githubSessionCredential({ GITHUB_TOKEN: "d", GH_HOST: GHEC }, GHEC)).toEqual({
-      token: "d",
-      host: GHEC,
-    })
-  })
-
-  it("default host selection without an auth host: standard binding first, then enterprise, else github.com", () => {
-    // standard binding has a token → it wins
-    expect(
-      githubSessionCredential(
-        { GITHUB_TOKEN: "d", GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES },
-        undefined,
-      ),
-    ).toEqual({
-      token: "d",
-      host: "github.com",
-    })
-    // only the enterprise token → the GHES host
-    expect(githubSessionCredential({ GH_ENTERPRISE_TOKEN: "e", GH_HOST: GHES }, undefined)).toEqual(
-      {
-        token: "e",
-        host: GHES,
-      },
-    )
-    // ghe.com GH_HOST → the tenant
-    expect(githubSessionCredential({ GH_TOKEN: "t", GH_HOST: GHEC }, undefined)).toEqual({
-      token: "t",
-      host: GHEC,
-    })
-    // nothing → undefined (default github.com has no token)
-    expect(githubSessionCredential({}, undefined)).toBeUndefined()
-  })
-
-  it("an unparseable requested host → undefined, never github.com", () => {
-    const env = githubSessionEnv("github.com", "t")
-    expect(githubSessionCredential(env, "ftp://github.com", "github.com")).toBeUndefined()
-    expect(githubSessionCredential({ GITHUB_TOKEN: "t" }, "https://u:p@github.com")).toBeUndefined()
-  })
-
-  it("an unparseable GH_HOST in the session env binds nothing", () => {
-    expect(
-      githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, "github.com"),
-    ).toBeUndefined()
-    expect(
-      githubSessionCredential({ GITHUB_TOKEN: "t", GH_HOST: "not a host" }, undefined),
-    ).toBeUndefined()
   })
 })

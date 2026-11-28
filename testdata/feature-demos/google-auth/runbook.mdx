@@ -36,7 +36,7 @@ The simplest form of GoogleAuth. With no `detectCredentials` prop, it defaults t
   path="scripts/verify-auth.sh"
   title="Verify Google Cloud Identity"
   description="Mints an access token from the session credential and calls the OAuth 2.0 tokeninfo endpoint -- the `gcloud auth list` / STS `GetCallerIdentity` analogue."
-  googleAuthId="google-auth"
+  envFrom={["google-auth"]}
   successMessage="Successfully authenticated to Google Cloud!"
   failMessage="Failed to authenticate. Please check your credentials above."
 />
@@ -45,11 +45,11 @@ The simplest form of GoogleAuth. With no `detectCredentials` prop, it defaults t
   id="check-google-auth"
   path="checks/verify-google-auth.sh"
   title="Check Google Cloud Authentication"
-  description="A pass/warn/fail check over the injected session environment. Exits 2 (warning) when a credential is present but the network or `gcloud` is unavailable."
-  googleAuthId="google-auth"
+  description="A pass/warn/fail check over the credentials it gets from google-auth. Exits 2 (warning) when a credential is present but the network or `gcloud` is unavailable."
+  envFrom={["google-auth"]}
   successMessage="Google Cloud credentials are valid!"
   warnMessage="A credential is configured, but it could not be verified against Google's APIs."
-  failMessage="No usable Google Cloud credentials in the session environment."
+  failMessage="No usable Google Cloud credentials from google-auth."
 />
 
 ### 1a. Choosing the Default Tab
@@ -201,7 +201,7 @@ This is the service account impersonation analogue of `sts assume-role`: a short
     LIFETIME: "{{ .inputs.Lifetime }}",
   }}
   title="Impersonate a Service Account"
-  googleAuthId="google-auth"
+  envFrom={["google-auth"]}
 >
   <Inputs id="impersonate-inputs">
     ```yaml
@@ -233,7 +233,7 @@ This is the service account impersonation analogue of `sts assume-role`: a short
   }}
   title="Impersonate a Service Account"
   description="Mints a short-lived access token for another service account and writes it to `$RUNBOOK_OUTPUT`. Configure the target service account below."
-  googleAuthId="google-auth"
+  envFrom={["google-auth"]}
 >
   <Inputs id="impersonate-inputs">
     ```yaml
@@ -266,7 +266,7 @@ This is the service account impersonation analogue of `sts assume-role`: a short
   path="scripts/verify-auth.sh"
   title="Verify Impersonated Access"
   description="Confirms that the impersonated token is working"
-  googleAuthId="block-sourced"
+  envFrom={["block-sourced"]}
   successMessage="Successfully verified the impersonated service account!"
   failMessage="Failed to verify the impersonated credentials."
 />
@@ -342,17 +342,15 @@ In this example, GoogleAuth first checks for `PROD_GOOGLE_APPLICATION_CREDENTIAL
 
 ## 3. Multiple GCP Projects
 
-A single runbook can include multiple GoogleAuth blocks to authenticate against different projects (or with different principals). Use the `googleAuthId` prop on Command and Check blocks to specify which credentials to use.
-
-Without `googleAuthId`, blocks use the most recently authenticated credentials (the session environment). With `googleAuthId`, they use the specific GoogleAuth block's credentials regardless of order -- each block publishes its own credential file path in its outputs, and those are injected as per-execution environment variables that override the session.
+A single runbook can include multiple GoogleAuth blocks to authenticate against different projects (or with different principals). A Command or Check names the GoogleAuth block whose credentials it uses in its `envFrom` prop. A block that names none gets no credentials from a GoogleAuth block.
 
 ```mdx
 <GoogleAuth id="primary-project" project="my-prod-project" />
 <GoogleAuth id="secondary-project" project="my-dev-project" />
 
 {/* Each Command targets a specific GoogleAuth block */}
-<Command command="gcloud storage buckets list" googleAuthId="primary-project" />
-<Command command="gcloud storage buckets list" googleAuthId="secondary-project" />
+<Command command="gcloud storage buckets list" envFrom={["primary-project"]} />
+<Command command="gcloud storage buckets list" envFrom={["secondary-project"]} />
 ```
 
 ### Secondary Project
@@ -372,7 +370,7 @@ Without `googleAuthId`, blocks use the most recently authenticated credentials (
   path="scripts/list-resources.sh"
   title="List Resources (Primary Project)"
   description="Lists Cloud Storage buckets in the primary project"
-  googleAuthId="google-auth"
+  envFrom={["google-auth"]}
   successMessage="Primary project resources listed!"
   failMessage="Failed to list resources in the primary project."
 />
@@ -382,7 +380,7 @@ Without `googleAuthId`, blocks use the most recently authenticated credentials (
   path="scripts/list-resources.sh"
   title="List Resources (Secondary Project)"
   description="Lists Cloud Storage buckets in the secondary project"
-  googleAuthId="google-auth-secondary"
+  envFrom={["google-auth-secondary"]}
   successMessage="Secondary project resources listed!"
   failMessage="Failed to list resources in the secondary project."
 />
@@ -401,7 +399,7 @@ Without `googleAuthId`, blocks use the most recently authenticated credentials (
 
 ### Environment Variables Set
 
-When you authenticate (manually or by confirming auto-detected credentials), these session environment variables are set:
+When you authenticate (manually or by confirming auto-detected credentials), a Command or Check that names the block in `envFrom` runs with these environment variables:
 
 - `GOOGLE_APPLICATION_CREDENTIALS` -- path to the credentials file
 - `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT` -- the selected project
@@ -415,17 +413,13 @@ And, when the corresponding prop or gcloud configuration supplies a value:
 
 Three names for one project id looks redundant, but each is read by a different consumer: Google's client libraries read `GOOGLE_CLOUD_PROJECT`, the `gcloud` CLI reads `CLOUDSDK_CORE_PROJECT`, and the OpenTofu/Terraform `google` provider prefers `GOOGLE_PROJECT`.
 
-Inline key material is **never** written to the session. `GOOGLE_CREDENTIALS` and its variants accept a whole service account key as a string, and that is exactly the leak this block avoids -- only the path to a `0600` file is exported.
+Inline key material is never exported. `GOOGLE_CREDENTIALS` and its variants hold a whole service account key as a string, so the block writes the key to a `0600` file and exports its path.
 
-### Session vs `googleAuthId`
-
-By default, credentials are set as **session environment variables**. Every subsequent Command and Check block sees them. The most recently authenticated GoogleAuth block's credentials are the "active" ones.
-
-When you specify `googleAuthId` on a Command or Check, that block uses the specified GoogleAuth block's credentials **directly**, overriding the session environment for that execution only.
+A Google variable the sign-in has no value for is removed for that run, so a credential from your shell or from another sign-in never mixes with this one.
 
 ### Security
 
-- **Confirmation required**: Auto-detected credentials are never registered to the session until you confirm. This prevents accidental operations against the wrong GCP project.
+- **Confirmation required**: Auto-detected credentials aren't used until you confirm. This prevents accidental operations against the wrong GCP project.
 - **Credentials never return to the UI**: no key material, refresh token, or access token is ever sent back from the main process. The UI sees the credential file's *path* and metadata only.
 - **Files are private and temporary**: materialized credential files are written mode `0600` inside a per-user temp directory and are wiped and removed when the app quits or you re-authenticate.
 - **Credentials stay local**: All authentication happens between your machine and Google. Credentials are never transmitted to external servers.

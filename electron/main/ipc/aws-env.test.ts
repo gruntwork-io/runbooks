@@ -33,7 +33,7 @@ afterAll(() => {
   sessionManager.deleteSession()
 })
 
-/** The session env, as the next script would receive it. */
+/** The session env, as a script that names no auth block would receive it. */
 const sessionEnv = () =>
   Effect.runSync(sessionManager.getSession().pipe(Effect.map((s) => Object.fromEntries(s.env))))
 
@@ -160,7 +160,7 @@ describe("aws:env-credentials", () => {
 })
 
 describe("aws:env-credentials-confirm", () => {
-  it("returns the keys and region without writing the session env", async () => {
+  it("returns the keys and region without changing the session env", async () => {
     processEnv = { AWS_ACCESS_KEY_ID: "AKIA_DEV", AWS_SECRET_ACCESS_KEY: "dev-secret" }
     const before = sessionEnv()
 

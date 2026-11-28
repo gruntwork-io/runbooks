@@ -12,6 +12,9 @@ const defaultScriptExecution = {
   envTemplates: {},
   envVars: [],
   envError: null,
+  envFrom: [] as readonly string[],
+  envFromError: null as string | null,
+  unsignedEnvFrom: [] as string[],
   workingDirTemplate: "",
   workingDirError: null,
   interpreter: "",
@@ -26,14 +29,6 @@ const defaultScriptExecution = {
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },
-  unmetAwsAuthDependency: null,
-  hasAwsAuthDependency: true,
-  unmetGitHubAuthDependency: null,
-  hasGitHubAuthDependency: true,
-  unmetGoogleAuthDependency: null,
-  hasGoogleAuthDependency: true,
-  unmetAzureAuthDependency: null as { blockId: string } | null,
-  hasAzureAuthDependency: true,
   isRendering: false,
   renderError: null,
   status: "pending" as string,
@@ -102,9 +97,9 @@ describe("Check", () => {
     expect(lastScriptExecutionProps?.timeoutMs).toBe(1234)
   })
 
-  it("forwards googleAuthId to the execution hook", () => {
-    renderCheck({ googleAuthId: "gcp-auth" })
-    expect(lastScriptExecutionProps?.googleAuthId).toBe("gcp-auth")
+  it("forwards envFrom to the execution hook", () => {
+    renderCheck({ envFrom: ["gcp-auth"] })
+    expect(lastScriptExecutionProps?.envFrom).toEqual(["gcp-auth"])
   })
 
   it("renders title and description", () => {
@@ -235,7 +230,7 @@ describe("Check", () => {
 
   // --- Error states ---
 
-  it("shows Configuration Required for input references with only an awsAuthId", () => {
+  it("shows Configuration Required for input references with only an envFrom", () => {
     // An AwsAuth block supplies credentials, never `.inputs` values.
     mockScriptExecution = {
       ...defaultScriptExecution,
@@ -244,7 +239,7 @@ describe("Check", () => {
       execute: vi.fn(),
       cancel: vi.fn(),
     }
-    renderCheck({ awsAuthId: "aws-auth" })
+    renderCheck({ envFrom: ["aws-auth"] })
     expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Check" })).toBeNull()
   })

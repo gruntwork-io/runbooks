@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Verify Google Cloud authentication using only what <GoogleAuth> injected into
-# the environment. This is the Google analogue of `aws sts get-caller-identity`.
+# Verify Google Cloud authentication using only what the <GoogleAuth> block
+# named in envFrom puts in the environment. This is the Google analogue of
+# `aws sts get-caller-identity`.
 #
 # The gcloud CLI is OPTIONAL. GoogleAuth exports a credentials *file* rather
 # than a bearer token, so this script mints its own short-lived access token
@@ -77,7 +78,7 @@ token_from_service_account() {
     jq -r '.access_token // empty'
 }
 
-# Resolve an access token from the session environment. Prints the token on
+# Resolve an access token from the environment. Prints the token on
 # stdout; returns non-zero when nothing works.
 mint_access_token() {
   # 1. An ambient access token (the one documented exception to the
@@ -147,7 +148,7 @@ if [ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]; then
 elif [ -n "${GOOGLE_OAUTH_ACCESS_TOKEN:-}" ] || [ -n "${CLOUDSDK_AUTH_ACCESS_TOKEN:-}" ]; then
   echo "Using an ambient OAuth access token from the environment"
 else
-  echo "ERROR: no Google Cloud credentials in the session environment."
+  echo "ERROR: no Google Cloud credentials in the environment."
   echo "Authenticate with the <GoogleAuth> block above first."
   exit 1
 fi
@@ -187,7 +188,7 @@ echo "Scopes:    ${scopes:-<none reported>}"
 echo ""
 echo "=== Project access (Cloud Resource Manager) ==="
 if [ -z "$project" ]; then
-  echo "No project in the session environment; skipping the project check."
+  echo "No project in the environment; skipping the project check."
 else
   # Header via a config file on STDIN, for the same reason the token above is
   # POSTed rather than put in a query string: `-H` puts it in argv.

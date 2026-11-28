@@ -51,7 +51,7 @@ These are all the blocks a runbook can use. A component that isn't listed here, 
 Interactive blocks take an `id` prop, a unique identifier for the block. When one block references another, it does so by the other block's ID:
 
 - `inputsId` uses the values collected by an `<Inputs>` or `<Template>` block. See [Wiring blocks with `inputsId`](/authoring/inputs-and-outputs/#wiring-blocks-with-inputsid).
-- `awsAuthId`, `azureAuthId`, `googleAuthId`, `gitAuthId` and `githubAuthId` choose which auth block's credentials a block uses.
+- `envFrom` names the auth blocks whose credentials a `<Command>`, `<Check>`, `<Finish>`, `<GitClone>` or pull request block uses. See [Using credentials from an auth block](/authoring/blocks/command/#using-credentials-from-an-auth-block).
 - `dependsOn` names the `<Command>` or `<Check>` blocks that must succeed before a `<Command>`, `<Check>` or `<Finish>` can run. A `<Check>` that ends with a warning counts too. See [Run order](/authoring/blocks/command/#run-order).
 - `gitCloneId` roots a `<DirPicker>` in the repository a `<GitClone>` block cloned.
 - `{{ .outputs.<block_id>.<output_name> }}` reads the outputs of a block that has already run. In template syntax, write any hyphens in the ID as underscores. See [Block outputs](/authoring/inputs-and-outputs/#block-outputs).

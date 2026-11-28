@@ -9,7 +9,7 @@ import * as fs from "fs"
 import * as os from "os"
 import * as path from "path"
 import { Cause, Effect, Exit } from "effect"
-import { runtime, getSessionTokenForHost, noSessionCredential } from "./ipc/runtime.ts"
+import { runtime } from "./ipc/runtime.ts"
 import { describeCause } from "./ipc/ipc-error.ts"
 import { parseRemoteSource, redactSourceCredentials, resolveRef } from "../../src/remote-source.ts"
 import { resolveRunbookPath } from "../../src/domain/workspace/file.ts"
@@ -288,8 +288,7 @@ export const openRemoteRunbook = (rawUrl: string) =>
     })
 
     // Get auth token early — needed for both resolveRef (git ls-remote)
-    // and the clone itself. Session env first (a token established by
-    // a GitAuth block is reused), then the unified VcsCredentials resolver.
+    // and the clone itself, from the unified VcsCredentials resolver.
     // Tokens ride only over https: an ssh clone authenticates with the
     // user's keys, and an http:// one would send the token in the clear.
     const transport = parsed.cloneURL.startsWith("https://")
@@ -303,19 +302,9 @@ export const openRemoteRunbook = (rawUrl: string) =>
     // an arbitrary name): an unknown host is neither provider — never
     // "GitLab by default".
     const provider = yield* vcs.detectProvider(parsed.host)
-    // Host-bound: the session token is released only to the host the
-    // auth block bound it to — `parsed.host` is attacker-controlled input,
-    // and the provider detection alone must never gate a credential.
-    const sessionToken =
-      overHttps && provider
-        ? yield* getSessionTokenForHost(provider, parsed.host, noSessionCredential).pipe(
-            Effect.orElseSucceed(() => undefined),
-          )
-        : undefined
-    const token = overHttps ? (sessionToken ?? (yield* vcs.tokenForHost(parsed.host))) : undefined
+    const token = overHttps ? yield* vcs.tokenForHost(parsed.host) : undefined
     log.info("Token:", token ? "found" : "none")
-    // A token exists only for a detected provider (both sources above are
-    // keyed on it), and a GitHub one may belong to github.com, a GHES host
+    // A token exists only for a detected provider, and a GitHub one may belong to github.com, a GHES host
     // or a ghe.com tenant: send the provider's username, so GitHub gets
     // `x-access-token` and GitLab (including self-managed) `oauth2`.
     const username = gitCredentialUsername(provider)

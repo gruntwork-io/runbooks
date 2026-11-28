@@ -7,15 +7,12 @@
  *
  * Custody (plan §6): the renderer may SEND a secret the user pasted, but no
  * `google:*` result ever returns credential material. MAIN materialises the
- * credentials file, writes the session env, and hands back metadata only —
+ * credentials file, records the block's export, and hands back metadata only —
  * the discipline github.ts follows, not the raw-key round trip aws.ts performs.
- * Two rules follow from that and are load bearing here:
- *   1. every secret is `registerSecret`ed BEFORE anything that could throw with
- *      the material in its message, and every outbound `error` string goes
- *      through `redactSecrets` (a JSON parse failure or a JWT signing error can
- *      otherwise carry a private key);
- *   2. a session-env write that fails must never void a credential that just
- *      validated — it degrades to `sessionEnvWarning` copy on the success card.
+ * So every secret is `registerSecret`ed BEFORE anything that could throw with
+ * the material in its message, and every outbound `error` string goes through
+ * `redactSecrets` (a JSON parse failure or a JWT signing error can otherwise
+ * carry a private key).
  *
  * All errors surfaced from here are RUNTIME errors per AGENTS.md: they render
  * inline in the block, never via reportError().
@@ -69,11 +66,7 @@ import {
   setActiveCredential,
   type ActiveGoogleCredential,
 } from "./google-credential-registry.ts"
-import {
-  commitBlockProject,
-  sessionEnvForCredential,
-  type GoogleSessionEnvChange,
-} from "./google-session-env.ts"
+import { commitBlockProject, exportForCredential } from "./google-env-export.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { makeLogger } from "../logger.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
@@ -192,75 +185,6 @@ const toAdcInfoIpc = (adc: AdcInfo): AdcInfoIpc => ({
 })
 
 // ---------------------------------------------------------------------------
-// Session environment
-// ---------------------------------------------------------------------------
-
-/**
- * Append to the session env, reproducing appendSessionEnvAndRecord's failure
- * semantics without its GitProvider typing or its vcs:session-changed push: a
- * failed write returns the success-card warning copy instead of failing the
- * authentication. Undefined on success. `generation` is the session
- * generation captured when the request arrived; the write is dropped if a
- * different runbook opened since.
- */
-async function appendGoogleSessionEnv(
-  env: Record<string, string>,
-  generation: number,
-): Promise<string | undefined> {
-  if (Object.keys(env).length === 0) return undefined
-  try {
-    await runtime.runPromise(sessionManager.appendToEnv(env, generation))
-    return undefined
-  } catch (err) {
-    return `Authenticated, but the credential could not be saved to the session (${toErrorMessage(err)}). Blocks that consume it may not see it.`
-  }
-}
-
-/**
- * Delete session-env keys a just-established credential no longer carries.
- * `appendGoogleSessionEnv` can only ever SET a key; a credential transition
- * that drops one entirely (a file-backed credential replaced by a bare access
- * token, which has no file for `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` to
- * point at) needs a real delete, or the previous value — possibly a path
- * `materializeForIdentity` has since released — keeps routing gcloud to a
- * credential this authentication doesn't own. Same failure semantics as its
- * sibling — surfaced as `sessionEnvWarning` copy, never a failed
- * authentication — because a swallowed failure here is worse than a swallowed
- * append: it leaves a WRONG credential silently active for `gcloud` instead of
- * merely a missing one. `generation` works as for `appendGoogleSessionEnv`.
- */
-async function clearGoogleSessionEnv(
-  keys: string[],
-  generation: number,
-): Promise<string | undefined> {
-  if (keys.length === 0) return undefined
-  try {
-    await runtime.runPromise(sessionManager.removeFromEnv(keys, generation))
-    return undefined
-  } catch (err) {
-    return `Authenticated, but a stale gcloud CLI credential override could not be cleared from the session (${toErrorMessage(err)}). Bare gcloud commands may keep using a previous credential until this block re-authenticates.`
-  }
-}
-
-/**
- * Apply a change `./google-session-env.ts` worked out: set, then delete.
- * Returns the success-card warning, if any. `generation` works as for
- * `appendGoogleSessionEnv`: both writes are dropped once a different runbook
- * has opened.
- */
-async function applyGoogleSessionEnv(
-  change: GoogleSessionEnvChange,
-  generation: number,
-): Promise<string | undefined> {
-  const warning = await appendGoogleSessionEnv(change.set, generation)
-  // The delete is skipped once the append already warned: that means the
-  // session write failed wholesale, so a second attempt against the same
-  // broken session would only duplicate the warning for one root cause.
-  if (warning) return warning
-  return clearGoogleSessionEnv([...change.clear], generation)
-}
-
-// ---------------------------------------------------------------------------
 // Validation + credential establishment
 // ---------------------------------------------------------------------------
 
@@ -306,7 +230,6 @@ interface AuthSuccess {
   readonly ref: GoogleCredentialRef
   readonly credentialsPath?: string
   readonly projectId?: string
-  readonly sessionEnvWarning?: string
 }
 
 /** Why a sign-in that outlived its runbook is refused. */
@@ -315,8 +238,8 @@ const RUNBOOK_CHANGED_ERROR =
 
 /**
  * The shared success path for every tab: materialise (unless the credential is
- * already a file we can point at), write the session env, and remember the
- * credential so the project channels can use it. Returns metadata only.
+ * already a file we can point at), record the block's export, and remember
+ * the credential so the project channels can use it. Returns metadata only.
  *
  * `generation` is the session generation the handler captured before its
  * first await. A sign-in that finishes after a different runbook opened
@@ -357,11 +280,15 @@ export async function registerAuthenticatedCredential(
     zone: input.zone,
     configuration: input.configuration,
   }
-  const sessionEnvWarning = await applyGoogleSessionEnv(sessionEnvForCredential(active), generation)
+  if (input.blockId !== undefined) {
+    await runtime.runPromise(
+      sessionManager.setEnvExport(input.blockId, exportForCredential(active), generation),
+    )
+  }
 
-  // The session writes above were dropped if the runbook changed while they
-  // ran; the registry entry must be too. A file materialised above stays on
-  // disk until the will-quit sweep, like any other abandoned flow's.
+  // The export above was dropped if the runbook changed while it ran; the
+  // registry entry must be too. A file materialised above stays on disk until
+  // the will-quit sweep, like any other abandoned flow's.
   if (!sessionManager.isCurrentGeneration(generation)) throw new Error(RUNBOOK_CHANGED_ERROR)
 
   setActiveCredential(input.blockId, active)
@@ -370,7 +297,6 @@ export async function registerAuthenticatedCredential(
     ref,
     ...(credentialsPath ? { credentialsPath } : {}),
     ...(projectId ? { projectId } : {}),
-    ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
   }
 }
 
@@ -396,30 +322,15 @@ async function listProjectsSafe(
 
 /**
  * The credential subsequent project calls run against: the flow that just
- * completed, then the CALLING BLOCK's own credential, then whatever the session
- * env points at (an earlier GoogleAuth block in the same session). Never passed
- * in by the renderer — it does not have it.
+ * completed, then the CALLING BLOCK's own credential. Never another block's,
+ * and never passed in by the renderer — it does not have it.
  */
-async function resolveCredentialRef(
-  blockId?: string,
-  flowId?: string,
-): Promise<GoogleCredentialRef | undefined> {
+function resolveCredentialRef(blockId?: string, flowId?: string): GoogleCredentialRef | undefined {
   if (flowId) {
     const flowRef = flowCredentials.get(flowId)
     if (flowRef) return flowRef
   }
-  const active = activeCredentialFor(blockId)
-  if (active) return active.ref
-  try {
-    const session = await runtime.runPromise(sessionManager.getSession())
-    const path = session.env.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if (path) return { kind: "file", path }
-    const token = session.env.get("GOOGLE_OAUTH_ACCESS_TOKEN")
-    if (token) return { kind: "access_token", accessToken: token }
-  } catch {
-    // No active session yet — nothing ambient to fall back on.
-  }
-  return undefined
+  return activeCredentialFor(blockId)?.ref
 }
 
 // ---------------------------------------------------------------------------
@@ -721,7 +632,6 @@ export function registerGoogleHandlers(): void {
           // is what the renderer auto-selects, so withholding it strands a
           // credential whose own document carries no project_id.
           ...(projects.length > 0 ? { projects } : {}),
-          ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {
         return { valid: false, error: toErrorMessage(err) }
@@ -858,7 +768,6 @@ export function registerGoogleHandlers(): void {
           // What was actually written, so the block publishes it.
           ...(params.region ? { region: params.region } : {}),
           ...(params.zone ? { zone: params.zone } : {}),
-          ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {
         return { status: "failed" as const, error: toErrorMessage(err) }
@@ -974,7 +883,6 @@ export function registerGoogleHandlers(): void {
           // and the renderer's own listing of it may be stale.
           ...(region ? { region } : {}),
           ...(zone ? { zone } : {}),
-          ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {
         return { valid: false, error: toErrorMessage(err) }
@@ -1065,8 +973,8 @@ export function registerGoogleHandlers(): void {
   )
 
   // Same detection, re-run at confirm time (the credential may have changed
-  // between detect and confirm), but MAIN writes the session env. Metadata
-  // only — unlike aws:env-credentials-confirm, which returns the raw keys.
+  // between detect and confirm), but MAIN records the export. Metadata only —
+  // unlike aws:env-credentials-confirm, which returns the raw keys.
   ipcMain.handle(
     "google:env-credentials-confirm",
     async (
@@ -1146,7 +1054,6 @@ export function registerGoogleHandlers(): void {
           // the renderer sent none, and the renderer cannot know that.
           ...(region ? { region } : {}),
           ...(zone ? { zone } : {}),
-          ...(success.sessionEnvWarning ? { sessionEnvWarning: success.sessionEnvWarning } : {}),
         }
       } catch (err) {
         return { valid: false, error: toErrorMessage(err) }
@@ -1163,9 +1070,9 @@ export function registerGoogleHandlers(): void {
       _event,
       params: { blockId?: string; flowId?: string; query?: string; pageSize?: number } = {},
     ) => {
-      const ref = await resolveCredentialRef(params.blockId, params.flowId)
+      const ref = resolveCredentialRef(params.blockId, params.flowId)
       if (!ref) {
-        return { projects: [], error: "No Google Cloud credentials available in this session" }
+        return { projects: [], error: "This block has no Google Cloud credential yet" }
       }
       try {
         const projects = await runtime.runPromise(listProjects(ref, params.query, params.pageSize))
@@ -1188,14 +1095,17 @@ export function registerGoogleHandlers(): void {
       if (!params.projectId) return { ok: false, error: "No project selected" }
       const generation = sessionManager.getGeneration()
       try {
-        // Re-points the session at the CALLING block's credential, account
-        // and new project together; see commitBlockProject. It runs before
-        // the first await, so the registry entry it re-points is this
-        // runbook's; the session write is scoped to `generation`, so a
-        // different runbook opened while it runs keeps its env, and its
-        // same-id block's entry, as they were.
-        const { env, region, zone } = commitBlockProject(params)
-        const sessionEnvWarning = await applyGoogleSessionEnv(env, generation)
+        // Re-exports the CALLING block's credential, account and new project
+        // together; see commitBlockProject. It runs before the first await,
+        // so the registry entry it re-points is this runbook's; the export is
+        // scoped to `generation`, so a different runbook opened while it runs
+        // keeps its same-id block's export as it was.
+        const { envExport, region, zone } = commitBlockProject(params)
+        if (params.blockId !== undefined) {
+          await runtime.runPromise(
+            sessionManager.setEnvExport(params.blockId, envExport, generation),
+          )
+        }
 
         const projectName = projectDisplayNames.get(params.projectId)
         return {
@@ -1205,7 +1115,6 @@ export function registerGoogleHandlers(): void {
           // only what it asked for.
           ...(region ? { region } : {}),
           ...(zone ? { zone } : {}),
-          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {
         return { ok: false, error: toErrorMessage(err) }
@@ -1221,7 +1130,7 @@ export function registerGoogleHandlers(): void {
   ipcMain.handle(
     "google:check-project",
     async (_event, params: { blockId?: string; projectId: string }) => {
-      const ref = await resolveCredentialRef(params.blockId)
+      const ref = resolveCredentialRef(params.blockId)
       if (!ref) {
         return {
           enabled: false,

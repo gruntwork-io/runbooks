@@ -43,9 +43,12 @@ interface RestoredClone {
 
 interface UseGitCloneOptions {
   id: string
-  githubAuthId?: string | undefined
-  /** Reference to a GitAuth block (GitHub or GitLab) by ID. */
-  gitAuthId?: string | undefined
+  /**
+   * The auth blocks whose sign-in clones a private repository and browses
+   * GitHub, in the order they apply (a later one wins). Empty: Runbooks sends
+   * no token, and git uses the user's own credential helpers.
+   */
+  envFrom: readonly string[]
   /**
    * The repository to start from, from the session's history. The block shows
    * it and publishes its outputs at once, then checks that it is still a
@@ -60,14 +63,16 @@ interface UseGitCloneOptions {
 
 export function useGitClone({
   id,
-  githubAuthId,
-  gitAuthId,
+  envFrom: envFromProp,
   restored,
   onReady,
   onRestoreLost,
 }: UseGitCloneOptions) {
   const api = useApi()
   const { registerOutputs, blockOutputs: allOutputs } = useRunbookContext()
+  // MDX passes a new array on every render, so key it by its ids
+  const envFromKey = JSON.stringify(envFromProp)
+  const envFrom = useMemo((): readonly string[] => JSON.parse(envFromKey), [envFromKey])
 
   // State
   const [cloneStatus, setCloneStatus] = useState<GitCloneStatus>(restored ? "success" : "pending")
@@ -165,49 +170,59 @@ export function useGitClone({
       .catch(() => {})
   }, [api, id, registerOutputs, restoredAtMount])
 
-  // Check if the auth dependency is met. Supports githubAuthId (GitHub) and the
-  // provider-agnostic gitAuthId (GitHub or GitLab); a referenced block is met
-  // once it has emitted a token (GITHUB_TOKEN or GITLAB_TOKEN) or the
-  // __AUTHENTICATED marker (env-prefilled credentials stored server-side).
-  const gitHubAuthMet = useMemo((): boolean => {
-    const isAuthMet = (authId: string | undefined): boolean => {
-      if (!authId) return true // No dependency
-      const outputs = allOutputs[normalizeBlockId(authId)]?.values
-      if (!outputs) return false
-      // A token counts only if it isn't empty, which needs its real value
-      const values: Partial<Record<string, string>> = revealOutputs(outputs)
-      if (values.GITHUB_TOKEN && values.GITHUB_TOKEN !== "") return true
-      if (values.GITLAB_TOKEN && values.GITLAB_TOKEN !== "") return true
-      if (values.__AUTHENTICATED === "true") return true
-      return false
-    }
-    return isAuthMet(githubAuthId) && isAuthMet(gitAuthId)
-  }, [githubAuthId, gitAuthId, allOutputs])
+  // Whether every block envFrom names has signed in: it has emitted a token
+  // (GITHUB_TOKEN or GITLAB_TOKEN) or the __AUTHENTICATED marker (a
+  // credential kept in the main process).
+  const gitHubAuthMet = useMemo(
+    (): boolean =>
+      envFrom.every((authId) => {
+        const outputs = allOutputs[normalizeBlockId(authId)]?.values
+        if (!outputs) return false
+        // A token counts only if it isn't empty, which needs its real value
+        const values: Partial<Record<string, string>> = revealOutputs(outputs)
+        return (
+          Boolean(values.GITHUB_TOKEN || values.GITLAB_TOKEN) || values.__AUTHENTICATED === "true"
+        )
+      }),
+    [envFrom, allOutputs],
+  )
+
+  // The first block envFrom names that hasn't signed in, for the waiting message
+  const waitingForAuthId = useMemo(
+    () =>
+      envFrom.find(
+        (authId) => allOutputs[normalizeBlockId(authId)]?.values?.__AUTHENTICATED !== "true",
+      ),
+    [envFrom, allOutputs],
+  )
+
+  // The envFrom blocks, the last first: a later block wins.
+  const authIdsLastFirst = useMemo(() => [...envFrom].reverse(), [envFrom])
 
   // Provider of the linked auth block, derived from its outputs. Passed to the
-  // clone so the backend resolves the matching session token (and oauth2 vs
+  // clone so the backend resolves the matching token (and oauth2 vs
   // x-access-token username) by PROVIDER rather than parsing the remote host —
   // the only thing that works for self-hosted GitHub/GitLab instances.
-  const authProvider = useMemo(
-    () =>
-      deriveProviderFromAuth(gitAuthId, allOutputs) ??
-      deriveProviderFromAuth(githubAuthId, allOutputs),
-    [gitAuthId, githubAuthId, allOutputs],
-  )
+  const authProvider = useMemo(() => {
+    for (const authId of authIdsLastFirst) {
+      const provider = deriveProviderFromAuth(authId, allOutputs)
+      if (provider) return provider
+    }
+    return undefined
+  }, [authIdsLastFirst, allOutputs])
 
   // The GitHub host of the linked auth block (its GITHUB_HOST output):
   // github.com, a *.ghe.com tenant, or a GHES host. The repo browser lists and
   // builds clone URLs against it. Defaults to github.com.
   const githubHost = useMemo((): string => {
-    for (const authId of [gitAuthId, githubAuthId]) {
-      if (!authId) continue
+    for (const authId of authIdsLastFirst) {
       const host = tryNormalizeGitHubHost(
         revealOutput(allOutputs[normalizeBlockId(authId)]?.values?.GITHUB_HOST),
       )
       if (host) return host
     }
     return DEFAULT_GITHUB_HOST
-  }, [gitAuthId, githubAuthId, allOutputs])
+  }, [authIdsLastFirst, allOutputs])
 
   // Fetch session working directory for path preview
   const fetchWorkingDir = useCallback(async () => {
@@ -221,13 +236,13 @@ export function useGitClone({
     }
   }, [api])
 
-  // Detect if a GitHub token is available in the session
+  // Detect whether the envFrom blocks give a GitHub token for the host
   const checkGitHubToken = useCallback(async () => {
     // Fetch working dir in parallel
     void fetchWorkingDir()
 
     try {
-      const orgs = await api.invoke("github:orgs", { host: githubHost })
+      const orgs = await api.invoke("github:orgs", { host: githubHost, envFrom })
       // If we got orgs back (even just the user), we have a token
       setHasGitHubToken(Array.isArray(orgs) && orgs.length > 0)
     } catch {
@@ -238,27 +253,27 @@ export function useGitClone({
       // already started a clone, which must stay running (or done).
       setCloneStatus((prev) => (prev === "pending" ? "ready" : prev))
     }
-  }, [api, fetchWorkingDir, githubHost])
+  }, [api, fetchWorkingDir, githubHost, envFrom])
 
   // The GitHub browser fetchers reject on failure so the browser can show why
   // a list is empty, rather than an expired token or a 403 reading as "none".
   const fetchOrgs = useCallback(async (): Promise<GitHubOrg[]> => {
-    return api.invoke("github:orgs", { host: githubHost })
-  }, [api, githubHost])
+    return api.invoke("github:orgs", { host: githubHost, envFrom })
+  }, [api, githubHost, envFrom])
 
   const fetchRepos = useCallback(
     async (owner: string): Promise<GitHubRepo[]> => {
-      return api.invoke("github:repos", { org: owner, host: githubHost })
+      return api.invoke("github:repos", { org: owner, host: githubHost, envFrom })
     },
-    [api, githubHost],
+    [api, githubHost, envFrom],
   )
 
   const fetchRefs = useCallback(
     async (owner: string, repo: string): Promise<GitHubRef[]> => {
-      const refs = await api.invoke("github:refs", { owner, repo, host: githubHost })
+      const refs = await api.invoke("github:refs", { owner, repo, host: githubHost, envFrom })
       return refs.map((r) => ({ name: r.ref, type: r.type }))
     },
-    [api, githubHost],
+    [api, githubHost, envFrom],
   )
 
   // Execute the clone operation. Returns 'directory_exists' if the destination
@@ -290,6 +305,7 @@ export function useGitClone({
         if (localPath) body.localPath = localPath
         if (force) body.force = true
         if (authProvider) body.provider = authProvider
+        if (envFrom.length > 0) body.envFrom = envFrom
 
         // Subscribe to streaming events before starting the clone.
         // Store in ref so cancel() can unsubscribe.
@@ -358,7 +374,7 @@ export function useGitClone({
         if (cloneIdRef.current === cloneId) cloneIdRef.current = null
       }
     },
-    [api, publish, authProvider],
+    [api, publish, authProvider, envFrom],
   )
 
   // Open the native folder picker and return the chosen directory, if any.
@@ -430,6 +446,7 @@ export function useGitClone({
           path: repoDir.trim(),
           register: true,
           ...(authProvider ? { provider: authProvider } : {}),
+          envFrom,
         })
 
         if (result.status !== "success") {
@@ -465,7 +482,7 @@ export function useGitClone({
         return null
       }
     },
-    [api, publish, authProvider],
+    [api, publish, authProvider, envFrom],
   )
 
   // Seed an empty repo's default branch with an empty initial commit, then
@@ -485,6 +502,7 @@ export function useGitClone({
           worktreePath: cloneResult.absolutePath,
           branch,
           ...(authProvider ? { provider: authProvider } : {}),
+          envFrom,
         })
         if (runId !== cloneRunRef.current) return
 
@@ -513,7 +531,7 @@ export function useGitClone({
         setSeedStatus("fail")
       }
     },
-    [api, cloneResult, publish, authProvider],
+    [api, cloneResult, publish, authProvider, envFrom],
   )
 
   // Cancel an in-progress clone: stop git in the main process, and detach
@@ -588,6 +606,7 @@ export function useGitClone({
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    waitingForAuthId,
     githubHost,
     workingDir,
     localPreview,

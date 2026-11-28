@@ -1,16 +1,17 @@
 /**
- * The env vars an auth block gives a script for one run. A Command or Check
- * that names a block with awsAuthId, azureAuthId, githubAuthId, gitAuthId or googleAuthId
- * gets these from the block's outputs, and a run's `envVarsOverride` carries
- * nothing else. The renderer builds the overrides from these lists, and the
- * main process refuses any other name, so no caller can set PATH, BASH_ENV,
- * LD_PRELOAD, NODE_OPTIONS or a runbook-managed var such as RUNBOOK_OUTPUT
- * for a run.
+ * The env vars an auth block exports, by provider, and how a block's
+ * `envFrom` prop turns the exports it names into the env its script runs
+ * with.
+ *
+ * Each list holds every variable the provider's tools read a credential,
+ * account or location from. A block's export sets the ones its sign-in has
+ * values for, and a script that names the block in `envFrom` runs with the
+ * others removed, so nothing from the environment the app started with, or
+ * from another block, mixes with the block's sign-in.
  *
  * The renderer bundles this module directly, so it must stay free of imports.
  */
 
-/** What an awsAuthId reference passes, and all an <AwsAuth> block writes to the session env. */
 export const AWS_AUTH_ENV_VARS = [
   "AWS_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -18,21 +19,22 @@ export const AWS_AUTH_ENV_VARS = [
   "AWS_SESSION_TOKEN",
 ] as const
 
-/** What a githubAuthId reference passes. */
-export const GITHUB_AUTH_ENV_VARS = ["GITHUB_TOKEN", "GITHUB_USER"] as const
-
-/** What a gitAuthId reference passes: whichever of these the GitAuth block emitted. */
-export const GIT_AUTH_ENV_VARS = [...GITHUB_AUTH_ENV_VARS, "GITLAB_TOKEN", "GITLAB_USER"] as const
-
 /**
- * What a googleAuthId reference passes. `GOOGLE_APPLICATION_CREDENTIALS` is
- * the credential itself; the rest pin the project/account/region/zone that
- * gcloud, the client libraries, and the OpenTofu `google` provider each read
- * under a different name.
+ * `GOOGLE_APPLICATION_CREDENTIALS` or an access token is the credential
+ * itself. The rest pin the project, account, region and zone that gcloud,
+ * the client libraries and the OpenTofu `google` provider each read under a
+ * different name. The provider reads an inline key from `GOOGLE_CREDENTIALS`
+ * or a `*_KEYFILE_JSON` variable before any of them, so those are cleared too.
  */
 export const GOOGLE_AUTH_ENV_VARS = [
   "GOOGLE_APPLICATION_CREDENTIALS",
   "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
+  "GOOGLE_CREDENTIALS",
+  "GOOGLE_CLOUD_KEYFILE_JSON",
+  "GCLOUD_KEYFILE_JSON",
+  "GOOGLE_OAUTH_ACCESS_TOKEN",
+  "CLOUDSDK_AUTH_ACCESS_TOKEN",
+  "CLOUDSDK_ACTIVE_CONFIG_NAME",
   "GOOGLE_CLOUD_PROJECT",
   "CLOUDSDK_CORE_PROJECT",
   "GOOGLE_PROJECT",
@@ -64,20 +66,83 @@ export const AZURE_AUTH_ENV_VARS = [
   "AZURE_PRINCIPAL_TYPE",
 ] as const
 
-const AUTH_ENV_VARS: readonly string[] = [
-  ...AWS_AUTH_ENV_VARS,
-  ...AZURE_AUTH_ENV_VARS,
-  ...GIT_AUTH_ENV_VARS,
-  ...GOOGLE_AUTH_ENV_VARS,
-]
+/** gh reads GH_TOKEN before GITHUB_TOKEN, and the enterprise tokens for a GHES host. */
+export const GITHUB_AUTH_ENV_VARS = [
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+  "GITHUB_USER",
+  "GITHUB_HOST",
+  "GH_HOST",
+] as const
 
-/** The names in `env` that `allowed` doesn't list, sorted. By default, those no auth block passes. */
-export function disallowedEnvVars(
-  env: Record<string, string>,
-  allowed: readonly string[] = AUTH_ENV_VARS,
-): string[] {
-  const ok = new Set(allowed)
-  return Object.keys(env)
-    .filter((name) => !ok.has(name))
+/** glab reads GITLAB_ACCESS_TOKEN and OAUTH_TOKEN too, and GL_HOST for its host. */
+export const GITLAB_AUTH_ENV_VARS = [
+  "GITLAB_TOKEN",
+  "GITLAB_ACCESS_TOKEN",
+  "OAUTH_TOKEN",
+  "GITLAB_USER",
+  "GITLAB_HOST",
+  "GL_HOST",
+] as const
+
+export type AuthProvider = "aws" | "google" | "azure" | "github" | "gitlab"
+
+/** Every variable a provider's export controls, by provider. */
+export const AUTH_EXPORT_VARS: Readonly<Record<AuthProvider, readonly string[]>> = {
+  aws: AWS_AUTH_ENV_VARS,
+  google: GOOGLE_AUTH_ENV_VARS,
+  azure: AZURE_AUTH_ENV_VARS,
+  github: GITHUB_AUTH_ENV_VARS,
+  gitlab: GITLAB_AUTH_ENV_VARS,
+}
+
+/**
+ * What a block exports for `envFrom`: the variables its sign-in set, and the
+ * ones a script that names it runs without.
+ */
+export interface EnvExport {
+  readonly env: Readonly<Record<string, string>>
+  readonly clears: readonly string[]
+}
+
+/**
+ * The export of a `provider` sign-in that set `env`. Fails, naming them, when
+ * `env` has a variable the provider's list doesn't, so no caller can export
+ * PATH, BASH_ENV, LD_PRELOAD or RUNBOOK_OUTPUT.
+ */
+export function authEnvExport(
+  provider: AuthProvider,
+  env: Readonly<Record<string, string>>,
+):
+  | { readonly ok: true; readonly export: EnvExport }
+  | { readonly ok: false; readonly error: string } {
+  const vars = AUTH_EXPORT_VARS[provider]
+  const allowed = new Set(vars)
+  const refused = Object.keys(env)
+    .filter((name) => !allowed.has(name))
     .sort()
+  if (refused.length > 0) {
+    return { ok: false, error: `A ${provider} sign-in can't export ${refused.join(", ")}` }
+  }
+  const set = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ""))
+  return { ok: true, export: { env: set, clears: vars.filter((name) => set[name] === undefined) } }
+}
+
+/**
+ * `base` with each of `exports` applied in order: the variables an export
+ * clears are removed, then the ones it sets are set, so a later export wins
+ * over an earlier one.
+ */
+export function applyEnvExports(
+  base: Readonly<Record<string, string>>,
+  exports: readonly EnvExport[],
+): Record<string, string> {
+  const env = { ...base }
+  for (const { env: set, clears } of exports) {
+    for (const name of clears) delete env[name]
+    Object.assign(env, set)
+  }
+  return env
 }

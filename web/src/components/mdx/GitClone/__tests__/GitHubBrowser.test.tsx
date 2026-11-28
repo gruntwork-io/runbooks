@@ -193,6 +193,7 @@ describe("GitHubBrowser — refs", () => {
         owner: "acme",
         repo: "fresh",
         host: "github.com",
+        envFrom: [],
       }),
     )
     await act(async () => {})
@@ -231,6 +232,7 @@ describe("GitHubBrowser — refs", () => {
         owner: "acme",
         repo: "infra",
         host: "github.com",
+        envFrom: [],
       }),
     )
     await act(async () => {

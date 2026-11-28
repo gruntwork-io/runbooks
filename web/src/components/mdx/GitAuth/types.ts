@@ -140,8 +140,6 @@ export interface GitCliCredentialsResponse {
   source?: "env" | "cli" | "config"
   /** 'cli' marks probe-validated degraded auth. */
   validatedVia?: "direct" | "cli"
-  /** Validation succeeded but main's session-env write failed (success-card warning). */
-  sessionEnvWarning?: string
 }
 
 /** vcs:cli-status result (install/version state of gh/glab + git TLS backend). */
@@ -155,7 +153,7 @@ export interface VcsCliStatusResult {
 export interface GitHostEntry {
   host: string
   /** Provenance badges: where this host is known from. */
-  sources: Array<"gh" | "glab" | "env" | "session" | "recent">
+  sources: Array<"gh" | "glab" | "env" | "recent">
   /** Offline-only check: credential FOUND (not yet validated). */
   hasCredential: boolean
 }

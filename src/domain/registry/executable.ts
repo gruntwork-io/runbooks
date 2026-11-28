@@ -20,7 +20,13 @@ import { computeContentHash } from "../workspace/file.js"
 import { ExecutableNotFoundError, ScriptReloadConflictError } from "../../errors/index.js"
 import { parseMdx, stringProp, type MdxElement, type Props } from "../../mdx.ts"
 import { extractToolList } from "../prerequisites/spec.ts"
-import { parseBlockEnv, parseBlockInterpreter, parseBlockWorkingDir } from "../exec/blockEnv.ts"
+import {
+  parseBlockEnv,
+  parseBlockEnvFrom,
+  parseBlockInterpreter,
+  parseBlockWorkingDir,
+  replacedAuthPropError,
+} from "../exec/blockEnv.ts"
 import type { Executable, ExecutableType, ScriptFileChange } from "../../types.js"
 
 // ---------------------------------------------------------------------------
@@ -34,11 +40,23 @@ import type { Executable, ExecutableType, ScriptFileChange } from "../../types.j
  */
 const SCRIPT_COMPONENT_TYPES = ["Command", "Check", "Finish"] as const
 
+/** The blocks a script block's `envFrom` can name: those that export their sign-in. */
+const ENV_EXPORTING_TYPES = [
+  "AwsAuth",
+  "GoogleAuth",
+  "AzureAuth",
+  "GitAuth",
+  "GitHubAuth",
+  "GitLabAuth",
+] as const
+
 /**
  * The props of a script block that decide how its script runs, checked but
  * for `interpreter`, which parseBlockInterpreter checks against the script.
  */
-type BlockRunProps = Pick<Executable, "env" | "workingDir"> & { readonly interpreter: unknown }
+type BlockRunProps = Pick<Executable, "env" | "envFrom" | "workingDir"> & {
+  readonly interpreter: unknown
+}
 
 // ---------------------------------------------------------------------------
 // ID computation
@@ -172,6 +190,12 @@ export class ExecutableRegistry {
         return
       }
 
+      const exporters = new Set(
+        ENV_EXPORTING_TYPES.flatMap((type) =>
+          findComponents(parsed.elements, type).map((comp) => comp.id),
+        ),
+      )
+
       for (const componentType of SCRIPT_COMPONENT_TYPES) {
         const components = findComponents(parsed.elements, componentType)
 
@@ -180,9 +204,26 @@ export class ExecutableRegistry {
           const pathProp = stringProp(comp.props, "path")
           if (!commandProp && !pathProp) continue
 
+          const replaced = replacedAuthPropError(comp.props)
+          if (replaced !== null) {
+            this.warnings.push(`<${componentType} id="${comp.id}">: ${replaced}`)
+            continue
+          }
           const env = parseBlockEnv(comp.props.env)
           if (!env.ok) {
             this.warnings.push(`<${componentType} id="${comp.id}">: ${env.error}`)
+            continue
+          }
+          const envFrom = parseBlockEnvFrom(comp.props.envFrom)
+          if (!envFrom.ok) {
+            this.warnings.push(`<${componentType} id="${comp.id}">: ${envFrom.error}`)
+            continue
+          }
+          const unknownSource = envFrom.envFrom.find((id) => !exporters.has(id))
+          if (unknownSource !== undefined) {
+            this.warnings.push(
+              `<${componentType} id="${comp.id}">: envFrom names "${unknownSource}", which isn't an auth block in this runbook.`,
+            )
             continue
           }
           const workingDir = parseBlockWorkingDir(comp.props.workingDir)
@@ -194,6 +235,7 @@ export class ExecutableRegistry {
           // The interpreter prop is checked against the script, once it is read
           const blockProps = {
             env: env.env,
+            envFrom: envFrom.envFrom,
             workingDir: workingDir.workingDir,
             interpreter: comp.props.interpreter,
           }
@@ -242,6 +284,7 @@ export class ExecutableRegistry {
       content: toolList,
       contentHash: computeContentHash(toolList),
       env: {},
+      envFrom: [],
       workingDir: "",
       interpreter: "",
     })

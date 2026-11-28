@@ -23,7 +23,7 @@ With no `detectCredentials` prop, the block looks for a service principal in `AR
   path="scripts/show-account.sh"
   title="Show the signed-in account"
   description="Runs `az account show` with this block's sign-in, and prints the variables AzureAuth set."
-  azureAuthId="azure-auth"
+  envFrom={["azure-auth"]}
   successMessage="Signed in to Azure."
 />
 
@@ -32,7 +32,7 @@ With no `detectCredentials` prop, the block looks for a service principal in `AR
   path="checks/verify-azure-env.sh"
   title="Check the Azure environment variables"
   description="Checks the variables `azurerm` and the Azure SDKs read are consistent. Doesn't call Azure."
-  azureAuthId="azure-auth"
+  envFrom={["azure-auth"]}
   successMessage="The Azure variables are consistent."
   failMessage="The Azure variables are missing or inconsistent."
 />
@@ -75,7 +75,7 @@ variables:
   id="show-pinned-account"
   path="scripts/show-account.sh"
   title="Show the pinned sign-in"
-  azureAuthId="azure-pinned"
+  envFrom={["azure-pinned"]}
 />
 
 ---

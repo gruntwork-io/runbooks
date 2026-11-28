@@ -28,7 +28,6 @@ const session: SessionRecord = {
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLaunchedAt: "2026-01-02T00:00:00.000Z",
   lastActivityAt: "2026-01-03T00:00:00.000Z",
-  vcsBindings: { github: { host: "ghe.example.com", source: "oauth" } },
   finishedAt: "2026-01-03T12:00:00.000Z",
 }
 
@@ -45,7 +44,7 @@ describe("SessionStore over node:sqlite", () => {
     fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it("drops the working_dir column of a version 1 database and keeps its sessions", () => {
+  it("drops the working_dir and vcs_bindings columns of a version 1 database and keeps its sessions", () => {
     const db = openSqliteDatabase(file)
     db.exec(`PRAGMA foreign_keys = ON;
        CREATE TABLE sessions (
@@ -87,6 +86,7 @@ describe("SessionStore over node:sqlite", () => {
       return names
     })()
     expect(columns).not.toContain("working_dir")
+    expect(columns).not.toContain("vcs_bindings")
   })
 
   it("returns a session as it was inserted, after the file is closed and reopened", () => {

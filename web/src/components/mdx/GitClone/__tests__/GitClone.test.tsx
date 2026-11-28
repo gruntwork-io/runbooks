@@ -72,10 +72,17 @@ describe("GitClone", () => {
     expect(block.querySelector(".bg-destructive-muted")).toBeNull()
   })
 
-  it("forwards githubAuthId to the hook", () => {
-    renderGitClone({ githubAuthId: "gh-auth" })
+  it("forwards envFrom to the hook", () => {
+    renderGitClone({ envFrom: ["gh-auth"] })
     expect(useGitClone).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "test-clone", githubAuthId: "gh-auth" }),
+      expect.objectContaining({ id: "test-clone", envFrom: ["gh-auth"] }),
+    )
+  })
+
+  it("shows why a githubAuthId prop can't be used, naming envFrom", () => {
+    renderGitClone({ githubAuthId: "gh-auth" })
+    expect(screen.getByText(/Runbooks doesn't support the githubAuthId prop/)).toHaveTextContent(
+      `Name the block in envFrom instead: envFrom={["gh-auth"]}.`,
     )
   })
 })

@@ -112,7 +112,7 @@ A template error, such as an output that doesn't exist yet, fails the block with
 
 ### One session per runbook
 
-The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. Resetting removes the variables that scripts and auth blocks set. To start the runbook over, choose **File > Reset Session**. To go back to an earlier session, choose **File > Switch Session…**.
+The app has one window and one session. Every script in a runbook shares it. Runbooks saves the session, and opening the runbook again resumes it, even after you restart the app. See [Sessions](/commands/sessions/). To reset the environment, use the session controls in the UI. Resetting removes the variables that scripts set, and signs every auth block out. To start the runbook over, choose **File > Reset Session**. To go back to an earlier session, choose **File > Switch Session…**.
 
 ### Starting environment
 
@@ -124,13 +124,13 @@ If you start Runbooks from Finder, the Dock or a desktop launcher on macOS or Li
 
 On Windows, Runbooks uses the environment it was started with.
 
-A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts and auth blocks had set when it was last open. An auth block can remove a variable, so a resumed session can also be missing one the environment has.
+A [resumed session](/commands/sessions/#resuming-a-session) starts from that same environment, and then gets back the variables its scripts had set when it was last open, and its auth blocks' sign-ins.
 
 When a [\<Prerequisites\>](/authoring/blocks/prerequisites/) block can't find a tool, Runbooks runs your login shell again, on macOS and Linux, to read `PATH`. It adds the directories that `PATH` has and the session's doesn't to the end of the session's `PATH`, and of the environment later sessions start from. See [Tools installed after Runbooks started](/authoring/blocks/prerequisites/#tools-installed-after-runbooks-started).
 
 ### How a script's variables are applied
 
-When a script exits with code 0 or 2, Runbooks sets the variables it wrote to `$RUNBOOK_ENV`. Every other variable in the session is left as it is. If the session changed while the script was running, for example because an auth block added credentials, those changes are kept. If the script and something else both set the same variable, the script's value wins.
+When a script exits with code 0 or 2, Runbooks sets the variables it wrote to `$RUNBOOK_ENV`. Every other variable in the session is left as it is. If another script changed the session while this one was running, those changes are kept. If both set the same variable, the script that finished last wins.
 
 If you open a different runbook while a script is running, the finished script's variables are discarded. The same applies to a sign-in or a `<GitClone>` still in progress when you switch: its credentials and checkout are not added to the new runbook's session. Sign in or clone again from the new runbook.
 
@@ -197,7 +197,7 @@ Scripts run in a non-interactive shell, which limits what they can use:
 
 | Feature | Available | Notes |
 |---------|-----------|-------|
-| Environment variables | Yes | The session's environment, including variables earlier blocks set |
+| Environment variables | Yes | The session's environment, including variables earlier scripts set, plus the credentials of the auth blocks the block's [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) names |
 | Binaries in `$PATH` | Yes | `git`, `aws`, `tofu` and so on |
 | Shell aliases | No | `ll`, `la`, custom aliases |
 | Shell functions | No | `nvm`, `rvm`, `assume` and so on |

@@ -62,7 +62,7 @@ Credentials are validated in the partition their region belongs to: the commerci
 
 ## Environment variables
 
-When authentication succeeds, these environment variables are set for later Command and Check blocks:
+When authentication succeeds, a Command, Check or Finish block that names the AwsAuth block in [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) runs with these environment variables:
 
 | Variable | Description |
 |----------|-------------|
@@ -71,11 +71,11 @@ When authentication succeeds, these environment variables are set for later Comm
 | `AWS_SESSION_TOKEN` | Session token (for temporary credentials from SSO or assume role) |
 | `AWS_REGION` | The selected default region |
 
-They are set in the session environment, so later blocks get them without setting `awsAuthId`.
+A block that names the AwsAuth block in `envFrom` gets these four variables only from that block, never from your shell or another AwsAuth block. `AWS_SESSION_TOKEN` is removed when the sign-in has none, so a session token from another sign-in is never paired with keys that don't use one. A block without `envFrom` doesn't get them.
 
 ## Block outputs
 
-The block also publishes its credentials as block outputs, so a specific AwsAuth block can be referenced by ID:
+The block also publishes its credentials as block outputs:
 
 | Output | Value |
 |--------|-------|
@@ -88,11 +88,7 @@ Clicking **Re-authenticate** replaces them with a single output, `__AUTHENTICATE
 
 ## Using with Commands and Checks
 
-A Command or Check block that doesn't set `awsAuthId` uses the session environment, which has the credentials of the most recently authenticated AwsAuth block. Each new sign-in replaces them.
-
-Clicking **Re-authenticate** on the success card withdraws the block's credentials, so blocks that reference it with `awsAuthId` (below) report it as not authenticated until the user signs in again. The session environment variables keep their previous values until the next sign-in replaces them.
-
-To make a Command or Check block use one specific AwsAuth block, regardless of which signed in last, set `awsAuthId`:
+Name the AwsAuth block in a Command or Check block's `envFrom` to run its script with the block's credentials:
 
 ```mdx
 <AwsAuth
@@ -106,7 +102,7 @@ To make a Command or Check block use one specific AwsAuth block, regardless of w
   id="verify-identity"
   title="Verify AWS Identity"
   command="aws sts get-caller-identity"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
   successMessage="Successfully authenticated!"
 />
 
@@ -114,12 +110,12 @@ To make a Command or Check block use one specific AwsAuth block, regardless of w
   id="list-buckets"
   title="List S3 Buckets"
   command="aws s3 ls"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
   successMessage="Buckets listed!"
 />
 ```
 
-A block that sets `awsAuthId` gets the referenced block's four [outputs](#block-outputs) as environment variables for that run, in place of the session values. `AWS_SESSION_TOKEN` is set even when it is empty, so a session token from another sign-in is never paired with keys that don't use one. The block's Run or Check button stays disabled until the referenced block has published credentials.
+The block's Run or Check button stays disabled until the AwsAuth block has signed in. Clicking **Re-authenticate** on the success card signs the block out, so those blocks wait until the user signs in again.
 
 ## Pre-selecting the SSO account and role
 
@@ -154,7 +150,7 @@ A runbook can have several AwsAuth blocks, one per AWS account:
   id="export-data"
   title="Export Data from Source"
   command="aws s3 cp s3://source-bucket/data.json /tmp/data.json"
-  awsAuthId="source-account"
+  envFrom={["source-account"]}
 />
 
 <AwsAuth
@@ -167,13 +163,11 @@ A runbook can have several AwsAuth blocks, one per AWS account:
   id="import-data"
   title="Import Data to Target"
   command="aws s3 cp /tmp/data.json s3://target-bucket/data.json"
-  awsAuthId="target-account"
+  envFrom={["target-account"]}
 />
 ```
 
-<Aside type="caution">
-With several AwsAuth blocks, the session environment variables hold the most recently authenticated credentials. Set `awsAuthId` on each command so it runs against the account you intend.
-</Aside>
+Each command runs against the account its `envFrom` names, whichever block signed in last.
 
 ## Local profile support
 
@@ -222,7 +216,7 @@ The region comes from `AWS_REGION`, then `AWS_DEFAULT_REGION`, then the block's 
 
 The user can then choose to "Use These Credentials" or "Use Different Credentials".
 
-When the user clicks "Use These Credentials", AwsAuth reads and validates the environment's credentials again before setting them in the session. If they now belong to a different AWS account than the prompt showed, the prompt switches to that account and the user has to confirm again.
+When the user clicks "Use These Credentials", AwsAuth reads and validates the environment's credentials again before it signs in with them. If they now belong to a different AWS account than the prompt showed, the prompt switches to that account and the user has to confirm again.
 
 ### Credential sources
 
@@ -261,7 +255,7 @@ A prefixed source checks for the standard AWS environment variables under a cust
 />
 ```
 
-A prefixed source reads only the prefixed variables. It never falls back to the unprefixed `AWS_*` credentials, so a `PROD_` block can't pick up your development keys by accident. When you confirm, the credentials are set in the session under the standard names (`AWS_ACCESS_KEY_ID`, `AWS_REGION`, and so on).
+A prefixed source reads only the prefixed variables. It never falls back to the unprefixed `AWS_*` credentials, so a `PROD_` block can't pick up your development keys by accident. When you confirm, the block signs in with them under the standard names (`AWS_ACCESS_KEY_ID`, `AWS_REGION`, and so on).
 
 Prefixes must follow these rules:
 
@@ -306,7 +300,7 @@ Use credentials generated by a previous Command block:
 <Command
   id="list-buckets"
   command="aws s3 ls"
-  awsAuthId="cross-account-auth"
+  envFrom={["cross-account-auth"]}
 />
 ```
 
@@ -334,11 +328,11 @@ If the referenced block has not run yet, AwsAuth shows *Waiting for assume-cross
 Only one `{ block: 'id' }` entry is allowed per AwsAuth block. More than one is a configuration error, and the block renders an error card in place of the authentication UI.
 </Aside>
 
-When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and registers the result. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate, for example because temporary credentials have expired, the block shows the error and registers nothing.
+When the user clicks "Use These Credentials", AwsAuth validates the Command's current outputs again and signs in with the result. If the Command was re-run in the meantime and its credentials now belong to a different AWS account, the prompt switches to that account and the user has to confirm again. If the credentials no longer validate, for example because temporary credentials have expired, the block shows the error and doesn't sign in.
 
 ### When users reject detected credentials
 
-Detection is read-only. It validates the credentials and shows the user which account they belong to, but does not register them to the session, so scripts can't use detected credentials until the user confirms them.
+Detection is read-only. It validates the credentials and shows the user which account they belong to, but doesn't sign in with them, so scripts can't get detected credentials through `envFrom` until the user confirms them.
 
 When a user clicks "Use Different Credentials":
 
@@ -347,7 +341,7 @@ When a user clicks "Use Different Credentials":
 
 A line above the sign-in tabs says what the user can do, followed by a **Check again** button that re-runs detection. It reads *No existing credentials found* when detection found nothing, asks the user to fix the credentials when the ones it found didn't validate, and says to sign in with different credentials after the user turned detected credentials down or clicked **Re-authenticate**. With `detectCredentials={false}` the line and the button are hidden.
 
-Credentials for the wrong account, such as production when the user expected development, were not registered, so no script runs with them.
+The block didn't sign in with credentials for the wrong account, such as production when the user expected development, so no script gets them through `envFrom`.
 
 ## Expiring credentials
 
@@ -363,19 +357,9 @@ Five minutes before the credentials expire, the block turns red, says when they 
 
 ### Credential protection
 
-When a runbook contains an `<AwsAuth>` block, Runbooks strips AWS credentials from the session at startup:
+A script gets an AwsAuth block's credentials only through `envFrom`, and only after the user confirms them. Detected credentials stay unused until then.
 
-1. Before confirmation, scripts in the runbook cannot read `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` or `AWS_SESSION_TOKEN`, even if they are set in your terminal.
-2. When AwsAuth checks for credentials, it reads them from your environment without registering them to the session.
-3. Clicking "Use These Credentials" adds the credentials to the session, where later scripts can use them.
-
-Only those three variables are withheld. The AWS CLI and SDKs can still find credentials elsewhere, such as in a profile in `~/.aws` (the `default` profile, or the one `AWS_PROFILE` names) or through a web identity token file. For example, with production keys exported in your terminal, opening a runbook meant for development does not let its scripts run against production. A production `AWS_PROFILE` exported in your terminal still would.
-
-[Runbook tests](/authoring/testing/) don't withhold any of these variables.
-
-<Aside type="tip">
-A runbook with no AwsAuth block leaves environment credentials in place, and all scripts can use them.
-</Aside>
+A script without `envFrom` runs with the environment the app started with, like a script you run in a terminal. AWS credentials you already have, such as `AWS_ACCESS_KEY_ID` exported in your shell, an `AWS_PROFILE` or a profile in `~/.aws`, work as they do there. A script that names an AwsAuth block in `envFrom` runs without your own `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and `AWS_REGION`, so the block's keys aren't mixed with yours.
 
 ### Why confirmation is required
 
@@ -384,8 +368,8 @@ AWS operations often take effect immediately and can't be undone. They create re
 ### Credential handling
 
 - Authentication happens between your machine and AWS. Credentials are not sent to Gruntwork or any other server unless a script in your runbook sends them.
-- Credentials are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
-- Credentials are validated with STS GetCallerIdentity before they are registered to the session.
+- The block's sign-in is kept with your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
+- Credentials are validated with STS GetCallerIdentity before the block signs in with them.
 
 ## Detailed example
 

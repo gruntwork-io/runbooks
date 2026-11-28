@@ -17,7 +17,7 @@ mockElectron({
 })
 
 const { registerSessionHandlers } = await import("./session.ts")
-const { runtime, saveVcsSessionMeta, sessionManager, vcsSessionMeta } = await import("./runtime.ts")
+const { runtime, sessionManager } = await import("./runtime.ts")
 const { installTestSessionPersistence } = await import("../test-utils/session-persistence.ts")
 
 registerSessionHandlers()
@@ -38,37 +38,58 @@ describe("session IPC handlers", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  // Both channels declare { ok: true }; the handlers returned nothing.
-  it("session:set-env adds the vars and returns { ok: true }", async () => {
-    const result = await handlers.get("session:set-env")!(undefined, {
-      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV" },
-    })
+  const setExport = (componentId: string, env: Record<string, string>) =>
+    handlers.get("session:set-env-export")!(undefined, { componentId, env })
 
-    expect(result).toEqual({ ok: true })
-    expect((await sessionEnv()).AWS_ACCESS_KEY_ID).toBe("AKIA_SET_ENV")
-  })
-
-  it("session:set-env refuses a var an <AwsAuth> block doesn't write, and sets nothing", async () => {
+  it("session:set-env-export saves the block's AWS sign-in as its export, not in the env", async () => {
     const before = await sessionEnv()
 
-    const set = handlers.get("session:set-env")!(undefined, {
-      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV", PATH: "/tmp/evil-bin", BASH_ENV: "/tmp/evil.sh" },
-    })
+    const result = await setExport("aws", { AWS_ACCESS_KEY_ID: "AKIA_EXPORT" })
 
-    await expect(set).rejects.toThrow("BASH_ENV, PATH")
+    expect(result).toEqual({ ok: true })
+    expect(sessionManager.getEnvExport("aws")?.env).toEqual({ AWS_ACCESS_KEY_ID: "AKIA_EXPORT" })
     expect(await sessionEnv()).toEqual(before)
   })
 
-  it("session:reset restores the initial env and returns { ok: true }", async () => {
-    const initial = (await sessionEnv()).AWS_ACCESS_KEY_ID
-    await handlers.get("session:set-env")!(undefined, {
-      env: { AWS_ACCESS_KEY_ID: "AKIA_SET_ENV" },
+  it("session:set-env-export refuses a var an <AwsAuth> block doesn't export, and saves nothing", async () => {
+    const set = setExport("aws", {
+      AWS_ACCESS_KEY_ID: "AKIA_EXPORT",
+      PATH: "/tmp/evil-bin",
+      BASH_ENV: "/tmp/evil.sh",
     })
+
+    await expect(set).rejects.toThrow("BASH_ENV, PATH")
+    expect(sessionManager.getEnvExport("aws")).toBeUndefined()
+  })
+
+  it("session:clear-env-export drops that block's export only", async () => {
+    await setExport("aws", { AWS_ACCESS_KEY_ID: "AKIA_ONE" })
+    await setExport("aws_other", { AWS_ACCESS_KEY_ID: "AKIA_TWO" })
+
+    const result = await handlers.get("session:clear-env-export")!(undefined, {
+      componentId: "aws",
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(sessionManager.getEnvExport("aws")).toBeUndefined()
+    expect(sessionManager.getEnvExport("aws_other")?.env.AWS_ACCESS_KEY_ID).toBe("AKIA_TWO")
+  })
+
+  it("session:reset restores the initial env, drops every block's export and returns { ok: true }", async () => {
+    const initial = await sessionEnv()
+    await runtime.runPromise(
+      sessionManager.applyScriptEnv({
+        env: { FROM_SCRIPT: "1" },
+        generation: sessionManager.getGeneration(),
+      }),
+    )
+    await setExport("aws", { AWS_ACCESS_KEY_ID: "AKIA_EXPORT" })
 
     const result = await handlers.get("session:reset")!(undefined)
 
     expect(result).toEqual({ ok: true })
-    expect((await sessionEnv()).AWS_ACCESS_KEY_ID).toBe(initial)
+    expect(await sessionEnv()).toEqual(initial)
+    expect(sessionManager.getEnvExport("aws")).toBeUndefined()
   })
 
   describe("on the open runbook's saved session", () => {
@@ -99,17 +120,6 @@ describe("session IPC handlers", () => {
 
     afterEach(() => {
       sessions.cleanup()
-    })
-
-    it("session:reset drops the session's git host bindings, saved ones included", async () => {
-      const session = await openSession("/repo/runbook.mdx")
-      vcsSessionMeta.set("gitlab", { host: "gitlab.com", source: "manual" })
-      saveVcsSessionMeta()
-
-      await handlers.get("session:reset")!(undefined)
-
-      expect(vcsSessionMeta.size).toBe(0)
-      expect((await runtime.runPromise(sessions.store.get(session.id)))?.vcsBindings).toEqual({})
     })
 
     it("session:rename renames the open session and returns its new name", async () => {

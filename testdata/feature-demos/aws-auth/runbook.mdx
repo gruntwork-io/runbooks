@@ -34,7 +34,7 @@ The simplest form of AwsAuth. With no `detectCredentials` prop, it defaults to `
   title="Verify AWS Identity"
   description="Confirms your AWS authentication by calling STS GetCallerIdentity"
   command="aws sts get-caller-identity"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
   successMessage="Successfully authenticated to AWS!"
   failMessage="Failed to authenticate. Please check your credentials above."
   usePty={false}
@@ -146,7 +146,7 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
     ROLE_NAME: "{{ .inputs.RoleName }}",
   }}
   title="Assume Cross-Account Role"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 >
   <Inputs id="assume-role-inputs">
     ```yaml
@@ -179,7 +179,7 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
   }}
   title="Assume Cross-Account Role"
   description="Assumes a role in another account and outputs temporary credentials. Configure the target account and role below."
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 >
   <Inputs id="assume-role-inputs">
     ```yaml
@@ -213,7 +213,7 @@ This is useful for cross-account access via `sts assume-role`, or any scenario w
   title="Verify Cross-Account Access"
   description="Confirms that the assumed role credentials are working"
   command="aws sts get-caller-identity"
-  awsAuthId="block-sourced"
+  envFrom={["block-sourced"]}
   successMessage="Successfully assumed cross-account role!"
   failMessage="Failed to verify cross-account credentials."
   usePty={false}
@@ -294,17 +294,15 @@ In this example, AwsAuth first checks for `PROD_AWS_ACCESS_KEY_ID`, etc. If thos
 
 ## 3. Multiple AWS Accounts
 
-A single runbook can include multiple AwsAuth blocks to authenticate to different AWS accounts. Use the `awsAuthId` prop on Command and Check blocks to specify which credentials to use.
-
-Without `awsAuthId`, blocks use the most recently authenticated credentials (the session environment). With `awsAuthId`, they use the specific AwsAuth block's credentials regardless of order.
+A single runbook can include multiple AwsAuth blocks to authenticate to different AWS accounts. A Command or Check names the AwsAuth block whose credentials it uses in its `envFrom` prop. A block that names none gets no credentials from an AwsAuth block.
 
 ```mdx
 <AwsAuth id="primary-account" defaultRegion="us-west-2" />
 <AwsAuth id="secondary-account" defaultRegion="us-east-1" />
 
 {/* Each Check targets a specific AwsAuth block */}
-<Check command="aws s3 ls" awsAuthId="primary-account" />
-<Check command="aws s3 ls" awsAuthId="secondary-account" />
+<Check command="aws s3 ls" envFrom={["primary-account"]} />
+<Check command="aws s3 ls" envFrom={["secondary-account"]} />
 ```
 
 ### Secondary Account
@@ -326,7 +324,7 @@ Without `awsAuthId`, blocks use the most recently authenticated credentials (the
   title="List S3 Buckets (Primary Account)"
   description="Lists S3 buckets in the primary AWS account"
   command="echo 'Primary account buckets:' && aws s3 ls"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
   successMessage="Primary account buckets listed!"
   failMessage="Failed to list buckets in primary account."
 />
@@ -336,7 +334,7 @@ Without `awsAuthId`, blocks use the most recently authenticated credentials (the
   title="List S3 Buckets (Secondary Account)"
   description="Lists S3 buckets in the secondary AWS account"
   command="echo 'Secondary account buckets:' && aws s3 ls"
-  awsAuthId="aws-auth-secondary"
+  envFrom={["aws-auth-secondary"]}
   successMessage="Secondary account buckets listed!"
   failMessage="Failed to list buckets in secondary account."
 />
@@ -347,23 +345,18 @@ Without `awsAuthId`, blocks use the most recently authenticated credentials (the
 
 ### Environment Variables Set
 
-When you authenticate (manually or by confirming auto-detected credentials), these environment variables are set:
+When you authenticate (manually or by confirming auto-detected credentials), a Command or Check that names the block in `envFrom` runs with these environment variables:
 
 - `AWS_ACCESS_KEY_ID`
 - `AWS_SECRET_ACCESS_KEY`
 - `AWS_SESSION_TOKEN` (if using temporary credentials from SSO, assume-role, etc.)
 - `AWS_REGION`
 
-### Session vs `awsAuthId`
-
-By default, credentials are set as **session environment variables**. Every subsequent Command and Check block sees them. The most recently authenticated AwsAuth block's credentials are the "active" ones.
-
-When you specify `awsAuthId` on a Command or Check, that block uses the specified AwsAuth block's credentials **directly**, overriding the session environment for that execution only.
+A variable the sign-in has no value for is removed for that run, so an `AWS_SESSION_TOKEN` from your shell or from another sign-in never mixes with IAM keys.
 
 ### Security
 
-- **Confirmation required**: Auto-detected credentials are never registered to the session until you confirm. This prevents accidental operations against the wrong AWS account.
-- **Credential stripping**: When a runbook contains any AwsAuth blocks, AWS credentials are automatically stripped from the session at startup. Scripts cannot access AWS credentials until you explicitly confirm.
+- **Confirmation required**: Auto-detected credentials aren't used until you confirm. This prevents accidental operations against the wrong AWS account.
 - **Credentials stay local**: All authentication happens between your machine and AWS. Credentials are never transmitted to external servers.
 - **Validation before use**: Credentials are validated via STS GetCallerIdentity before being registered.
 

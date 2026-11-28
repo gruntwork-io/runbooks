@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { TestWrapper } from "@/test/test-utils"
 import { ApiProvider } from "@/contexts/ApiContext"
 import { IpcSessionHistoryProvider } from "@/contexts/IpcSessionHistoryContext"
@@ -76,6 +76,7 @@ beforeEach(() => {
     "azure:cancel": () => ({ ok: true }),
     "azure:validate-session": () => ENDED,
     "azure:detect": () => ({ found: false }),
+    "session:clear-env-export": () => ({ ok: true }),
   })
 })
 
@@ -107,6 +108,25 @@ function renderBlock(props: Partial<AzureAuthProps> = {}, saved: unknown = SAVED
 }
 
 const RESTARTED = "Runbooks was restarted, so sign in again."
+
+describe("AzureAuth after a restart — the export", () => {
+  it("drops the block's export when its sign-in ended", async () => {
+    renderBlock()
+
+    await waitFor(() =>
+      expect(testApi.callsTo("session:clear-env-export")).toEqual([{ componentId: "azure" }]),
+    )
+  })
+
+  it("keeps the export when the saved sign-in still works", async () => {
+    testApi.handle("azure:validate-session", () => ({ valid: true }))
+    renderBlock()
+
+    await waitFor(() => expect(testApi.callsTo("azure:validate-session")).toHaveLength(1))
+    await act(async () => {})
+    expect(testApi.callsTo("session:clear-env-export")).toEqual([])
+  })
+})
 
 describe("AzureAuth after a restart — a detected sign-in", () => {
   it("signs in again without asking when the same sign-in is still there", async () => {

@@ -22,9 +22,11 @@ mockElectron({
 
 const { registerGitHandlers } = await import("./git.ts")
 const { runtime, sessionManager } = await import("./runtime.ts")
+const { authEnvExport } = await import("../../../src/domain/exec/authEnv.ts")
 
-// A github.com URL, so that with a token the clone looks the repository up on
-// the GitHub API once git is done. git's url.<base>.insteadOf (set through
+// A github.com URL, so that with a token (from the GitHub Auth block the clone
+// names in envFrom) the clone looks the repository up on the GitHub API once
+// git is done. git's url.<base>.insteadOf (set through
 // GIT_CONFIG_* in the environment the handler spawns git with) redirects it
 // to a local repository.
 const REMOTE_URL = "https://github.com/acme/infra.git"
@@ -76,6 +78,11 @@ beforeAll(async () => {
   process.env.GIT_CONFIG_VALUE_0 = REMOTE_URL
 
   await runtime.runPromise(sessionManager.createSession(workDir))
+  const signIn = authEnvExport("github", { GITHUB_TOKEN: "ghp_test", GITHUB_HOST: "github.com" })
+  if (!signIn.ok) throw new Error(signIn.error)
+  await runtime.runPromise(
+    sessionManager.setEnvExport("gh", signIn.export, sessionManager.getGeneration()),
+  )
   registerGitHandlers()
 })
 
@@ -116,7 +123,7 @@ const startClone = (params: Record<string, unknown>) =>
   handlers.get("git:clone")!(event, {
     url: REMOTE_URL,
     provider: "github",
-    credentials: { token: "ghp_test" },
+    envFrom: ["gh"],
     ...params,
   })
 const cancel = (cloneId: string) => handlers.get("git:clone-cancel")!(null, { cloneId })

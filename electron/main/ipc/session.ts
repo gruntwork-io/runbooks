@@ -5,14 +5,8 @@
  * All handlers are process-local and trusted.
  */
 import { ipcMain } from "electron"
-import { AWS_AUTH_ENV_VARS, disallowedEnvVars } from "../../../src/domain/exec/authEnv.ts"
-import {
-  runtime,
-  saveVcsSessionMeta,
-  sessionManager,
-  sessionPersistence,
-  vcsSessionMeta,
-} from "./runtime.ts"
+import { authEnvExport } from "../../../src/domain/exec/authEnv.ts"
+import { runtime, sessionManager, sessionPersistence } from "./runtime.ts"
 import { switchToSession } from "./session-switch.ts"
 
 export function registerSessionHandlers(): void {
@@ -22,22 +16,31 @@ export function registerSessionHandlers(): void {
 
   ipcMain.handle("session:reset", async () => {
     await runtime.runPromise(sessionManager.resetSession())
-    // The reset restores the initial env, dropping every credential an auth
-    // block wrote, so drop their host bindings with them.
-    vcsSessionMeta.clear()
-    saveVcsSessionMeta()
     return { ok: true as const }
   })
 
-  // An <AwsAuth> block's credentials, its only caller. The session env
-  // reaches every later script, so any other name is refused: a caller
-  // can't set PATH, BASH_ENV, LD_PRELOAD and the like for them.
-  ipcMain.handle("session:set-env", async (_event, params: { env: Record<string, string> }) => {
-    const refused = disallowedEnvVars(params.env, AWS_AUTH_ENV_VARS)
-    if (refused.length > 0) {
-      throw new Error(`session:set-env only takes AWS credentials, not ${refused.join(", ")}`)
-    }
-    await runtime.runPromise(sessionManager.appendToEnv(params.env))
+  // An <AwsAuth> block's sign-in, its only caller: the renderer holds the
+  // keys it resolved. Every other auth block's export is set in the main
+  // process, where its credentials are. Only AWS variables are taken, so a
+  // caller can't export PATH, BASH_ENV, LD_PRELOAD and the like.
+  ipcMain.handle(
+    "session:set-env-export",
+    async (_event, params: { componentId: string; env: Record<string, string> }) => {
+      const generation = sessionManager.getGeneration()
+      const envExport = authEnvExport("aws", params.env)
+      if (!envExport.ok) throw new Error(envExport.error)
+      await runtime.runPromise(
+        sessionManager.setEnvExport(params.componentId, envExport.export, generation),
+      )
+      return { ok: true as const }
+    },
+  )
+
+  // An auth block signed out, or is signing in again: scripts that name it in
+  // envFrom wait until it has a sign-in.
+  ipcMain.handle("session:clear-env-export", async (_event, params: { componentId: string }) => {
+    const generation = sessionManager.getGeneration()
+    await runtime.runPromise(sessionManager.clearEnvExport(params.componentId, generation))
     return { ok: true as const }
   })
 

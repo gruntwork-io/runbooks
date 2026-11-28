@@ -14,6 +14,9 @@ const baseExecution = {
   envTemplates: {} as Record<string, string>,
   envVars: [] as Array<{ name: string; value: string }>,
   envError: null as string | null,
+  envFrom: [] as readonly string[],
+  envFromError: null as string | null,
+  unsignedEnvFrom: [] as string[],
   workingDirTemplate: "",
   workingDirError: null as string | null,
   interpreter: "",
@@ -28,14 +31,6 @@ const baseExecution = {
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },
-  unmetAwsAuthDependency: null,
-  hasAwsAuthDependency: true,
-  unmetGitHubAuthDependency: null,
-  hasGitHubAuthDependency: true,
-  unmetGoogleAuthDependency: null,
-  hasGoogleAuthDependency: true,
-  unmetAzureAuthDependency: null as { blockId: string } | null,
-  hasAzureAuthDependency: true,
   isRendering: false,
   renderError: null,
   status: "pending" as string,
@@ -309,6 +304,25 @@ describe("Command — instruction mode", () => {
     expect(screen.getByTestId("instruction-test-cmd-interpreter")).toHaveTextContent(
       "Run this with python3:",
     )
+  })
+
+  it("names the blocks whose credentials the step needs, without any of their values", () => {
+    mockExecution.rawScriptContent = "aws s3 ls"
+    mockExecution.envFrom = ["aws_prod", "gh"]
+    renderCommand({ command: "aws s3 ls", envFrom: ["aws_prod", "gh"] })
+
+    expect(screen.getByTestId("instruction-test-cmd-env-from")).toHaveTextContent(
+      "This step uses the credentials of aws_prod, gh. Sign in to the same accounts in your shell before you run it.",
+    )
+    const codes = screen.getByTestId("instruction-test-cmd").querySelectorAll("code")
+    expect([...codes].map((code) => code.textContent)).toEqual(["aws s3 ls"])
+  })
+
+  it("says nothing about credentials when the block has no envFrom", () => {
+    mockExecution.rawScriptContent = "echo hello"
+    renderCommand()
+
+    expect(screen.queryByTestId("instruction-test-cmd-env-from")).toBeNull()
   })
 
   it("says nothing about a program when the block has no interpreter prop", () => {

@@ -68,7 +68,7 @@ await mock.module("../window.ts", () => ({
 }))
 
 const { registerGitHubHandlers, resolveRequestedGitHubHost } = await import("./github.ts")
-const { sessionManager, vcsSessionMeta } = await import("./runtime.ts")
+const { sessionManager } = await import("./runtime.ts")
 const systemTrust = await import("../system-trust.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
 const { DEFAULT_GITHUB_OAUTH_CLIENT_ID } = await import("../../../src/domain/github/auth.ts")
@@ -170,7 +170,6 @@ beforeEach(async () => {
   process.env.GH_CONFIG_DIR = ghConfigDir
   fetchCalls = []
   mockFetch(githubResponder)
-  vcsSessionMeta.clear()
   await Effect.runPromise(
     sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment({}))),
   )
@@ -178,7 +177,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
-  vcsSessionMeta.clear()
   sessionManager.deleteSession()
   fs.rmSync(userDataDir, { recursive: true, force: true })
   fs.rmSync(ghConfigDir, { recursive: true, force: true })
@@ -186,6 +184,12 @@ afterEach(() => {
 
 const sessionEnv = async () =>
   Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
+
+/** The auth block the sign-ins below are made for. */
+const AUTH = "github_auth"
+
+/** What block `blockId` exports, or undefined when it hasn't signed in. */
+const exported = (blockId = AUTH) => sessionManager.getEnvExport(blockId)?.env
 const vcsAuthStore = () => {
   try {
     return JSON.parse(fs.readFileSync(nodePath.join(userDataDir, "vcs-auth.json"), "utf8"))
@@ -264,7 +268,7 @@ describe("github:oauth-poll", () => {
     expect(fetchCalls).toHaveLength(0)
   })
 
-  it("completes on the enterprise host and writes the host-bound session env", async () => {
+  it("completes on the enterprise host and exports the host-bound credential", async () => {
     mockFetch((url) =>
       url.endsWith("/login/oauth/access_token")
         ? json({ access_token: "gho_ghes_oauth" })
@@ -274,6 +278,7 @@ describe("github:oauth-poll", () => {
       host: GHES,
       clientId: "Iv1.ghes",
       deviceCode: "dc",
+      componentId: AUTH,
     })
     expect(result.status).toBe("complete")
     expect(JSON.stringify(result)).not.toContain("gho_ghes_oauth") // metadata only
@@ -281,18 +286,20 @@ describe("github:oauth-poll", () => {
       `https://${GHES}/login/oauth/access_token`,
       `https://${GHES}/api/v3/user`,
     ])
-    const env = await sessionEnv()
-    expect(env.GITHUB_HOST).toBe(GHES)
-    expect(env.GH_ENTERPRISE_TOKEN).toBe("gho_ghes_oauth")
+    expect(exported()?.GITHUB_HOST).toBe(GHES)
+    expect(exported()?.GH_ENTERPRISE_TOKEN).toBe("gho_ghes_oauth")
+    // The session's env keeps nothing of it
+    expect((await sessionEnv()).GITHUB_HOST).toBeUndefined()
   })
 })
 
 describe("github:validate", () => {
-  it("GHES: validates on that host and writes GITHUB_TOKEN/GITHUB_HOST/GH_HOST/GH_ENTERPRISE_TOKEN", async () => {
+  it("GHES: validates on that host and exports GITHUB_TOKEN/GITHUB_HOST/GH_HOST/GH_ENTERPRISE_TOKEN", async () => {
     const result = await invoke("github:validate", {
       token: "ghp_pat",
       host: GHES,
       registerSession: true,
+      componentId: AUTH,
     })
     expect(result.valid).toBe(true)
     expect(result.user.login).toBe("alice")
@@ -304,14 +311,14 @@ describe("github:validate", () => {
         authorization: "Bearer ghp_pat",
       },
     ])
-    const env = await sessionEnv()
-    expect(env.GITHUB_TOKEN).toBe("ghp_pat")
-    expect(env.GITHUB_USER).toBe("alice")
-    expect(env.GITHUB_HOST).toBe(GHES)
-    expect(env.GH_HOST).toBe(GHES)
-    expect(env.GH_ENTERPRISE_TOKEN).toBe("ghp_pat")
-    // main-only host binding recorded; host remembered for picker + CSP
-    expect(vcsSessionMeta.get("github")?.host).toBe(GHES)
+    expect(exported()).toEqual({
+      GITHUB_TOKEN: "ghp_pat",
+      GITHUB_USER: "alice",
+      GITHUB_HOST: GHES,
+      GH_HOST: GHES,
+      GH_ENTERPRISE_TOKEN: "ghp_pat",
+    })
+    // host remembered for picker + CSP
     expect(vcsAuthStore()).toMatchObject({
       recentGitHubHosts: [GHES],
       lastSelectedGitHubHost: GHES,
@@ -323,18 +330,19 @@ describe("github:validate", () => {
       token: "ghp_pat",
       host: `https://${GHEC}/o/r`,
       registerSession: true,
+      componentId: AUTH,
     })
     expect(fetchCalls[0]?.url).toBe(`https://api.${GHEC}/user`)
-    const env = await sessionEnv()
+    const env = exported() ?? {}
     expect(env.GITHUB_HOST).toBe(GHEC)
     expect(env.GH_HOST).toBe(GHEC)
     expect(env.GH_ENTERPRISE_TOKEN).toBeUndefined()
   })
 
   it("github.com (no host): unchanged, not added to the enterprise recents", async () => {
-    await invoke("github:validate", { token: "ghp_pat", registerSession: true })
+    await invoke("github:validate", { token: "ghp_pat", registerSession: true, componentId: AUTH })
     expect(fetchCalls[0]?.url).toBe("https://api.github.com/user")
-    const env = await sessionEnv()
+    const env = exported() ?? {}
     expect(env.GITHUB_HOST).toBe("github.com")
     expect(env.GH_ENTERPRISE_TOKEN).toBeUndefined()
     expect(vcsAuthStore()).toMatchObject({
@@ -343,16 +351,36 @@ describe("github:validate", () => {
     })
   })
 
-  it("refuses an invalid host without any request or session write", async () => {
+  it("refuses an invalid host without any request or export", async () => {
     const result = await invoke("github:validate", {
       token: "ghp_pat",
       host: "https://u:p@ghes.example.com",
       registerSession: true,
+      componentId: AUTH,
     })
     expect(result.valid).toBe(false)
     expect(result.error).toMatch(/Invalid GitHub host/)
     expect(fetchCalls).toHaveLength(0)
-    expect((await sessionEnv()).GITHUB_TOKEN).toBeUndefined()
+    expect(exported()).toBeUndefined()
+  })
+
+  it("fails a sign-in whose export can't be saved, naming why without the token", async () => {
+    sessionManager.deleteSession()
+
+    const result = invoke("github:validate", {
+      token: "ghp_unsaved",
+      registerSession: true,
+      componentId: AUTH,
+    })
+
+    await expect(result).rejects.toThrow("Runbooks couldn't save the sign-in: no active session")
+    await expect(result).rejects.not.toThrow("ghp_unsaved")
+  })
+
+  it("validates without exporting for a request that names no block", async () => {
+    const result = await invoke("github:validate", { token: "ghp_pat", registerSession: true })
+    expect(result.valid).toBe(true)
+    expect(exported()).toBeUndefined()
   })
 
   it("a failed validation carries the host", async () => {
@@ -372,13 +400,18 @@ describe("github:validate", () => {
     expect(result.host).toBe(GHES)
   })
 
-  it("useSessionToken validates the session credential FOR THAT HOST only", async () => {
-    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+  it("fromBlock validates that block's credential FOR THAT HOST only", async () => {
+    await invoke("github:validate", {
+      token: "ghp_ghes",
+      host: GHES,
+      registerSession: true,
+      componentId: AUTH,
+    })
     fetchCalls = []
-    const other = await invoke("github:validate", { host: "github.com", useSessionToken: true })
+    const other = await invoke("github:validate", { host: "github.com", fromBlock: AUTH })
     expect(other.valid).toBe(false)
     expect(fetchCalls).toHaveLength(0) // the GHES token never goes to github.com
-    const same = await invoke("github:validate", { host: GHES, useSessionToken: true })
+    const same = await invoke("github:validate", { host: GHES, fromBlock: AUTH })
     expect(same.valid).toBe(true)
     expect(fetchCalls.map((c) => [c.url, c.authorization])).toEqual([
       [`https://${GHES}/api/v3/user`, "Bearer ghp_ghes"],
@@ -420,7 +453,7 @@ describe("github:env-credentials / github:cli-credentials", () => {
     process.env.GH_HOST = GHES
     process.env.GH_ENTERPRISE_TOKEN = "ghp_env_ent"
     process.env.GITHUB_TOKEN = "ghp_env_dotcom"
-    const result = await invoke("github:env-credentials", { host: GHES })
+    const result = await invoke("github:env-credentials", { host: GHES, componentId: AUTH })
     expect(result.found).toBe(true)
     expect(result.valid).toBe(true)
     expect(result.host).toBe(GHES)
@@ -428,7 +461,7 @@ describe("github:env-credentials / github:cli-credentials", () => {
     expect(fetchCalls.map((c) => [c.url, c.authorization])).toEqual([
       [`https://${GHES}/api/v3/user`, "Bearer ghp_env_ent"],
     ])
-    expect((await sessionEnv()).GH_ENTERPRISE_TOKEN).toBe("ghp_env_ent")
+    expect(exported()?.GH_ENTERPRISE_TOKEN).toBe("ghp_env_ent")
   })
 
   it("env-credentials for GHES without GH_HOST: absent, GITHUB_TOKEN never sent there", async () => {
@@ -475,14 +508,13 @@ describe("a sign-in that finishes after another runbook opened", () => {
         .createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx")
         .pipe(Effect.provide(makeTestEnvironment({}))),
     )
-    vcsSessionMeta.clear()
   }
 
   it.each([
-    ["github:validate", { token: "ghp_from_a", registerSession: true }, "valid"],
-    ["github:oauth-poll", { deviceCode: "dc" }, "status"],
-    ["github:env-credentials", {}, "valid"],
-  ] as const)("%s writes nothing to the new runbook's session", async (channel, params, okKey) => {
+    ["github:validate", { token: "ghp_from_a", registerSession: true, componentId: AUTH }, "valid"],
+    ["github:oauth-poll", { deviceCode: "dc", componentId: AUTH }, "status"],
+    ["github:env-credentials", { componentId: AUTH }, "valid"],
+  ] as const)("%s exports nothing in the new runbook's session", async (channel, params, okKey) => {
     process.env.GITHUB_TOKEN = "ghp_env_from_a"
     const release = holdValidation()
 
@@ -493,61 +525,97 @@ describe("a sign-in that finishes after another runbook opened", () => {
 
     // Runbook A's (now unmounted) block still gets its answer...
     expect(result[okKey]).toBe(okKey === "status" ? "complete" : true)
-    // ...but runbook B's session has no credential and no GitHub host binding.
-    const env = await sessionEnv()
-    expect(env.GITHUB_TOKEN).toBeUndefined()
-    expect(env.GH_TOKEN).toBeUndefined()
-    expect(env.GITHUB_HOST).toBeUndefined()
-    expect(vcsSessionMeta.get("github")).toBeUndefined()
+    // ...but runbook B's session has no export for it.
+    expect(exported()).toBeUndefined()
   })
 
-  it("without a runbook switch, the same held validation still writes the session", async () => {
+  it("without a runbook switch, the same held validation still exports the credential", async () => {
     const release = holdValidation()
-    const pending = invoke("github:validate", { token: "ghp_same_runbook", registerSession: true })
+    const pending = invoke("github:validate", {
+      token: "ghp_same_runbook",
+      registerSession: true,
+      componentId: AUTH,
+    })
     release()
     expect((await pending).valid).toBe(true)
-    expect((await sessionEnv()).GITHUB_TOKEN).toBe("ghp_same_runbook")
-    expect(vcsSessionMeta.get("github")?.host).toBe("github.com")
+    expect(exported()?.GITHUB_TOKEN).toBe("ghp_same_runbook")
+    expect(exported()?.GITHUB_HOST).toBe("github.com")
   })
 })
 
-describe("github:orgs (session credential per host)", () => {
-  it("uses the session credential for the requested host and calls that host's API", async () => {
-    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+describe("github:orgs (the envFrom block's credential, per host)", () => {
+  it("uses the block's credential for the requested host and calls that host's API", async () => {
+    await invoke("github:validate", {
+      token: "ghp_ghes",
+      host: GHES,
+      registerSession: true,
+      componentId: AUTH,
+    })
     fetchCalls = []
-    const orgs = await invoke("github:orgs", { host: GHES })
+    const orgs = await invoke("github:orgs", { host: GHES, envFrom: [AUTH] })
     expect(orgs).toEqual([{ id: 1, login: "corp", name: undefined }])
     expect(fetchCalls[0]?.url).toBe(`https://${GHES}/api/v3/user/orgs?per_page=100&page=1`)
     expect(fetchCalls[0]?.authorization).toBe("Bearer ghp_ghes")
   })
 
-  it("host omitted → the session's GitHub host", async () => {
-    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+  it("host omitted → the block's GitHub host", async () => {
+    await invoke("github:validate", {
+      token: "ghp_ghes",
+      host: GHES,
+      registerSession: true,
+      componentId: AUTH,
+    })
     fetchCalls = []
-    await invoke("github:orgs")
+    await invoke("github:orgs", { envFrom: [AUTH] })
     expect(fetchCalls[0]!.url.startsWith(`https://${GHES}/api/v3/`)).toBe(true)
   })
 
   it("a different host gets no token and no request", async () => {
-    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+    await invoke("github:validate", {
+      token: "ghp_ghes",
+      host: GHES,
+      registerSession: true,
+      componentId: AUTH,
+    })
     fetchCalls = []
-    await expect(invoke("github:orgs", { host: "github.com" })).rejects.toThrow(
-      /No GitHub token for github.com/,
+    await expect(invoke("github:orgs", { host: "github.com", envFrom: [AUTH] })).rejects.toThrow(
+      /No GitHub sign-in for github.com/,
     )
+    expect(fetchCalls).toHaveLength(0)
+  })
+
+  it("without envFrom, a token in the session's env goes nowhere", async () => {
+    await Effect.runPromise(
+      sessionManager.applyScriptEnv({
+        env: { GITHUB_TOKEN: "ghp_inherited", GITHUB_HOST: "github.com" },
+        generation: sessionManager.getGeneration(),
+      }),
+    )
+    await expect(invoke("github:orgs", { host: "github.com" })).rejects.toThrow(/No GitHub sign-in/)
     expect(fetchCalls).toHaveLength(0)
   })
 })
 
 describe("github:labels", () => {
   it("returns the repo's label names wrapped in { labels }, matching the channel contract", async () => {
-    await invoke("github:validate", { token: "ghp_ghes", host: GHES, registerSession: true })
+    await invoke("github:validate", {
+      token: "ghp_ghes",
+      host: GHES,
+      registerSession: true,
+      componentId: AUTH,
+    })
     mockFetch((url) =>
       url.includes("/repos/acme/infra/labels")
         ? json([{ name: "bug" }, { name: "infra" }])
         : githubResponder(url),
     )
     fetchCalls = []
-    const result = await invoke("github:labels", { owner: "acme", repo: "infra", host: GHES })
+    const result = await invoke("github:labels", {
+      owner: "acme",
+      repo: "infra",
+      host: GHES,
+      envFrom: [AUTH],
+    })
     // The renderer reads `result.labels`; a bare array leaves the pull
     // request's label picker empty.
     expect(result).toEqual({ labels: ["bug", "infra"] })
@@ -581,13 +649,12 @@ describe("github:enumerate-hosts", () => {
     })
   })
 
-  it("merges hosts.yml, GH_HOST, the session host and recents — deduped with provenance", async () => {
+  it("merges hosts.yml, GH_HOST and recents — deduped with provenance", async () => {
     writeHostsYml(
       `github.com:\n    user: octocat\n    oauth_token: gho_x\nGHES.example.com:\n    user: alice\n`,
     )
     process.env.GH_HOST = GHEC
     process.env.GITHUB_TOKEN = "ghp_tenant"
-    vcsSessionMeta.set("github", { host: GHES })
     writeVcsAuthStore({
       recentGitLabHosts: [],
       recentGitHubHosts: ["recent-ghes.example.com", GHES, "ftp://junk"],
@@ -602,7 +669,7 @@ describe("github:enumerate-hosts", () => {
       "recent-ghes.example.com",
     ])
     expect(hosts["github.com"]?.sources).toEqual(["gh"])
-    expect(hosts[GHES]!.sources.sort()).toEqual(["gh", "recent", "session"])
+    expect(hosts[GHES]!.sources.sort()).toEqual(["gh", "recent"])
     expect(hosts[GHEC]?.sources).toEqual(["env"])
     expect(hosts["recent-ghes.example.com"]?.sources).toEqual(["recent"])
     // offline credential check

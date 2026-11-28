@@ -217,7 +217,7 @@ Runbooks can't mask what your scripts and templates produce from the real value:
 - A block's log shows everything its script prints, so don't `echo` a sensitive value, in the script that produces it or in one that uses it.
 - A file that a `<Template>` or a `<TemplateInline>` with `generateFile` writes holds the real value, and the block's preview and the generated files show it.
 
-To use a credential in later blocks without writing it anywhere, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/). For a credential no auth block handles, write it to `$RUNBOOK_ENV` in the producing script, and later Command and Check scripts read it from the environment (see [Setting variables for later blocks](/security/shell-execution-context/#setting-variables-for-later-blocks)).
+To use a credential in later blocks without writing it anywhere, pass it through an auth block such as [`<AwsAuth>`](/authoring/blocks/awsauth/) and name that block in their [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block). For a credential no auth block handles, write it to `$RUNBOOK_ENV` in the producing script, and later Command and Check scripts read it from the environment (see [Setting variables for later blocks](/security/shell-execution-context/#setting-variables-for-later-blocks)).
 </Aside>
 
 ### Consuming outputs

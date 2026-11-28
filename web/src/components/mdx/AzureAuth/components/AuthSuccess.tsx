@@ -1,15 +1,13 @@
-import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { AzureSignInInfo } from "../types"
 import { authTypeLabel, principalTypeLabel } from "../utils"
 
 interface AuthSuccessProps {
   info: AzureSignInInfo
-  warningMessage: string | null
   onReAuthenticate: () => void
 }
 
-export function AuthSuccess({ info, warningMessage, onReAuthenticate }: AuthSuccessProps) {
+export function AuthSuccess({ info, onReAuthenticate }: AuthSuccessProps) {
   const { principal } = info
   return (
     <div className="mb-4">
@@ -51,12 +49,6 @@ export function AuthSuccess({ info, warningMessage, onReAuthenticate }: AuthSucc
           </div>
         )}
       </div>
-      {warningMessage && (
-        <div className="mt-3 bg-warning-muted border border-warning/30 rounded p-3 text-sm text-warning-foreground flex items-start gap-2">
-          <AlertTriangle className="size-4 mt-0.5 flex-shrink-0" />
-          <div className="min-w-0">{warningMessage}</div>
-        </div>
-      )}
       <div className="mt-3">
         <Button variant="outline" size="sm" onClick={onReAuthenticate}>
           Re-authenticate

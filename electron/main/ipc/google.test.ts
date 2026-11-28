@@ -1,14 +1,13 @@
 /**
- * GoogleAuth's session writes against a runbook switch mid-sign-in, the
- * region/zone a sign-in writes against the ones it returns, and the
- * google:check-project reply the success card shows.
+ * GoogleAuth's exports against a runbook switch mid-sign-in, the region/zone
+ * a sign-in exports against the ones it returns, and the google:check-project
+ * reply the success card shows.
  *
  * Runs the real session manager, credential registry and credential-file
  * custody; only `electron` is replaced, plus the Google SDK boundary where a
  * handler calls it. A sign-in that finishes after a different runbook opened
- * must leave that runbook's session env and credential registry exactly as
- * they were, even when both runbooks have a `<GoogleAuth>` block with the same
- * id.
+ * must leave that runbook's exports and credential registry exactly as they
+ * were, even when both runbooks have a `<GoogleAuth>` block with the same id.
  */
 import { describe, it, expect, beforeEach, afterEach, spyOn } from "bun:test"
 import * as fs from "node:fs"
@@ -70,23 +69,24 @@ const openRunbookEffect = (name: string) =>
   )
 const openRunbook = (name: string) => Effect.runPromise(openRunbookEffect(name))
 
-const sessionEnv = async () =>
-  Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
+/** The variables block `blockId`'s export sets, or none when it has no export. */
+const exported = (blockId = "gcp") => sessionManager.getEnvExport(blockId)?.env ?? {}
 
 const credentialDirs = () =>
   fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("runbooks-gcp-"))
 
 /**
- * Open `name` from inside the next session env write, before it lands: the
- * user switching runbooks while a sign-in is saving its credential.
+ * Open `name` from inside the next export, before it lands: the user
+ * switching runbooks while a sign-in is saving its credential.
  */
-const openRunbookDuringNextEnvWrite = (name: string, alsoInNewRunbook?: () => void) => {
-  const original = sessionManager.appendToEnv.bind(sessionManager)
-  const spy = spyOn(sessionManager, "appendToEnv").mockImplementationOnce((env, generation) =>
-    openRunbookEffect(name).pipe(
-      Effect.tap(() => Effect.sync(() => alsoInNewRunbook?.())),
-      Effect.flatMap(() => original(env, generation)),
-    ),
+const openRunbookDuringNextExport = (name: string, alsoInNewRunbook?: () => void) => {
+  const original = sessionManager.setEnvExport.bind(sessionManager)
+  const spy = spyOn(sessionManager, "setEnvExport").mockImplementationOnce(
+    (blockId, envExport, generation) =>
+      openRunbookEffect(name).pipe(
+        Effect.tap(() => Effect.sync(() => alsoInNewRunbook?.())),
+        Effect.flatMap(() => original(blockId, envExport, generation)),
+      ),
   )
   return spy
 }
@@ -111,17 +111,15 @@ describe("registerAuthenticatedCredential after another runbook opened", () => {
       registerAuthenticatedCredential({ blockId: "gcp", identity: SA, documentJson: SA_JSON }, a),
     ).rejects.toThrow(/different runbook was opened/)
 
-    const env = await sessionEnv()
-    expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined()
-    expect(env.CLOUDSDK_CORE_PROJECT).toBeUndefined()
+    expect(sessionManager.getEnvExport("gcp")).toBeUndefined()
     expect(activeCredentialFor("gcp")).toBeUndefined()
     // Nothing materialised: the key never reached disk for a runbook that is gone.
     expect(credentialDirs()).toEqual(dirsBefore)
   })
 
-  it("runbook switched while the credential was being saved: no env, no registry entry", async () => {
+  it("runbook switched while the credential was being saved: no export, no registry entry", async () => {
     const a = sessionManager.getGeneration()
-    const spy = openRunbookDuringNextEnvWrite("runbook-b")
+    const spy = openRunbookDuringNextExport("runbook-b")
 
     await expect(
       registerAuthenticatedCredential(
@@ -131,22 +129,38 @@ describe("registerAuthenticatedCredential after another runbook opened", () => {
     ).rejects.toThrow(/different runbook was opened/)
     spy.mockRestore()
 
-    const env = await sessionEnv()
-    expect(env.CLOUDSDK_AUTH_ACCESS_TOKEN).toBeUndefined()
-    expect(env.CLOUDSDK_CORE_ACCOUNT).toBeUndefined()
+    expect(sessionManager.getEnvExport("gcp")).toBeUndefined()
     expect(activeCredentialFor("gcp")).toBeUndefined()
   })
 
-  it("same runbook: the credential is written and registered", async () => {
+  it("same runbook: the credential is exported and registered", async () => {
     const success = await registerAuthenticatedCredential(
       { blockId: "gcp", identity: SA, documentJson: SA_JSON },
       sessionManager.getGeneration(),
     )
 
-    const env = await sessionEnv()
-    expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBe(success.credentialsPath!)
-    expect(env.CLOUDSDK_CORE_PROJECT).toBe("a-proj")
+    expect(exported()).toMatchObject({
+      GOOGLE_APPLICATION_CREDENTIALS: success.credentialsPath!,
+      CLOUDSDK_CORE_PROJECT: "a-proj",
+    })
     expect(activeCredentialFor("gcp")?.principal).toBe(SA.email)
+  })
+
+  it("exports an access-token credential, clearing the credential file variables", async () => {
+    await registerAuthenticatedCredential(
+      { blockId: "gcp", identity: SA, accessToken: "ya29.from-a" },
+      sessionManager.getGeneration(),
+    )
+
+    expect(exported()).toMatchObject({
+      GOOGLE_OAUTH_ACCESS_TOKEN: "ya29.from-a",
+      CLOUDSDK_AUTH_ACCESS_TOKEN: "ya29.from-a",
+      CLOUDSDK_CORE_ACCOUNT: SA.email,
+    })
+    expect(sessionManager.getEnvExport("gcp")?.clears).toContain("GOOGLE_APPLICATION_CREDENTIALS")
+    // Nothing goes in the env every script gets
+    const session = await Effect.runPromise(sessionManager.getSession())
+    expect(session.env.get("GOOGLE_OAUTH_ACCESS_TOKEN")).toBeUndefined()
   })
 })
 
@@ -160,7 +174,7 @@ describe("google:set-project after another runbook opened", () => {
       credentialType: "service_account" as const,
       projectId: "b-proj",
     }
-    const spy = openRunbookDuringNextEnvWrite("runbook-b", () =>
+    const spy = openRunbookDuringNextExport("runbook-b", () =>
       setActiveCredential("gcp", bCredential),
     )
 
@@ -169,12 +183,12 @@ describe("google:set-project after another runbook opened", () => {
 
     expect(result.ok).toBe(true)
     expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
-    expect((await sessionEnv()).CLOUDSDK_CORE_PROJECT).toBeUndefined()
+    expect(sessionManager.getEnvExport("gcp")).toBeUndefined()
   })
 
-  it("a block with a registered credential: neither its set nor its delete reaches the new runbook", async () => {
-    // A's access-token block re-points the whole session (set) and drops the
-    // gcloud file override (delete); both must be scoped to A's generation.
+  it("a block with a registered credential: its export doesn't replace the new runbook's", async () => {
+    // A's access-token block re-exports its credential with the new project,
+    // scoped to A's generation.
     await registerAuthenticatedCredential(
       { blockId: "gcp", identity: SA, accessToken: "ya29.from-a" },
       sessionManager.getGeneration(),
@@ -186,13 +200,13 @@ describe("google:set-project after another runbook opened", () => {
       credentialType: "service_account" as const,
       projectId: "b-proj",
     }
-    const spy = openRunbookDuringNextEnvWrite("runbook-b", () => {
+    const bExport = {
+      env: { CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath },
+      clears: [],
+    }
+    const spy = openRunbookDuringNextExport("runbook-b", () => {
       setActiveCredential("gcp", bCredential)
-      Effect.runSync(
-        sessionManager.appendToEnv({
-          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: bCredential.credentialsPath,
-        }),
-      )
+      Effect.runSync(sessionManager.setEnvExport("gcp", bExport, sessionManager.getGeneration()))
     })
 
     const result = await invoke("google:set-project", { blockId: "gcp", projectId: "a-proj-2" })
@@ -200,14 +214,11 @@ describe("google:set-project after another runbook opened", () => {
 
     expect(result.ok).toBe(true)
     expect(activeCredentialFor("gcp")?.projectId).toBe("b-proj")
-    const env = await sessionEnv()
-    expect(env.CLOUDSDK_CORE_PROJECT).toBeUndefined()
-    expect(env.CLOUDSDK_AUTH_ACCESS_TOKEN).toBeUndefined()
-    expect(env.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE).toBe(bCredential.credentialsPath)
+    expect(sessionManager.getEnvExport("gcp")).toEqual(bExport)
   })
 })
 
-describe("the region/zone a sign-in writes is the one it returns", () => {
+describe("the region/zone a sign-in exports is the one it returns", () => {
   const USER: GoogleIdentity = {
     email: "dev@example.com",
     accountType: "user",
@@ -268,7 +279,7 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     runPromise.mockRestore()
   })
 
-  it("google:oauth-poll writes the region/zone the block sent, and returns them", async () => {
+  it("google:oauth-poll exports the region/zone the block sent, and returns them", async () => {
     const result = await invoke("google:oauth-poll", {
       flowId: "flow-1",
       blockId: "gcp",
@@ -281,9 +292,10 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
       region: "europe-west1",
       zone: "europe-west1-b",
     })
-    const env = await sessionEnv()
-    expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
-    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
+    expect(exported()).toMatchObject({
+      GOOGLE_CLOUD_REGION: "europe-west1",
+      CLOUDSDK_COMPUTE_ZONE: "europe-west1-b",
+    })
     // A later "Change project" keeps them.
     expect(activeCredentialFor("gcp")).toMatchObject({
       region: "europe-west1",
@@ -291,22 +303,24 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     })
   })
 
-  it("google:oauth-poll with no region/zone writes and returns none", async () => {
+  it("google:oauth-poll with no region/zone exports and returns none", async () => {
     const result = await invoke("google:oauth-poll", { flowId: "flow-2", blockId: "gcp" })
 
     expect(result.status).toBe("complete")
     expect(result.region).toBeUndefined()
     expect(result.zone).toBeUndefined()
-    expect((await sessionEnv()).GOOGLE_CLOUD_REGION).toBeUndefined()
+    expect(exported().GOOGLE_CLOUD_REGION).toBeUndefined()
   })
 
   it("google:gcloud-auth returns the configuration's region/zone when the block sent none", async () => {
     const result = await invoke("google:gcloud-auth", { blockId: "gcp", configuration: "default" })
 
     expect(result).toMatchObject({ valid: true, region: "us-west1", zone: "us-west1-a" })
-    const env = await sessionEnv()
-    expect(env.GOOGLE_CLOUD_REGION).toBe("us-west1")
-    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("us-west1-a")
+    expect(exported()).toMatchObject({
+      GOOGLE_CLOUD_REGION: "us-west1",
+      CLOUDSDK_COMPUTE_ZONE: "us-west1-a",
+      CLOUDSDK_ACTIVE_CONFIG_NAME: "default",
+    })
   })
 
   it("google:gcloud-auth returns the region/zone the block sent over the configuration's", async () => {
@@ -318,9 +332,10 @@ describe("the region/zone a sign-in writes is the one it returns", () => {
     })
 
     expect(result).toMatchObject({ valid: true, region: "europe-west1", zone: "europe-west1-b" })
-    const env = await sessionEnv()
-    expect(env.GOOGLE_CLOUD_REGION).toBe("europe-west1")
-    expect(env.CLOUDSDK_COMPUTE_ZONE).toBe("europe-west1-b")
+    expect(exported()).toMatchObject({
+      GOOGLE_CLOUD_REGION: "europe-west1",
+      CLOUDSDK_COMPUTE_ZONE: "europe-west1-b",
+    })
   })
 })
 

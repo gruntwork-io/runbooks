@@ -31,8 +31,7 @@ export function GitPullRequestInstruction({
   prefilledPullRequestLabels = [],
   prefilledBranchName = "",
   inputsId,
-  githubAuthId,
-  gitAuthId,
+  envFrom,
   provider: propProvider,
   autoCollapse,
 }: GitPullRequestProps) {
@@ -43,13 +42,16 @@ export function GitPullRequestInstruction({
   // interactive block) there's no worktree-host fallback: a locked wrapper sets
   // `provider`; otherwise derive from the linked auth block, defaulting to
   // github for display.
-  const authId = gitAuthId ?? githubAuthId
-  const authDerivedProvider = deriveProviderFromAuth(authId, rawOutputs)
+  const authIds = Array.isArray(envFrom) ? envFrom : []
+  const authDerivedProvider = [...authIds]
+    .reverse()
+    .map((authId) => deriveProviderFromAuth(authId, rawOutputs))
+    .find((provider) => provider !== undefined)
   const effectiveProvider = propProvider ?? authDerivedProvider ?? "github"
   const cfg = PR_PROVIDERS[effectiveProvider]
 
   const wrongProvider =
-    !!authId && authDerivedProvider !== undefined && authDerivedProvider !== cfg.id
+    authIds.length > 0 && authDerivedProvider !== undefined && authDerivedProvider !== cfg.id
 
   const descriptionText = description ?? `Open a ${cfg.noun.lower} with your changes`
 

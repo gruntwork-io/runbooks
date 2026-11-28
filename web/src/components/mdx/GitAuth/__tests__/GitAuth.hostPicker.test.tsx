@@ -105,7 +105,7 @@ describe("GitAuth — GitLab host picker (real hook)", () => {
     await waitFor(() => {
       expect(testApi.calls.slice(callsBefore)).toContainEqual({
         channel: "gitlab:cli-credentials",
-        params: { host: "gitlab.com" },
+        params: { componentId: "git", host: "gitlab.com" },
       })
     })
     await screen.findByPlaceholderText("https://gitlab.com")

@@ -27,7 +27,7 @@ import {
   type RequiredRole,
 } from "../../../src/domain/azure/auth.ts"
 import { azFailure, spawnAz, type AzContext } from "../../../src/domain/azure/cli.ts"
-import { azureSessionEnv, type AzureAuthType } from "../../../src/domain/azure/env.ts"
+import { azureEnv, type AzureAuthType } from "../../../src/domain/azure/env.ts"
 import { ENV_PREFIX_PATTERN } from "../../../src/domain/env-prefix.ts"
 import { redactSecrets, registerSecret } from "../../../src/domain/vcs/redact.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
@@ -92,23 +92,6 @@ export function resetAzureSignIns(): void {
   attemptByBlock.clear()
 }
 
-async function applySessionEnv(
-  change: ReturnType<typeof azureSessionEnv>,
-  generation: number,
-): Promise<string | undefined> {
-  try {
-    await runtime.runPromise(
-      sessionManager.appendToEnv(change.set as Record<string, string>, generation),
-    )
-    if (change.clear.length > 0) {
-      await runtime.runPromise(sessionManager.removeFromEnv(change.clear, generation))
-    }
-    return undefined
-  } catch (err) {
-    return `Signed in, but the sign-in could not be saved to the session (${toErrorMessage(err)}). Blocks without azureAuthId may not see it.`
-  }
-}
-
 async function commitContext(
   at: Attempt,
   signIn: BlockSignIn,
@@ -149,7 +132,7 @@ async function commitContext(
   const subscriptionName = accounts.find((sub) => sub.id === choice.subscriptionId)?.name
   const tenantName = tenants.find((t) => t.tenantId === choice.tenantId.toLowerCase())?.displayName
 
-  const change = azureSessionEnv({
+  const { set, envExport } = azureEnv({
     ...signIn,
     configDir: ctx.configDir,
     extensionDir: ctx.extensionDir,
@@ -159,7 +142,7 @@ async function commitContext(
   })
 
   if (!isCurrent(at)) return SUPERSEDED
-  const sessionEnvWarning = await applySessionEnv(change, at.generation)
+  await runtime.runPromise(sessionManager.setEnvExport(at.blockId, envExport, at.generation))
   commitConfigDir(at.blockId, ctx.configDir)
 
   return {
@@ -171,8 +154,7 @@ async function commitContext(
     ...(choice.subscriptionId ? { subscriptionId: choice.subscriptionId } : {}),
     ...(subscriptionName ? { subscriptionName } : {}),
     configDir: ctx.configDir,
-    env: change.set as Record<string, string>,
-    ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
+    env: set as Record<string, string>,
   }
 }
 

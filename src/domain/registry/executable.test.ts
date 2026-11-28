@@ -377,6 +377,50 @@ describe("ExecutableRegistry", () => {
     expect(registry.getWarnings()).toEqual([])
   })
 
+  it("registers each script block's envFrom, in order, naming auth blocks of any provider", async () => {
+    const mdx = [
+      '<AwsAuth id="aws_prod" />',
+      '<GitHubAuth id="gh" />',
+      '<Command id="deploy" envFrom={["gh", "aws_prod"]} command="tofu apply" />',
+      '<Command id="plain" command="echo hi" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    const envFroms = Object.fromEntries(
+      Object.values(registry.getAllExecutables()).map((e) => [e.componentId, e.envFrom]),
+    )
+    expect(envFroms).toEqual({ deploy: ["gh", "aws_prod"], plain: [] })
+    expect(registry.getWarnings()).toEqual([])
+  })
+
+  it("registers nothing for a block whose envFrom or auth prop can't be used, and says why", async () => {
+    const mdx = [
+      '<AwsAuth id="aws_prod" />',
+      '<Command id="ok" command="echo ok" />',
+      '<Command id="not-auth" envFrom={["ok"]} command="echo hi" />',
+      '<Command id="missing" envFrom={["gcp"]} command="echo hi" />',
+      '<Command id="not-a-list" envFrom="aws_prod" command="echo hi" />',
+      '<Check id="old-prop" awsAuthId="aws_prod" command="aws sts get-caller-identity" />',
+    ].join("\n")
+    const layer = makeTestFileSystem({ "/runbook.mdx": mdx })
+
+    const registry = await Effect.runPromise(
+      ExecutableRegistry.create("/runbook.mdx").pipe(Effect.provide(layer)),
+    )
+
+    expect(Object.values(registry.getAllExecutables()).map((e) => e.componentId)).toEqual(["ok"])
+    expect(registry.getWarnings()).toEqual([
+      '<Command id="not-auth">: envFrom names "ok", which isn\'t an auth block in this runbook.',
+      '<Command id="missing">: envFrom names "gcp", which isn\'t an auth block in this runbook.',
+      '<Command id="not-a-list">: The envFrom prop must be a list of block ids, such as envFrom={["aws_prod"]}.',
+      '<Check id="old-prop">: Runbooks doesn\'t support the awsAuthId prop. Name the block in envFrom instead: envFrom={["aws_prod"]}.',
+    ])
+  })
+
   it("registers nothing for a block whose env prop isn't valid, and says why", async () => {
     const mdx = [
       '<Command id="ok" command="echo ok" />',

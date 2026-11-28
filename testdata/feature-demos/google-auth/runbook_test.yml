@@ -31,7 +31,7 @@ tests:
   # This is the only test that runs in CI.
   - name: skip-without-credentials
     description: With no Google Cloud credentials in the env, google-auth skips
-      and the googleAuthId-dependent steps skip too.
+      and the steps that name it in envFrom skip too.
 
     env:
       # Credential sources (standard names)
@@ -79,20 +79,20 @@ tests:
   #       env_prefix: RUNBOOKS_TEST_
   #       expect: success
   #
-  #     # After GoogleAuth succeeds, the credential is injected into the session
-  #     # and these googleAuthId-dependent steps can use it.
+  #     # After GoogleAuth succeeds, these steps get its credential through
+  #     # envFrom.
   #     - block: verify-identity
   #       expect: success
   #
   #     - block: check-google-auth
   #       expect: success
 
-  # Test 3: Multiple auth blocks with googleAuthId targeting.
+  # Test 3: Multiple auth blocks, each named by the envFrom of its own steps.
   # Requires real Google Cloud credentials; not run in CI.
   # Note: with a single project both auth blocks resolve to the same
-  # credentials. This still validates that googleAuthId routing works.
+  # credentials. This still checks that each step gets the block its envFrom names.
   # - name: test-google-auth-id-targeting
-  #   description: Test that googleAuthId routes commands to specific auth contexts
+  #   description: Test that envFrom gives each command the auth block it names
   #   steps:
   #     - block: google-auth
   #       env_prefix: RUNBOOKS_TEST_
@@ -101,10 +101,10 @@ tests:
   #     - block: google-auth-secondary
   #       expect: success
   #
-  #     # googleAuthId="google-auth" - uses the PRIMARY auth context
+  #     # envFrom={["google-auth"]} - uses the PRIMARY auth context
   #     - block: list-buckets-primary
   #       expect: success
   #
-  #     # googleAuthId="google-auth-secondary" - uses the SECONDARY auth context
+  #     # envFrom={["google-auth-secondary"]} - uses the SECONDARY auth context
   #     - block: list-buckets-secondary
   #       expect: success

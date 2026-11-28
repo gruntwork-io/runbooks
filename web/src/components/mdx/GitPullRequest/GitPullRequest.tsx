@@ -19,6 +19,11 @@ import type { BlockComponentType } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useRunbookContext, useAllOutputs, useOutputs } from "@/contexts/useRunbook"
+import { normalizeBlockId } from "@/lib/utils"
+import {
+  parseBlockEnvFrom,
+  replacedAuthPropError,
+} from "../../../../../src/domain/exec/blockEnv.ts"
 import { resolveTemplateReferences, type TemplateContext } from "@/lib/templateUtils"
 import {
   extractTemplateDependenciesFromString,
@@ -83,6 +88,9 @@ const STATUS_CONFIG: Record<
   },
 }
 
+// One identity for a block without envFrom, so the hook's memos stay stable
+const NO_ENV_FROM: readonly string[] = []
+
 /** Resolve template expressions and process escape sequences (\n → newline). */
 function resolveAndUnescape(template: string, ctx: TemplateContext): string {
   return resolveTemplateReferences(template, ctx).replace(/\\n/g, "\n")
@@ -98,12 +106,20 @@ function GitPullRequestInteractive({
   prefilledBranchName = "",
   prefilledCommitMessage = "",
   inputsId,
-  githubAuthId,
-  gitAuthId,
+  envFrom: envFromProp,
   provider: propProvider,
   __registryType = "GitPullRequest",
   autoCollapse,
+  ...otherProps
 }: GitPullRequestInternalProps) {
+  // A prop such as gitAuthId, or an envFrom that isn't a list of ids, is a
+  // configuration error: the block can't tell which sign-in to use
+  const parsedEnvFrom = parseBlockEnvFrom(envFromProp)
+  const propError =
+    replacedAuthPropError(otherProps) ?? (parsedEnvFrom.ok ? null : parsedEnvFrom.error)
+  const envFromKey = JSON.stringify(parsedEnvFrom.ok ? parsedEnvFrom.envFrom : NO_ENV_FROM)
+  const envFrom = useMemo((): readonly string[] => JSON.parse(envFromKey), [envFromKey])
+
   // Validate required props
   const validationError = useMemo((): AppError | null => {
     if (!id) {
@@ -112,8 +128,9 @@ function GitPullRequestInteractive({
         details: "Please provide a unique 'id' for this component instance.",
       }
     }
+    if (propError) return { message: propError, details: "Fix the prop, then reload the runbook." }
     return null
-  }, [id, __registryType])
+  }, [id, __registryType, propError])
 
   const blockRef = useRef<HTMLDivElement>(null)
   const { isDuplicate, isNormalizedCollision, collidingId } = useComponentIdRegistry(
@@ -129,11 +146,17 @@ function GitPullRequestInteractive({
   const rawOutputs = useAllOutputs()
 
   // Resolve the effective provider. A locked wrapper passes `provider`; otherwise
-  // derive it from the linked auth block (its GIT_PROVIDER output), then from the
-  // cloned repo's host as a last resort, defaulting to github. `cfg` drives every
-  // provider-specific channel, token var, logo, and label.
-  const authId = gitAuthId ?? githubAuthId
-  const authDerivedProvider = deriveProviderFromAuth(authId, rawOutputs)
+  // derive it from the last linked auth block with a GIT_PROVIDER output, then
+  // from the cloned repo's host as a last resort, defaulting to github. `cfg`
+  // drives every provider-specific channel, token var, logo, and label.
+  const authDerivedProvider = [...envFrom]
+    .reverse()
+    .map((authId) => deriveProviderFromAuth(authId, rawOutputs))
+    .find((provider) => provider !== undefined)
+  // The first block envFrom names that hasn't signed in, for the waiting message
+  const waitingForAuthId = envFrom.find(
+    (authId) => rawOutputs[normalizeBlockId(authId)]?.values?.__AUTHENTICATED !== "true",
+  )
   const repoUrlDerivedProvider = deriveProviderFromRepoUrl(activeWorkTree?.gitInfo?.repoUrl)
   const effectiveProvider =
     propProvider ?? authDerivedProvider ?? repoUrlDerivedProvider ?? "github"
@@ -213,7 +236,7 @@ function GitPullRequestInteractive({
   } = useGitPullRequest({
     id,
     cfg,
-    authId,
+    envFrom,
     authDerivedProvider,
     restored: restoredRequest && {
       result: restoredRequest.result,
@@ -410,10 +433,26 @@ function GitPullRequestInteractive({
         severity: "error",
         message: `${__registryType} ID "${id}" collides with "${collidingId}" after normalization`,
       })
+    } else if (propError) {
+      reportError({
+        componentId: id,
+        componentType: __registryType,
+        severity: "error",
+        message: propError,
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError, __registryType])
+  }, [
+    id,
+    isDuplicate,
+    isNormalizedCollision,
+    collidingId,
+    propError,
+    reportError,
+    clearError,
+    __registryType,
+  ])
 
   const handleCreatePR = useCallback(() => {
     if (!activeWorkTree) return
@@ -571,7 +610,7 @@ function GitPullRequestInteractive({
             )}
 
             {/* Dependency warnings */}
-            {!wrongProvider && !authMet && authId !== undefined && (
+            {!wrongProvider && !authMet && waitingForAuthId !== undefined && (
               <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                 <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                 <div>
@@ -579,8 +618,8 @@ function GitPullRequestInteractive({
                     Waiting for {cfg.label} authentication
                   </p>
                   <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                    Complete the <BlockLink blockId={authId} /> {cfg.label} authentication block
-                    above.
+                    Complete the <BlockLink blockId={waitingForAuthId} /> {cfg.label} authentication
+                    block above.
                   </p>
                 </div>
               </div>

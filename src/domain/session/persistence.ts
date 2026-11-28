@@ -23,23 +23,18 @@ import {
   type SessionEventRequest,
 } from "./history.ts"
 import type { SessionManager, EnvChanges, SessionState } from "./manager.ts"
+import { AUTH_EXPORT_VARS, type EnvExport } from "../exec/authEnv.ts"
 import { sessionNameCandidates, sessionNameProblem } from "./names.ts"
-import type {
-  ListedSession,
-  RunbookSource,
-  SessionRecord,
-  SessionStore,
-  VcsBindings,
-} from "./store.ts"
+import type { ListedSession, RunbookSource, SessionRecord, SessionStore } from "./store.ts"
 
 /** The most sessions listSessions returns: the most recently used ones. */
 const MAX_LISTED_SESSIONS = 500
 
 /**
  * Encrypts the session env and the payloads of the session's history for the
- * database. The env holds whatever the session's auth blocks and scripts
- * exported, including cloud credentials, and the history holds what the user
- * typed into forms and what scripts printed.
+ * database. The env holds what scripts wrote to RUNBOOK_ENV and each auth
+ * block's export, including cloud credentials, and the history holds what the
+ * user typed into forms and what scripts printed.
  */
 export interface SessionCipher {
   /** Undefined when the OS offers no encryption; the plaintext is then not saved. */
@@ -57,9 +52,10 @@ export interface SessionPersistenceOptions {
   /** Moves a deleted session's directory to the OS trash, where it can be restored from. */
   moveToTrash: (dir: string) => Promise<void>
   /**
-   * Env vars that name a file the app deletes when it quits (a Google
-   * credential file). A resumed session drops the ones whose file is gone:
-   * Google client libraries fail on a credentials path that doesn't exist.
+   * Env vars that name a file or directory the app deletes when it quits (a
+   * Google credential file, an Azure CLI config directory). A resumed session
+   * drops a block's export when one of them names something that's gone, so
+   * the block's sign-in ends rather than handing scripts a missing path.
    */
   ephemeralFileEnvVars: readonly string[]
   /** Reports a failed save. The session keeps running without it. */
@@ -83,8 +79,6 @@ export interface OpenedSession {
   /** What the app shows the session as, e.g. `elegant-elephant`. */
   name: string
   dir: string
-  /** The git host bindings of the session's credentials, as saved with it */
-  vcsBindings: VcsBindings
   /** When a resumed session was last used before this open; undefined for a new session. */
   resumedFrom: string | undefined
   /** When the session was marked finished (finishSession); undefined while it isn't. */
@@ -215,7 +209,6 @@ export class SessionPersistence {
           createdAt: now.toISOString(),
           lastLaunchedAt: now.toISOString(),
           lastActivityAt: now.toISOString(),
-          vcsBindings: {},
           finishedAt: undefined,
         })
         yield* manager.createSession(dir, request.runbook.path)
@@ -223,7 +216,6 @@ export class SessionPersistence {
           id,
           name,
           dir,
-          vcsBindings: {},
           resumedFrom: undefined,
           finishedAt: undefined,
           previousFinished:
@@ -248,7 +240,6 @@ export class SessionPersistence {
           id: saved.id,
           name: saved.name,
           dir,
-          vcsBindings: saved.vcsBindings,
           // ISO timestamps in UTC, which sort as strings.
           resumedFrom:
             saved.lastActivityAt > saved.lastLaunchedAt
@@ -325,26 +316,6 @@ export class SessionPersistence {
       this.current = { ...current, name }
       return name
     })
-  }
-
-  /**
-   * Save the git host bindings of the current session's credentials, so a
-   * resumed session releases each credential only to its host again. Never
-   * throws: a failed save is reported to `onSaveError` (see save).
-   */
-  saveVcsBindings(bindings: VcsBindings): void {
-    const current = this.current
-    if (current === undefined) return
-    this.current = { ...current, vcsBindings: bindings }
-    Effect.runSync(
-      this.options.store
-        .saveVcsBindings(current.id, bindings)
-        .pipe(
-          Effect.catchCause((cause) =>
-            Effect.sync(() => this.options.onSaveError(Cause.squash(cause))),
-          ),
-        ),
-    )
   }
 
   /**
@@ -454,8 +425,10 @@ export class SessionPersistence {
       for (const worktree of saved.worktrees) {
         if (yield* isDirectory(worktree)) worktrees.push(worktree)
       }
+      const { env, exports } = this.decryptEnv(saved.env)
       const state: SessionState = {
-        env: yield* this.restoreEnv(saved.env),
+        env,
+        envExports: yield* this.restoreExports(exports),
         worktrees,
         activeWorktree: worktrees.includes(saved.activeWorktree) ? saved.activeWorktree : "",
         executionCount: saved.executionCount,
@@ -465,26 +438,50 @@ export class SessionPersistence {
     })
   }
 
-  private restoreEnv(encrypted: Uint8Array | undefined) {
+  /** `exports` without those that name an ephemeral file that's gone. */
+  private restoreExports(exports: Record<string, EnvExport>) {
     return Effect.gen({ self: this }, function* () {
-      const env = this.decryptEnv(encrypted)
       const fs = yield* FileSystem
-      for (const name of this.options.ephemeralFileEnvVars) {
-        const file = env.set[name]
-        if (file !== undefined && !(yield* fs.exists(file))) {
-          delete env.set[name]
+      const kept: Record<string, EnvExport> = {}
+      for (const [blockId, envExport] of Object.entries(exports)) {
+        let present = true
+        for (const name of this.options.ephemeralFileEnvVars) {
+          const file = envExport.env[name]
+          if (file !== undefined && !(yield* fs.exists(file))) present = false
         }
+        if (present) kept[blockId] = envExport
       }
-      return env
+      return kept
     })
   }
 
-  /** The saved env changes, or none when they are missing or unreadable. */
-  private decryptEnv(encrypted: Uint8Array | undefined): EnvChanges {
-    const none: EnvChanges = { set: {}, unset: [] }
+  /**
+   * The saved env changes and exports, or none when they are missing or
+   * unreadable.
+   *
+   * A session saved before auth blocks had exports holds their credentials in
+   * its env changes, where every script would get them. Those are dropped, so
+   * the blocks sign in again.
+   */
+  private decryptEnv(encrypted: Uint8Array | undefined): {
+    env: EnvChanges
+    exports: Record<string, EnvExport>
+  } {
+    const none = { env: { set: {}, unset: [] }, exports: {} }
     if (encrypted === undefined) return none
     const parsed = this.decryptJson(encrypted)
-    return isEnvChanges(parsed) ? parsed : none
+    if (!isEnvChanges(parsed)) return none
+    const { set, unset } = parsed
+    const exports = (parsed as { exports?: unknown }).exports
+    if (isEnvExports(exports)) return { env: { set, unset }, exports }
+    const authVars = new Set(Object.values(AUTH_EXPORT_VARS).flat())
+    return {
+      env: {
+        set: Object.fromEntries(Object.entries(set).filter(([k]) => !authVars.has(k))),
+        unset,
+      },
+      exports: {},
+    }
   }
 
   /** The JSON value `encrypted` holds, or undefined when it can't be decrypted or parsed. */
@@ -507,7 +504,7 @@ export class SessionPersistence {
     const { store, cipher, onSaveError } = this.options
     const saved = Effect.suspend(() =>
       store.saveState(id, {
-        env: cipher.encrypt(JSON.stringify(state.env)),
+        env: cipher.encrypt(JSON.stringify({ ...state.env, exports: state.envExports })),
         worktrees: state.worktrees,
         activeWorktree: state.activeWorktree,
         executionCount: state.executionCount,
@@ -552,5 +549,29 @@ function isEnvChanges(value: unknown): value is EnvChanges {
     Object.values(set).every((v) => typeof v === "string") &&
     Array.isArray(unset) &&
     unset.every((key) => typeof key === "string")
+  )
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every((v) => typeof v === "string")
+  )
+}
+
+function isEnvExports(value: unknown): value is Record<string, EnvExport> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every((envExport: unknown) => {
+      if (typeof envExport !== "object" || envExport === null) return false
+      const { env, clears } = envExport as { env?: unknown; clears?: unknown }
+      return (
+        isStringRecord(env) &&
+        Array.isArray(clears) &&
+        clears.every((name) => typeof name === "string")
+      )
+    })
   )
 }

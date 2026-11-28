@@ -260,12 +260,12 @@ export const githubEnvCredentialForHost = (
 }
 
 /**
- * The session env vars a GitHub auth block writes for a credential validated
- * against `host`: GITHUB_TOKEN / GITHUB_USER (the block's documented
- * outputs), GITHUB_HOST (which host they belong to), and GH_HOST so a `gh`
- * command in a later script targets the same host. For a GHES host the token
- * is also written as GH_ENTERPRISE_TOKEN — the only token var gh reads for
- * GHES.
+ * The env vars a GitHub auth block exports for a credential validated against
+ * `host`: GITHUB_TOKEN / GITHUB_USER (the block's documented outputs),
+ * GITHUB_HOST (which host they belong to), and GH_HOST so a `gh` command in a
+ * script that names the block in envFrom targets the same host. For a GHES
+ * host the token is also exported as GH_ENTERPRISE_TOKEN — the only token var
+ * gh reads for GHES.
  */
 export const githubSessionEnv = (
   host: string,
@@ -278,50 +278,6 @@ export const githubSessionEnv = (
   GH_HOST: host,
   ...(githubHostKind(host) === "ghes" ? { GH_ENTERPRISE_TOKEN: token } : {}),
 })
-
-/**
- * Host-bound read of the GitHub credential in the session env.
- *
- * `authHost` is the host a GitAuth block wrote the session credential for
- * (main-only bookkeeping, cleared together with the session env). With it,
- * the session's GITHUB_TOKEN (or GH_TOKEN) is released for that host and no
- * other — and only while the env still carries the matching GITHUB_HOST the
- * block wrote with it. If a script changed or removed GITHUB_HOST, nothing is
- * released: the token may still be the auth block's, so reinterpreting it
- * with gh's conventions could send it to the wrong host. Without `authHost`,
- * the session env is whatever the process started with, so it is interpreted
- * with gh's own conventions (githubEnvBindings) exactly like the ambient env.
- *
- * `host` undefined means "the session's GitHub host": the auth block's host,
- * else the host an env token is bound to (standard first, then enterprise),
- * else github.com.
- */
-export const githubSessionCredential = (
-  env: Record<string, string | undefined>,
-  host: string | undefined,
-  authHost?: string,
-): { token: string; host: string } | undefined => {
-  if (authHost !== undefined && tryNormalizeGitHubHost(env.GITHUB_HOST) !== authHost)
-    return undefined
-  const boundAuthHost = authHost
-  const bindings = githubEnvBindings(env)
-  const target =
-    host !== undefined
-      ? tryNormalizeGitHubHost(host)
-      : (boundAuthHost ??
-        [bindings.standard, bindings.enterprise].find(
-          (h) => h !== undefined && githubEnvCredentialForHost(h, env) !== undefined,
-        ) ??
-        DEFAULT_GITHUB_HOST)
-  if (!target) return undefined
-  if (boundAuthHost !== undefined) {
-    if (target !== boundAuthHost) return undefined
-    const token = [env.GITHUB_TOKEN, env.GH_TOKEN].find(isSetEnvVar)
-    return token ? { token, host: target } : undefined
-  }
-  const cred = githubEnvCredentialForHost(target, env)
-  return cred ? { token: cred.token, host: target } : undefined
-}
 
 /**
  * Detect a GitHub token for `host` (default github.com) from environment

@@ -45,16 +45,6 @@ export interface StoredSessionState {
   lastActivityAt: string
 }
 
-/**
- * The host each git provider's session credential belongs to, as the auth
- * block that wrote it bound it. Not secret. The env has the credentials; this
- * says which host each may go to, which the env's own variables can't be
- * trusted to say.
- */
-export type VcsBindings = Partial<
-  Record<"github" | "gitlab", { host: string; source?: string | undefined }>
->
-
 export interface SessionRecord extends StoredSessionState, RunbookSource {
   id: string
   /** What the app shows the session as, e.g. `elegant-elephant` (names.ts). No two sessions share one. */
@@ -65,7 +55,6 @@ export interface SessionRecord extends StoredSessionState, RunbookSource {
   launchDir: string | undefined
   createdAt: string
   lastLaunchedAt: string
-  vcsBindings: VcsBindings
   /** When the session was marked finished; undefined while it isn't. */
   finishedAt: string | undefined
 }
@@ -119,7 +108,6 @@ interface SessionRow {
   created_at: string
   last_launched_at: string
   last_activity_at: string
-  vcs_bindings: string
   finished_at: string | null
 }
 
@@ -157,6 +145,7 @@ const MIGRATIONS = [
    ) STRICT;
    CREATE INDEX session_events_by_session ON session_events (session_id, seq);`,
   `ALTER TABLE sessions DROP COLUMN working_dir;`,
+  `ALTER TABLE sessions DROP COLUMN vcs_bindings;`,
 ]
 
 /** A `session_events` row. */
@@ -217,8 +206,8 @@ export class SessionStore {
             `INSERT INTO sessions (
                id, name, runbook_path, remote_source, dir, launch_dir, env,
                active_worktree, execution_count, created_at, last_launched_at, last_activity_at,
-               vcs_bindings, finished_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               finished_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             record.id,
@@ -233,7 +222,6 @@ export class SessionStore {
             record.createdAt,
             record.lastLaunchedAt,
             record.lastActivityAt,
-            JSON.stringify(record.vcsBindings),
             record.finishedAt ?? null,
           )
         this.replaceWorktrees(record.id, record.worktrees)
@@ -452,14 +440,6 @@ export class SessionStore {
     })
   }
 
-  saveVcsBindings(id: string, bindings: VcsBindings): Effect.Effect<void, SessionStoreError> {
-    return attempt("save a session's git host bindings", () => {
-      this.db
-        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = ?")
-        .run(JSON.stringify(bindings), id)
-    })
-  }
-
   close(): Effect.Effect<void, SessionStoreError> {
     return attempt("close the sessions database", () => {
       this.db.close()
@@ -502,31 +482,10 @@ export class SessionStore {
         createdAt: row.created_at,
         lastLaunchedAt: row.last_launched_at,
         lastActivityAt: row.last_activity_at,
-        vcsBindings: parseVcsBindings(row.vcs_bindings),
         finishedAt: row.finished_at ?? undefined,
       }
     })
   }
-}
-
-/** The bindings a row has, leaving out any entry that isn't one. */
-function parseVcsBindings(json: string): VcsBindings {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(json)
-  } catch {
-    return {}
-  }
-  const bindings: VcsBindings = {}
-  if (typeof parsed !== "object" || parsed === null) return bindings
-  for (const provider of ["github", "gitlab"] as const) {
-    const entry: unknown = (parsed as Record<string, unknown>)[provider]
-    if (typeof entry !== "object" || entry === null) continue
-    const { host, source } = entry as { host?: unknown; source?: unknown }
-    if (typeof host !== "string") continue
-    bindings[provider] = typeof source === "string" ? { host, source } : { host }
-  }
-  return bindings
 }
 
 function attempt<A>(action: string, run: () => A): Effect.Effect<A, SessionStoreError> {

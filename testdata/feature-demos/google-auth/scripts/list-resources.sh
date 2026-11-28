@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# List Google Cloud resources using the credentials <GoogleAuth> injected.
+# List Google Cloud resources with the credentials of the <GoogleAuth> block
+# named in envFrom.
 #
 # Prefers the real gcloud/gsutil commands when they are installed, and falls
 # back to the equivalent REST calls (plain curl) when they are not, so the demo
@@ -16,7 +17,7 @@ region="${CLOUDSDK_COMPUTE_REGION:-${GOOGLE_CLOUD_REGION:-us-central1}}"
 if [ -z "${GOOGLE_APPLICATION_CREDENTIALS:-}" ] &&
   [ -z "${GOOGLE_OAUTH_ACCESS_TOKEN:-}" ] &&
   [ -z "${CLOUDSDK_AUTH_ACCESS_TOKEN:-}" ]; then
-  echo "ERROR: no Google Cloud credentials in the session environment."
+  echo "ERROR: no Google Cloud credentials in the environment."
   echo "Authenticate with the <GoogleAuth> block above first."
   exit 1
 fi
@@ -56,7 +57,7 @@ if have gcloud; then
   gcloud config list --format="yaml" 2>/dev/null || echo "  (gcloud config unavailable)"
   gcloud auth list --format="value(account,status)" 2>/dev/null || true
 else
-  echo "  (gcloud CLI not installed -- reporting the session environment only)"
+  echo "  (gcloud CLI not installed -- reporting the environment only)"
 fi
 
 echo ""

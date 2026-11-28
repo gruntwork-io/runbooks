@@ -63,11 +63,23 @@ describe("GitPullRequest (generic block)", () => {
     ).toBeInTheDocument()
   })
 
+  it("shows why a gitAuthId prop can't be used, naming envFrom", () => {
+    const props = { gitAuthId: "auth" } as Record<string, unknown>
+    render(
+      <TestWrapper>
+        <GitPullRequest id="pr" {...props} />
+      </TestWrapper>,
+    )
+    expect(screen.getByText(/Runbooks doesn't support the gitAuthId prop/)).toHaveTextContent(
+      `Name the block in envFrom instead: envFrom={["auth"]}.`,
+    )
+  })
+
   it("derives the GitLab provider from a linked auth block's GIT_PROVIDER output (unlocked block)", async () => {
     render(
       <TestWrapper>
         <Seed id="auth" values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok" }} />
-        <GitPullRequest id="pr" gitAuthId="auth" />
+        <GitPullRequest id="pr" envFrom={["auth"]} />
       </TestWrapper>,
     )
     // Provider swapped to GitLab -> Merge Request terminology, no wrong-provider.
@@ -79,7 +91,7 @@ describe("GitPullRequest (generic block)", () => {
     render(
       <TestWrapper>
         <Seed id="auth" values={{ GIT_PROVIDER: "gitlab", GITLAB_TOKEN: "tok" }} />
-        <GitPullRequest id="pr" provider="github" gitAuthId="auth" />
+        <GitPullRequest id="pr" provider="github" envFrom={["auth"]} />
       </TestWrapper>,
     )
     expect(await screen.findByText("Wrong authentication provider")).toBeInTheDocument()
@@ -101,7 +113,7 @@ describe("GitPullRequest (generic block)", () => {
     render(
       <TestWrapper>
         <Seed id="auth" values={{ __AUTHENTICATED: "true" }} />
-        <GitPullRequest id="pr" provider="gitlab" gitAuthId="auth" />
+        <GitPullRequest id="pr" provider="gitlab" envFrom={["auth"]} />
       </TestWrapper>,
     )
     // Let the seeded outputs flush, then confirm no false positive.

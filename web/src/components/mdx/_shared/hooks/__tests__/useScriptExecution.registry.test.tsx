@@ -40,9 +40,13 @@ const V3: Version = { content: "echo v3", contentHash: "hash-v3" }
 // is the copy the main process's registry holds for the block, which starts
 // as `script` unless the file changed before the block mounted.
 function createApi(
-  initial: { script: Version; registered: Version } = { script: V1, registered: V1 },
+  initial: { script: Version; registered: Version; envFrom?: string[] } = {
+    script: V1,
+    registered: V1,
+  },
 ) {
   let { script, registered } = initial
+  const registeredEnvFrom = initial.envFrom ?? []
   const testApi = makeTestApi({
     "runbook:executables": () => {
       // The entry ID is derived from the content, as in the main process.
@@ -57,6 +61,7 @@ function createApi(
             contentHash: registered.contentHash,
             path: SCRIPT_PATH,
             env: {},
+            envFrom: registeredEnvFrom,
             workingDir: "",
             interpreter: "",
           },
@@ -128,7 +133,7 @@ afterEach(() => {
   cleanup()
 })
 
-function renderPathBlock(api: RunbooksAPI) {
+function renderPathBlock(api: RunbooksAPI, envFrom?: string[]) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <ApiProvider api={api}>
       <IpcExecutableRegistryProvider>
@@ -138,7 +143,12 @@ function renderPathBlock(api: RunbooksAPI) {
   )
   return renderHook(
     () =>
-      useScriptExecution({ componentId: "target", componentType: "command", path: SCRIPT_PATH }),
+      useScriptExecution({
+        componentId: "target",
+        componentType: "command",
+        path: SCRIPT_PATH,
+        envFrom,
+      }),
     { wrapper },
   )
 }
@@ -269,5 +279,22 @@ describe("useScriptExecution — a script file that changes on disk", () => {
 
     expect(mock.changeChecks()).toBe(0)
     expect(result.current.scriptFileChange).toBeNull()
+  })
+})
+
+describe("useScriptExecution — envFrom drift", () => {
+  it("has drifted when envFrom names other blocks than the registry's copy, which Run uses", async () => {
+    const mock = createApi({ script: V1, registered: V1, envFrom: ["aws"] })
+    const { result } = renderPathBlock(mock.api, ["aws", "gh"])
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
+    expect(result.current.hasScriptDrift).toBe(true)
+  })
+
+  it("has not drifted when envFrom matches the registry's copy", async () => {
+    const mock = createApi({ script: V1, registered: V1, envFrom: ["aws", "gh"] })
+    const { result } = renderPathBlock(mock.api, ["aws", "gh"])
+    await waitFor(() => expect(result.current.rawScriptContent).toBe("echo v1"))
+    await waitFor(() => expect(mock.changeChecks()).toBeGreaterThan(0))
+    expect(result.current.hasScriptDrift).toBe(false)
   })
 })

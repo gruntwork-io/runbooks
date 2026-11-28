@@ -128,7 +128,6 @@ interface ReplayResult {
   region?: string
   zone?: string
   error?: string
-  sessionEnvWarning?: string
 }
 
 /** Everything needed to finish an authentication and publish block outputs. */
@@ -137,7 +136,6 @@ interface AuthCompletion extends PendingAccount {
   projectName?: string
   region?: string
   zone?: string
-  sessionEnvWarning?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -165,7 +163,7 @@ export interface UseGoogleAuthReturn {
   setAuthMethod: (m: GoogleAuthMethod) => void
   authStatus: GoogleAuthStatus
   errorMessage: string | null
-  /** Project-access warning from google:check-project, or a sessionEnvWarning. */
+  /** Project-access warning from google:check-project. */
   warningMessage: string | null
   accountInfo: GoogleAccountInfo | null
 
@@ -266,9 +264,9 @@ export interface UseGoogleAuthReturn {
  * auto-detection behind a confirmation gate, and project selection.
  *
  * Secret custody (plan §6): the renderer may SEND a user-pasted service-account
- * key, but MAIN owns every credential write — the session env, the materialised
- * credentials file, and the redaction registry. No `google:*` result carries
- * credential material, and this hook never calls `session:set-env`.
+ * key, but MAIN owns every credential write — the block's export, the
+ * materialised credentials file, and the redaction registry. No `google:*`
+ * result carries credential material.
  *
  * Every error surfaced here is a RUNTIME error (invalid key, expired ADC, OAuth
  * denial, network failure) and renders inline via `errorMessage` /
@@ -478,11 +476,11 @@ export function useGoogleAuth({
    * new credential file.
    *
    * MAIN supersedes the previous file during that IPC call, but these outputs
-   * are what a `<Command googleAuthId>` actually injects, and they are not
-   * rewritten until `completeAuthentication` — which on the OAuth tab in a
-   * multi-project org waits for the user to pick a project. Leaving the old
-   * values standing across that window let a step run against a path the app had
-   * already replaced, while the card still read as green.
+   * and the block's export are not rewritten until the sign-in completes —
+   * which on the OAuth tab in a multi-project org waits for the user to pick a
+   * project. Leaving the old values standing across that window let a step run
+   * against a path the app had already replaced, while the card still read as
+   * green, so the export is cleared too.
    *
    * `registerOutputs` REPLACES the whole values map, so the stale path goes with
    * the marker. `'false'` rather than an omitted key keeps the withdrawal
@@ -494,20 +492,26 @@ export function useGoogleAuth({
   const invalidateBlockOutputs = useCallback(() => {
     changingProjectRef.current = false
     registerOutputs(id, { __AUTHENTICATED: "false" })
-  }, [id, registerOutputs])
+    // Scripts that name the block in envFrom wait for its next sign-in, which
+    // MAIN exports when it completes
+    api.invoke("session:clear-env-export", { componentId: id }).catch((error: unknown) => {
+      console.error("Failed to clear the Google Cloud export:", error)
+    })
+  }, [api, id, registerOutputs])
 
   /**
    * Publish this block's outputs in ONE call. `registerOutputs` REPLACES the
    * whole values map, so a partial second write would wipe the rest (plan §7.2).
-   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret — publishing it is
-   * what makes multi-project `googleAuthId` routing work.
+   * `GOOGLE_APPLICATION_CREDENTIALS` is a path, not a secret. Scripts get the
+   * credential from the block's export, which MAIN records; these outputs are
+   * for templates and a { block } source.
    */
   const registerBlockOutputs = useCallback(
     (result: AuthCompletion) => {
       registerOutputs(id, {
         GOOGLE_APPLICATION_CREDENTIALS: result.credentialsPath ?? "",
         // Bridges the gcloud CLI's own credential store to this same file — see
-        // MAIN's buildGoogleSessionEnv. Blank for a bare access-token credential,
+        // MAIN's buildGoogleEnv. Blank for a bare access-token credential,
         // which has no file to bridge with.
         CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: result.credentialsPath ?? "",
         GOOGLE_CLOUD_PROJECT: result.projectId,
@@ -557,8 +561,8 @@ export function useGoogleAuth({
 
   /**
    * The single success epilogue: every tab and the detection-confirm path end
-   * here. MAIN has already written the session env by this point; the renderer
-   * only records what happened and publishes the outputs.
+   * here. MAIN has already recorded the block's export by this point; the
+   * renderer only records what happened and publishes the outputs.
    */
   const completeAuthentication = useCallback(
     async (result: AuthCompletion) => {
@@ -600,7 +604,6 @@ export function useGoogleAuth({
       setAuthStatus("authenticated")
       setDetectionStatus("done")
       setErrorMessage(null)
-      appendWarning(result.sessionEnvWarning)
 
       // A credential can authenticate without resolving a project (a gcloud
       // configuration with no `core/project`, an authorized_user document with no
@@ -674,7 +677,6 @@ export function useGoogleAuth({
           // authenticated with, and the outputs must say the same.
           region: data.region ?? effectiveRegion,
           zone: data.zone ?? effectiveZone,
-          ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
       } catch (error) {
         setAuthStatus("failed")
@@ -692,8 +694,8 @@ export function useGoogleAuth({
   const loadProjects = useCallback(async () => {
     setLoadingProjects(true)
     try {
-      // A LIVE loopback flow resolves main-side by flowId; after completion the
-      // session env carries the credential and no handle is needed.
+      // A LIVE loopback flow resolves main-side by flowId; after completion
+      // MAIN has the block's credential and no handle is needed.
       const data = await api.invoke("google:projects", {
         blockId: id,
         ...(oauthFlowIdRef.current ? { flowId: oauthFlowIdRef.current } : {}),
@@ -1095,7 +1097,7 @@ export function useGoogleAuth({
 
   /**
    * "Use These Credentials". MAIN re-validates (credentials may have changed
-   * between detect and confirm), writes the session env, and returns metadata;
+   * between detect and confirm), records the export, and returns metadata;
    * the outputs are registered from the CONFIRM response, never from
    * `detectedCredentials`.
    */
@@ -1161,7 +1163,6 @@ export function useGoogleAuth({
           // env's own region/zone in MAIN; publish what MAIN wrote.
           region: data.region ?? effectiveRegion,
           zone: data.zone ?? effectiveZone,
-          ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         appendWarning(detectionWarning)
         return
@@ -1218,7 +1219,6 @@ export function useGoogleAuth({
               ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
               region: effectiveRegion,
               zone: effectiveZone,
-              ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
             })
             appendWarning(detectionWarning)
             return
@@ -1384,19 +1384,18 @@ export function useGoogleAuth({
         ...(data.credentialsPath ? { credentialsPath: data.credentialsPath } : {}),
       }
 
-      // Publish the project MAIN actually registered (it echoes the one it wrote
-      // into the session env), so `googleAuthId` steps and bare steps agree.
+      // Publish the project MAIN actually registered (it echoes the one it
+      // exported), so the outputs and the export agree.
       const resolvedProjectId = data.projectId || requestedProject
 
       if (resolvedProjectId) {
-        // MAIN already wrote the project into the session env during validate.
+        // MAIN already exported the project during validate.
         await completeAuthentication({
           ...identity,
           projectId: resolvedProjectId,
           ...(data.projectName ? { projectName: data.projectName } : {}),
           region: effectiveRegion,
           zone: effectiveZone,
-          ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         return
       }
@@ -1414,7 +1413,6 @@ export function useGoogleAuth({
           ...(identity.scopes ? { scopes: identity.scopes } : {}),
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
-        appendWarning(data.sessionEnvWarning)
         setAuthStatus("select_project")
         return
       }
@@ -1426,7 +1424,6 @@ export function useGoogleAuth({
         projectId: "",
         region: effectiveRegion,
         zone: effectiveZone,
-        ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
       setAuthStatus("failed")
@@ -1442,7 +1439,6 @@ export function useGoogleAuth({
     effectiveZone,
     completeAuthentication,
     selectProject,
-    appendWarning,
     invalidateBlockOutputs,
   ])
 
@@ -1461,7 +1457,7 @@ export function useGoogleAuth({
 
   /**
    * Finish an OAuth login. The poll result is METADATA-ONLY: MAIN has already
-   * exchanged the code, materialised the ADC file, and written the session env.
+   * exchanged the code, materialised the ADC file, and recorded the export.
    */
   const finishOAuth = useCallback(
     async (data: {
@@ -1472,7 +1468,6 @@ export function useGoogleAuth({
       scopes?: string[]
       region?: string
       zone?: string
-      sessionEnvWarning?: string
     }) => {
       const visibleProjects = (data.projects ?? []) as GoogleProjectInfo[]
       setProjects(visibleProjects)
@@ -1514,7 +1509,6 @@ export function useGoogleAuth({
           ...(identity.scopes ? { scopes: identity.scopes } : {}),
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
-        appendWarning(data.sessionEnvWarning)
         setAuthStatus("select_project")
         return
       }
@@ -1526,10 +1520,9 @@ export function useGoogleAuth({
         projectId: data.projectId ?? "",
         region: data.region ?? "",
         zone: data.zone ?? "",
-        ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     },
-    [project, selectProject, completeAuthentication, appendWarning],
+    [project, selectProject, completeAuthentication],
   )
 
   /**
@@ -1895,7 +1888,6 @@ export function useGoogleAuth({
           // MAIN's answer, not the request.
           region: data.region ?? "",
           zone: data.zone ?? "",
-          ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
         })
         return
       }
@@ -1915,7 +1907,6 @@ export function useGoogleAuth({
           ...(identity.scopes ? { scopes: identity.scopes } : {}),
           ...(identity.credentialsPath ? { credentialsPath: identity.credentialsPath } : {}),
         })
-        appendWarning(data.sessionEnvWarning)
         setAuthStatus("select_project")
         return
       }
@@ -1927,7 +1918,6 @@ export function useGoogleAuth({
         projectId: "",
         region: data.region ?? "",
         zone: data.zone ?? "",
-        ...(data.sessionEnvWarning ? { sessionEnvWarning: data.sessionEnvWarning } : {}),
       })
     } catch (error) {
       setAuthStatus("failed")
@@ -1943,7 +1933,6 @@ export function useGoogleAuth({
     effectiveZone,
     completeAuthentication,
     selectProject,
-    appendWarning,
     invalidateBlockOutputs,
   ])
 
@@ -2019,12 +2008,12 @@ export function useGoogleAuth({
   /**
    * Do the restored sign-in again, the way it was first made: the session's
    * history says it worked when the session was last open, and the credential
-   * it named is still where it was, but MAIN has to read it again to write the
-   * session env, materialise its file and know the block's credential. The
+   * it named is still where it was, but MAIN has to read it again to export
+   * it, materialise its file and know the block's credential. The
    * card shows the sign-in meanwhile, and the outputs follow once it is done.
    *
    * A read-only check of the credential comes first, so a credential that now
-   * signs in as someone else never reaches the session env. That sign-in is
+   * signs in as someone else is never exported. That sign-in is
    * recorded as signed out. Any other failure sends the block back to sign-in
    * but keeps the history as it was, since a network failure or a missing file
    * may pass, and the next resume tries again.
@@ -2183,7 +2172,6 @@ export function useGoogleAuth({
           expiresAt: account?.expiresAt,
           credentialsPath: data.credentialsPath,
           projectName: restoredAtMount.projectName,
-          sessionEnvWarning: data.sessionEnvWarning,
         }),
         projectId: data.projectId ?? projectId,
         region: data.region ?? restoredAtMount.region,

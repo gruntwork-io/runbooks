@@ -55,7 +55,7 @@ Clicking **Finish** runs the check, and its exit code decides what happens:
 - **Exit code 1** (or any code other than 0 and 2): the check failed. The block shows `failMessage` and the logs, and the user can fix the problem and click **Finish** again.
 - **Exit code 2**: a warning. The block shows `warnMessage` and doesn't celebrate, since something still needs attention.
 
-The final check runs like any other script: it has the log files, the session's environment, `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and `$GENERATED_FILES`, and it waits for the Inputs, outputs and authentication it references. See [Check](/authoring/blocks/check/#writing-scripts) for how to write one.
+The final check runs like any other script: it has the log files, the session's environment, `$RUNBOOK_OUTPUT`, `$RUNBOOK_ENV` and `$GENERATED_FILES`, and it waits for the Inputs and outputs it references, and for the auth blocks its `envFrom` names. See [Check](/authoring/blocks/check/#writing-scripts) for how to write one.
 
 ## Finishing the session
 
@@ -79,11 +79,7 @@ A finished session keeps its directory, files and history, but Runbooks doesn't 
 - `env` (object): environment variables the final check runs with, by name, such as `env={{ URL: "{{ .outputs.deploy.url }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](/authoring/blocks/command/#passing-values-as-environment-variables).
 - `workingDir` (string): the directory the final check runs in, such as `workingDir="infra/live"`. A relative path is relative to the [session's directory](/commands/sessions/). Defaults to the session's directory. Like `env` values, it can use `{{ .inputs.X }}` and `{{ .outputs.block.key }}` templates. The directory must exist when the block runs. See [Working directory](/security/shell-execution-context/#working-directory).
 - `interpreter` (string): the program, with any arguments, that runs the final check when it has no shebang, such as `interpreter="python3"`. A final check with a shebang can't also set it. Defaults to the program for the final check file's extension, or `bash`. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
-- `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
-- `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
-- `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block whose credentials the final check needs. GitHub only. The Finish button is disabled until authentication completes. Prefer `gitAuthId`.
-- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block whose credentials the final check needs. The Finish button is disabled until authentication completes.
-- `azureAuthId` (string): ID of an [AzureAuth](/authoring/blocks/azureauth/) block whose sign-in the final check needs. The Finish button is disabled until the block has signed in.
+- `envFrom` (string[]): IDs of auth blocks whose credentials the final check runs with, such as `envFrom={["aws_prod"]}`. The Finish button is disabled until every block in the list has signed in. See [Using credentials from an auth block](/authoring/blocks/command/#using-credentials-from-an-auth-block).
 - `successMessage` (string): message shown once the runbook is finished. Default "You finished this runbook!". Supports inline markdown.
 - `warnMessage` (string): message shown when the final check exits with code 2. Default "Warning". Supports inline markdown.
 - `failMessage` (string): message shown when the final check fails. Default "The final check failed. Check the logs, fix the problem, and run it again.". Supports inline markdown.

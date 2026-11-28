@@ -69,14 +69,14 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
   successMessage="Repository created!"
   failMessage="Failed to create repository. Check the logs for details."
   inputsId="repo-config"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ### Clone the repository
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone the new repository"
   description="Clone the empty repository so we can scaffold files into it."
   prefilledUrl="https://github.com/{{ .inputs.OrgName }}/{{ .inputs.RepoName }}"
@@ -94,7 +94,7 @@ Create a new empty repository on GitHub. The scaffolded files will be pushed to 
   description="Fetch the latest OpenTofu and Terragrunt versions from GitHub."
   successMessage="Versions fetched! Enter them in the form below."
   failMessage="Failed to look up versions. You can enter them manually."
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ### Configure and generate the scaffold
@@ -112,7 +112,7 @@ Create a pull request with the generated files.
 
 <GitHubPullRequest
   id="pr-scaffold"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   inputsId="scaffold"
   title="Create Pull Request"
   description="Push the scaffolded infra-live files and open a PR."
@@ -133,7 +133,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
   description="Check that the scaffold pull request has been merged to main."
   successMessage="PR is merged! Your infra-live repo is ready."
   failMessage="PR is not yet merged. Merge it on GitHub and try again."
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ## Create an infra-catalog Repository (Optional)
@@ -165,7 +165,7 @@ variables:
   successMessage="infra-catalog repository created!"
   failMessage="Failed to create repository. It may already exist, which is fine."
   inputsId={["repo-config", "catalog-config"]}
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ## Next Steps

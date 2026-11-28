@@ -578,36 +578,36 @@ These render the authentication UI. Skip if you don't have credentials -- the bl
   detectCredentials={false}
 />
 
-### Command with awsAuthId
+### Command with AWS credentials
 
 <Command
   id="aws-cmd"
   command="echo 'AWS auth context would be active here'"
   title="AWS-Authenticated Command"
   description="This command is gated on AWS authentication."
-  awsAuthId="aws-auth-test"
+  envFrom={["aws-auth-test"]}
   successMessage="AWS command ran!"
 />
 
-### Command with githubAuthId
+### Command with GitHub credentials
 
 <Command
   id="gh-cmd"
   command="echo 'GitHub auth context would be active here'"
   title="GitHub-Authenticated Command"
   description="This command is gated on GitHub authentication."
-  githubAuthId="gh-auth-test"
+  envFrom={["gh-auth-test"]}
   successMessage="GitHub command ran!"
 />
 
-### Command with googleAuthId
+### Command with Google Cloud credentials
 
 <Command
   id="gcp-cmd"
   command="echo 'Google Cloud auth context would be active here'"
   title="Google-Cloud-Authenticated Command"
   description="This command is gated on Google Cloud authentication."
-  googleAuthId="google-auth-test"
+  envFrom={["google-auth-test"]}
   successMessage="Google Cloud command ran!"
 />
 
@@ -630,7 +630,7 @@ These render the authentication UI. Skip if you don't have credentials -- the bl
 
 <GitHubPullRequest
   id="pr-test"
-  githubAuthId="gh-auth-test"
+  envFrom={["gh-auth-test"]}
   title="Create a Pull Request"
   description="Tests the GitHubPullRequest block rendering."
   prefilledPullRequestTitle="Test PR from Kitchen Sink"

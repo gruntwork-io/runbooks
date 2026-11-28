@@ -59,7 +59,7 @@ Authenticate to GitHub so the runbook can clone repos, create pull requests, and
   description="Fetch the AWS account ID from your authenticated session."
   successMessage="Account ID detected! It will be prefilled in the configuration form below."
   failMessage="Failed to detect account ID. You can enter it manually."
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 ### Install mise
@@ -128,7 +128,7 @@ Clone the **infra-catalog** repo where the OpenTofu module will be written.
 
 <GitClone
   id="clone-catalog"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone infra-catalog"
   description="Clone the repository where the OpenTofu module will be written."
 
@@ -148,7 +148,7 @@ Push the generated module and open a pull request.
 
 <GitHubPullRequest
   id="pr-catalog"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   inputsId="gen-module"
   title="Create Pull Request on infra-catalog"
   description="Push the generated OpenTofu module and open a PR against infra-catalog."
@@ -169,7 +169,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
   description="Check that the infra-catalog pull request has been merged to main."
   successMessage="PR is merged!"
   failMessage="PR is not yet merged. Merge it on GitHub and try again."
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ### Create a release on infra-catalog
@@ -189,7 +189,7 @@ Tag the infra-catalog repo so Terragrunt can pull a pinned version of the module
   successMessage="Release created!"
   failMessage="Failed to create release. Check the logs for details."
   inputsId="gen-module"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ## infra-live: Generate the Terragrunt Unit
@@ -200,7 +200,7 @@ Clone the **infra-live** repo where the Terragrunt unit (terragrunt.hcl) will be
 
 <GitClone
   id="clone-live"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone infra-live"
   description="Clone the repository where the Terragrunt unit (terragrunt.hcl) will be written."
 
@@ -234,7 +234,7 @@ Push the generated Terragrunt unit and open a pull request.
 
 <GitHubPullRequest
   id="pr-live"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   inputsId="gen-unit"
   title="Create Pull Request on infra-live"
   description="Push the generated Terragrunt unit and open a PR against infra-live."
@@ -255,7 +255,7 @@ Review and merge the pull request on GitHub, then verify it's been merged.
   description="Check that the infra-live pull request has been merged to main."
   successMessage="PR is merged!"
   failMessage="PR is not yet merged. Merge it on GitHub and try again."
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
 />
 
 ## Deploy OpenClaw
@@ -276,7 +276,7 @@ Preview the changes with a plan, then apply.
   successMessage="Plan completed successfully! Review the changes above."
   failMessage="Terragrunt plan failed. See logs for details."
   inputsId={["gen-unit", "gen-module"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 <Command
@@ -293,7 +293,7 @@ Preview the changes with a plan, then apply.
   successMessage="OpenClaw deployed successfully!"
   failMessage="Terragrunt apply failed. See logs for details."
   inputsId={["gen-unit", "gen-module"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 ## Access OpenClaw
@@ -315,7 +315,7 @@ OpenClaw is accessed via **SSM port forwarding**, which securely tunnels the Ope
   successMessage="Connection info retrieved!"
   failMessage="Failed to retrieve connection info. Check the logs for details."
   inputsId={["gen-unit", "gen-module"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 ### 1. Start the port forward
@@ -396,7 +396,7 @@ tail -f /var/log/cloud-init-output.log
   successMessage="OpenClaw is deployed and running!"
   failMessage="Verification failed. Check the logs for details."
   inputsId="gen-unit"
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />
 
 ## Cleanup (Optional)
@@ -417,5 +417,5 @@ When you're done with OpenClaw, you can tear down all the infrastructure created
   successMessage="All OpenClaw resources have been destroyed."
   failMessage="Terragrunt destroy failed. See logs for details."
   inputsId={["gen-unit", "gen-module"]}
-  awsAuthId="aws-auth"
+  envFrom={["aws-auth"]}
 />

@@ -215,7 +215,6 @@ export interface GeneratedFilesDeleteResponse {
 export interface ExecRequest {
   executableId?: string
   templateVarValues?: Record<string, unknown>
-  envVarsOverride?: Record<string, string> | undefined
   /** Whether to allocate a pseudo-TTY for this execution. Sent by the web payload. */
   usePty?: boolean
   /** Per-execution timeout in milliseconds. Falls back to the executor's default when omitted. */
@@ -279,6 +278,11 @@ export interface Executable {
    * (see blockEnv.ts). Empty for a block without one.
    */
   env: BlockEnv
+  /**
+   * The block's `envFrom` prop: the auth blocks whose exports its script runs
+   * with, in the order they apply. Empty for a block without one.
+   */
+  envFrom: readonly string[]
   /**
    * The block's `workingDir` prop: where its script runs, absolute or
    * relative to the session's directory. Empty for the session's directory.

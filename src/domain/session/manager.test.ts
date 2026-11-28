@@ -84,36 +84,6 @@ describe("SessionManager", () => {
       expect(ctx.env.MY_VAR).toBe("test")
     })
 
-    it("strips protected env vars", async () => {
-      mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
-      await run(mgr.createSession("/work"), {
-        HOME: "/home",
-        AWS_ACCESS_KEY_ID: "AKIA...",
-        AWS_SECRET_ACCESS_KEY: "secret",
-        PATH: "/usr/bin",
-      })
-      const ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env.AWS_ACCESS_KEY_ID).toBeUndefined()
-      expect(ctx.env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
-      expect(ctx.env.HOME).toBe("/home")
-    })
-
-    it("does not carry a protected list over to a session set up with []", async () => {
-      const env = { AWS_ACCESS_KEY_ID: "AKIA...", AWS_SECRET_ACCESS_KEY: "secret" }
-
-      // Runbook A has <AwsAuth>: its session starts without the AWS keys.
-      mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
-      await run(mgr.createSession("/a", "/a/runbook.mdx"), env)
-      expect((await run(mgr.getExecContext())).env.AWS_ACCESS_KEY_ID).toBeUndefined()
-
-      // Runbook B has none: its session gets the environment's keys as-is.
-      mgr.setProtectedEnvVars([])
-      await run(mgr.createSession("/b", "/b/runbook.mdx"), env)
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env.AWS_ACCESS_KEY_ID).toBe("AKIA...")
-      expect(ctx.env.AWS_SECRET_ACCESS_KEY).toBe("secret")
-    })
-
     it("replaces any existing session", async () => {
       await run(mgr.createSession("/work1"), { A: "1" })
       await run(mgr.createSession("/work2"), { B: "2" })
@@ -162,6 +132,7 @@ describe("SessionManager", () => {
       createdAt: new Date("2026-01-01T00:00:00Z"),
       state: {
         env: { set: {}, unset: [] },
+        envExports: {},
         worktrees: [],
         activeWorktree: "",
         executionCount: 0,
@@ -193,19 +164,6 @@ describe("SessionManager", () => {
       expect(ctx).toMatchObject({ env: { HOME: "/home" }, workDir: "/session" })
     })
 
-    it("strips protected vars from the process env but keeps a saved one", async () => {
-      mgr.setProtectedEnvVars(["AWS_ACCESS_KEY_ID", "AWS_PROFILE"])
-      await run(
-        mgr.resumeSession(
-          saved({ env: { set: { AWS_ACCESS_KEY_ID: "from-auth-block" }, unset: [] } }),
-        ),
-        { AWS_ACCESS_KEY_ID: "inherited", AWS_PROFILE: "inherited" },
-      )
-
-      const ctx = await run(mgr.getExecContext())
-      expect(ctx.env).toEqual({ AWS_ACCESS_KEY_ID: "from-auth-block" })
-    })
-
     it("restores the worktrees, execution count and creation time", async () => {
       await run(
         mgr.resumeSession(
@@ -232,7 +190,7 @@ describe("SessionManager", () => {
       const previous = mgr.getGeneration()
 
       await run(mgr.resumeSession(saved()))
-      await run(mgr.appendToEnv({ LATE: "1" }, previous))
+      await run(mgr.applyScriptEnv({ env: { LATE: "1" }, generation: previous }))
 
       expect((await run(mgr.getExecContext())).env.LATE).toBeUndefined()
     })
@@ -240,29 +198,28 @@ describe("SessionManager", () => {
 
   describe("setChangeListener", () => {
     it("reports the state after each change, with the env as changes since the session started", async () => {
-      await run(mgr.createSession("/work"), { HOME: "/home", DROP: "x" })
+      await run(mgr.createSession("/work"), { HOME: "/home" })
       const states: SessionState[] = []
       mgr.setChangeListener((state) => states.push(state))
 
-      await run(mgr.appendToEnv({ TOKEN: "t" }))
-      await run(mgr.removeFromEnv(["DROP"]))
+      await run(mgr.applyScriptEnv({ env: { TOKEN: "t" }, generation: mgr.getGeneration() }))
       mgr.registerWorkTreePath("/work/repo")
       mgr.setActiveWorkTreePath("/work/repo")
       const start = await run(mgr.getExecContext())
       await run(mgr.applyScriptEnv({ env: { EXPORTED: "1" }, generation: start.generation }))
 
-      expect(states).toHaveLength(5)
+      expect(states).toHaveLength(4)
       expect(states.at(-1)).toMatchObject({
-        env: { set: { TOKEN: "t", EXPORTED: "1" }, unset: ["DROP"] },
+        env: { set: { TOKEN: "t", EXPORTED: "1" }, unset: [] },
         worktrees: ["/work/repo"],
         activeWorktree: "/work/repo",
-        executionCount: 1,
+        executionCount: 2,
       })
     })
 
     it("reports a reset as no env changes", async () => {
       await run(mgr.createSession("/work"), { HOME: "/home" })
-      await run(mgr.appendToEnv({ TOKEN: "t" }))
+      await run(mgr.applyScriptEnv({ env: { TOKEN: "t" }, generation: mgr.getGeneration() }))
       const states: SessionState[] = []
       mgr.setChangeListener((state) => states.push(state))
 
@@ -279,7 +236,7 @@ describe("SessionManager", () => {
       const states: SessionState[] = []
       mgr.setChangeListener((state) => states.push(state))
 
-      await run(mgr.appendToEnv({ LATE: "1" }, stale))
+      await run(mgr.applyScriptEnv({ env: { LATE: "1" }, generation: stale }))
       mgr.registerWorkTreePath("/work/other", stale)
       mgr.registerWorkTreePath("/work/repo")
 
@@ -292,7 +249,7 @@ describe("SessionManager", () => {
       mgr.setChangeListener((state) => states.push(state))
 
       await run(mgr.createSession("/b"), {})
-      await run(mgr.appendToEnv({ B: "1" }))
+      await run(mgr.applyScriptEnv({ env: { B: "1" }, generation: mgr.getGeneration() }))
 
       expect(states).toEqual([])
     })
@@ -313,7 +270,7 @@ describe("SessionManager", () => {
       await run(mgr.createSession("/work"), { A: "1" })
       const ctx = await Effect.runPromise(mgr.getExecContext())
 
-      await run(mgr.appendToEnv({ B: "2" }))
+      await run(mgr.applyScriptEnv({ env: { B: "2" }, generation: mgr.getGeneration() }))
 
       expect(ctx.env).toEqual({ A: "1" })
     })
@@ -340,6 +297,69 @@ describe("SessionManager", () => {
     })
   })
 
+  describe("env exports", () => {
+    const aws = { env: { AWS_ACCESS_KEY_ID: "AKIA" }, clears: ["AWS_SESSION_TOKEN"] }
+    const gh = { env: { GITHUB_TOKEN: "ghp" }, clears: [] }
+
+    it("keeps each block's export, and returns the ones envFrom names in its order", async () => {
+      await run(mgr.createSession("/work"), {})
+      await run(mgr.setEnvExport("aws", aws, mgr.getGeneration()))
+      await run(mgr.setEnvExport("gh", gh, mgr.getGeneration()))
+
+      expect(mgr.getEnvExports(["gh", "aws"])).toEqual({ ok: true, exports: [gh, aws] })
+      expect(mgr.getEnvExports(["aws", "gcp"])).toEqual({ ok: false, missing: "gcp" })
+    })
+
+    it("doesn't put an export in the env scripts get without envFrom", async () => {
+      await run(mgr.createSession("/work"), { HOME: "/home" })
+      await run(mgr.setEnvExport("aws", aws, mgr.getGeneration()))
+
+      expect((await run(mgr.getExecContext())).env).toEqual({ HOME: "/home" })
+    })
+
+    it("drops an export when its block signs out, and every export on reset", async () => {
+      await run(mgr.createSession("/work"), {})
+      await run(mgr.setEnvExport("aws", aws, mgr.getGeneration()))
+      await run(mgr.setEnvExport("gh", gh, mgr.getGeneration()))
+
+      await run(mgr.clearEnvExport("aws", mgr.getGeneration()))
+      expect(mgr.getEnvExport("aws")).toBeUndefined()
+      expect(mgr.getEnvExport("gh")).toEqual(gh)
+
+      await run(mgr.resetSession())
+      expect(mgr.getEnvExport("gh")).toBeUndefined()
+    })
+
+    it("drops a sign-in that finished after its session was replaced", async () => {
+      await run(mgr.createSession("/a"), {})
+      const previous = mgr.getGeneration()
+      await run(mgr.createSession("/b"), {})
+
+      await run(mgr.setEnvExport("aws", aws, previous))
+
+      expect(mgr.getEnvExport("aws")).toBeUndefined()
+    })
+
+    it("reports the exports to the change listener, and restores them on resume", async () => {
+      await run(mgr.createSession("/work"), {})
+      const states: SessionState[] = []
+      mgr.setChangeListener((state) => states.push(state))
+
+      await run(mgr.setEnvExport("aws", aws, mgr.getGeneration()))
+      expect(states.at(-1)?.envExports).toEqual({ aws })
+
+      await run(
+        mgr.resumeSession({
+          workingDir: "/work",
+          runbookPath: "",
+          createdAt: new Date(),
+          state: { ...states.at(-1)!, envExports: { aws } },
+        }),
+      )
+      expect(mgr.getEnvExport("aws")).toEqual(aws)
+    })
+  })
+
   describe("applyScriptEnv", () => {
     it("sets the script's variables and leaves the rest of the env alone", async () => {
       await run(mgr.createSession("/work"), { OLD: "val", A: "1" })
@@ -353,17 +373,14 @@ describe("SessionManager", () => {
       expect(ctx.workDir).toBe("/work")
     })
 
-    it("keeps a credential an auth block added while the script ran", async () => {
+    it("keeps what another script set while this one ran", async () => {
       await run(mgr.createSession("/work"), {})
       const start = await run(mgr.getExecContext())
-      await run(mgr.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run" }))
+      await run(mgr.applyScriptEnv({ env: { OTHER: "1" }, generation: start.generation }))
 
       await run(mgr.applyScriptEnv({ env: { FOO: "1" }, generation: start.generation }))
 
-      expect((await run(mgr.getExecContext())).env).toEqual({
-        GITHUB_TOKEN: "ghp_mid_run",
-        FOO: "1",
-      })
+      expect((await run(mgr.getExecContext())).env).toEqual({ OTHER: "1", FOO: "1" })
     })
 
     it("does nothing to a session created after the script started", async () => {
@@ -394,32 +411,6 @@ describe("SessionManager", () => {
       await run(mgr.applyScriptEnv({ env: { X: "1" }, generation }))
 
       await expect(run(mgr.getExecContext())).rejects.toThrow()
-    })
-  })
-
-  describe("appendToEnv", () => {
-    it("merges new vars without replacing existing", async () => {
-      await run(mgr.createSession("/work"), { A: "1", B: "2" })
-
-      await run(mgr.appendToEnv({ C: "3" }))
-
-      const ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env.A).toBe("1")
-      expect(ctx.env.B).toBe("2")
-      expect(ctx.env.C).toBe("3")
-    })
-
-    it("overwrites existing keys", async () => {
-      await run(mgr.createSession("/work"), { A: "old" })
-
-      await run(mgr.appendToEnv({ A: "new" }))
-
-      const ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env.A).toBe("new")
-    })
-
-    it("fails when no session", async () => {
-      await expect(run(mgr.appendToEnv({ X: "1" }))).rejects.toThrow()
     })
   })
 
@@ -519,31 +510,6 @@ describe("SessionManager", () => {
     })
   })
 
-  describe("removeFromEnv", () => {
-    it("deletes the given keys, leaving others untouched", async () => {
-      await run(mgr.createSession("/work"), { A: "1", B: "2" })
-      await run(mgr.appendToEnv({ C: "3" }))
-
-      await run(mgr.removeFromEnv(["B"]))
-
-      const ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env).toEqual({ A: "1", C: "3" })
-    })
-
-    it("is a no-op for a key that is not set", async () => {
-      await run(mgr.createSession("/work"), { A: "1" })
-
-      await run(mgr.removeFromEnv(["NEVER_SET"]))
-
-      const ctx = await Effect.runPromise(mgr.getExecContext())
-      expect(ctx.env).toEqual({ A: "1" })
-    })
-
-    it("fails when no session", async () => {
-      await expect(run(mgr.removeFromEnv(["X"]))).rejects.toThrow()
-    })
-  })
-
   describe("getMetadata", () => {
     it("returns session metadata", async () => {
       await run(mgr.createSession("/work"), {})
@@ -624,8 +590,7 @@ describe("SessionManager", () => {
       // The user opens runbook B before A's request finishes.
       await run(mgr.createSession("/b", "/b/runbook.mdx"), { SHARED: "b" })
 
-      await run(mgr.appendToEnv({ GITHUB_TOKEN: "token-from-a" }, a))
-      await run(mgr.removeFromEnv(["SHARED"], a))
+      await run(mgr.applyScriptEnv({ env: { GITHUB_TOKEN: "token-from-a" }, generation: a }))
       mgr.registerWorkTreePath("/a/clone", a)
       mgr.setActiveWorkTreePath("/a/clone", a)
 
@@ -638,24 +603,23 @@ describe("SessionManager", () => {
       await run(mgr.createSession("/b", "/b/runbook.mdx"), { SHARED: "b" })
       const b = mgr.getGeneration()
 
-      await run(mgr.appendToEnv({ GITHUB_TOKEN: "token-from-b" }, b))
-      await run(mgr.removeFromEnv(["SHARED"], b))
+      await run(mgr.applyScriptEnv({ env: { GITHUB_TOKEN: "token-from-b" }, generation: b }))
       mgr.registerWorkTreePath("/b/clone-1", b)
       mgr.registerWorkTreePath("/b/clone-2", b)
       mgr.setActiveWorkTreePath("/b/clone-1", b)
 
       const ctx = await run(mgr.getExecContext())
-      expect(ctx.env).toEqual({ GITHUB_TOKEN: "token-from-b" })
+      expect(ctx.env).toEqual({ SHARED: "b", GITHUB_TOKEN: "token-from-b" })
       expect(mgr.getActiveWorkTreePath()).toBe("/b/clone-1")
     })
 
-    it("a stale env write still fails, not no-ops, when there is no session at all", async () => {
+    it("a sign-in still fails, not no-ops, when there is no session at all", async () => {
       await run(mgr.createSession("/a"), {})
       const a = mgr.getGeneration()
       mgr.deleteSession()
 
-      await expect(run(mgr.appendToEnv({ X: "1" }, a))).rejects.toThrow()
-      await expect(run(mgr.removeFromEnv(["X"], a))).rejects.toThrow()
+      await expect(run(mgr.setEnvExport("aws", { env: {}, clears: [] }, a))).rejects.toThrow()
+      await expect(run(mgr.clearEnvExport("aws", a))).rejects.toThrow()
     })
   })
 })

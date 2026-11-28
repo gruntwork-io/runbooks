@@ -1,7 +1,8 @@
 /**
  * A SessionManager holds the single live session for the open runbook ("one
- * runbook = one environment"). Variables that auth blocks set, and that
- * scripts write to RUNBOOK_ENV, persist across block executions.
+ * runbook = one environment"). Variables that scripts write to RUNBOOK_ENV
+ * persist across block executions. Each auth block's sign-in is kept as the
+ * block's export, which a script gets only by naming the block in envFrom.
  *
  * The manager keeps nothing on disk. It reports every change to a listener
  * (setChangeListener), and resumeSession rebuilds a session from what the
@@ -13,6 +14,7 @@ import { Effect } from "effect"
 import { Environment } from "../../services/Environment.js"
 import { SessionError, SessionNotFoundError } from "../../errors/index.js"
 import type { SessionMetadata, SessionExecSnapshot } from "../../types.js"
+import type { EnvExport } from "../exec/authEnv.ts"
 
 // ---------------------------------------------------------------------------
 // Internal session state
@@ -32,9 +34,11 @@ interface Session {
    *  runbook was opened" so per-runbook state (worktrees, env) doesn't leak
    *  into an unrelated runbook that happens to reuse the same running app. */
   runbookPath: string
+  /** Each signed-in auth block's export, by block id. */
+  envExports: Map<string, EnvExport>
 }
 
-/** What scripts and auth blocks changed in the env the session started with. */
+/** What scripts changed in the env the session started with. */
 export interface EnvChanges {
   set: Record<string, string>
   unset: string[]
@@ -43,6 +47,8 @@ export interface EnvChanges {
 /** The part of a session that outlives the app: what a change listener is given and resumeSession takes back. */
 export interface SessionState {
   env: EnvChanges
+  /** Each signed-in auth block's export, by block id. */
+  envExports: Record<string, EnvExport>
   /** The registered git worktrees, oldest first. */
   worktrees: string[]
   /** The worktree the user selected, or "" for the last registered one. */
@@ -106,24 +112,9 @@ export function appendPathEntries(
 
 export class SessionManager {
   private session: Session | null = null
-  private protectedEnvVars: string[] = []
   /** Bumped by every createSession and resumeSession, so a snapshot can tell its session was replaced. */
   private generation = 0
   private changeListener: ((state: SessionState) => void) | undefined
-
-  // -------------------------------------------------------------------------
-  // Configuration
-  // -------------------------------------------------------------------------
-
-  /**
-   * Configure environment variables that should be stripped from the session at
-   * creation time (e.g. AWS credentials that require explicit auth).
-   * Must be called before every `createSession` — including with `[]` — so a
-   * previous runbook's list never applies to the next one.
-   */
-  setProtectedEnvVars(vars: string[]): void {
-    this.protectedEnvVars = vars
-  }
 
   // -------------------------------------------------------------------------
   // Session lifecycle
@@ -131,9 +122,8 @@ export class SessionManager {
 
   /**
    * Create a new session, replacing any existing one. The environment is
-   * captured from the running process via the Environment service, with
-   * protected vars stripped. The change listener is dropped: it belonged to
-   * the session this one replaces.
+   * captured from the running process via the Environment service. The change
+   * listener is dropped: it belonged to the session this one replaces.
    */
   createSession(workingDir: string, runbookPath: string = "") {
     return Effect.gen({ self: this }, function* () {
@@ -150,6 +140,7 @@ export class SessionManager {
         registeredWorkTreePaths: [],
         activeWorkTreePath: "",
         runbookPath,
+        envExports: new Map(),
       })
     })
   }
@@ -187,6 +178,7 @@ export class SessionManager {
         registeredWorkTreePaths: [...saved.state.worktrees],
         activeWorkTreePath: saved.state.activeWorktree,
         runbookPath: saved.runbookPath,
+        envExports: new Map(Object.entries(saved.state.envExports)),
       })
     })
   }
@@ -200,15 +192,11 @@ export class SessionManager {
     this.changeListener = listener
   }
 
-  /** The running process's environment without the protected vars. */
+  /** The running process's environment. */
   private startingEnv() {
-    return Effect.gen({ self: this }, function* () {
+    return Effect.gen(function* () {
       const envService = yield* Environment
-      const env = recordToMap(yield* envService.getAll())
-      for (const key of this.protectedEnvVars) {
-        env.delete(key)
-      }
-      return env
+      return recordToMap(yield* envService.getAll())
     })
   }
 
@@ -221,6 +209,7 @@ export class SessionManager {
   private notifyChange(session: Session): void {
     this.changeListener?.({
       env: diffEnv(mapToRecord(session.initialEnv), mapToRecord(session.env)),
+      envExports: Object.fromEntries(session.envExports),
       worktrees: [...session.registeredWorkTreePaths],
       activeWorktree: session.activeWorkTreePath,
       executionCount: session.executionCount,
@@ -275,7 +264,7 @@ export class SessionManager {
     return this.session?.runbookPath ?? null
   }
 
-  /** Reset the session to the environment it started with. */
+  /** Reset the session to the environment it started with, without any block's sign-in. */
   resetSession() {
     return Effect.gen({ self: this }, function* () {
       if (this.session === null) {
@@ -283,6 +272,7 @@ export class SessionManager {
       }
 
       this.session.env = copyEnvMap(this.session.initialEnv)
+      this.session.envExports.clear()
       this.session.lastActivity = new Date()
       this.notifyChange(this.session)
     })
@@ -319,6 +309,67 @@ export class SessionManager {
   }
 
   // -------------------------------------------------------------------------
+  // Auth blocks' exports
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record `blockId`'s sign-in as its export, replacing any it had. A script
+   * that names the block in envFrom runs with it.
+   *
+   * `generation` (from `getGeneration`, captured before the caller's first
+   * await) makes this a no-op once the session it names has been replaced,
+   * so one runbook's credentials never become the next one's.
+   */
+  setEnvExport(blockId: string, envExport: EnvExport, generation: number) {
+    return Effect.gen({ self: this }, function* () {
+      if (this.session === null) {
+        return yield* new SessionError({ message: "no active session" })
+      }
+      if (this.isStale(generation)) return
+
+      this.session.envExports.set(blockId, envExport)
+      this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
+    })
+  }
+
+  /** Drop `blockId`'s export, as when the user signs it out. `generation` works as for setEnvExport. */
+  clearEnvExport(blockId: string, generation: number) {
+    return Effect.gen({ self: this }, function* () {
+      if (this.session === null) {
+        return yield* new SessionError({ message: "no active session" })
+      }
+      if (this.isStale(generation) || !this.session.envExports.delete(blockId)) return
+
+      this.session.lastActivity = new Date()
+      this.notifyChange(this.session)
+    })
+  }
+
+  /** `blockId`'s export, or undefined when it hasn't signed in. */
+  getEnvExport(blockId: string): EnvExport | undefined {
+    return this.session?.envExports.get(blockId)
+  }
+
+  /**
+   * The exports of the blocks `envFrom` names, in its order, or the first
+   * id that has none.
+   */
+  getEnvExports(
+    envFrom: readonly string[],
+  ):
+    | { readonly ok: true; readonly exports: EnvExport[] }
+    | { readonly ok: false; readonly missing: string } {
+    const exports: EnvExport[] = []
+    for (const id of envFrom) {
+      const envExport = this.getEnvExport(id)
+      if (envExport === undefined) return { ok: false, missing: id }
+      exports.push(envExport)
+    }
+    return { ok: true, exports }
+  }
+
+  // -------------------------------------------------------------------------
   // Environment management
   // -------------------------------------------------------------------------
 
@@ -346,56 +397,6 @@ export class SessionManager {
   }
 
   /**
-   * Merge additional environment variables into the session without replacing
-   * the whole environment. Used by UI components (e.g. AwsAuth) to inject
-   * credentials after user confirmation.
-   *
-   * `generation` (from `getGeneration`, captured before the caller's first
-   * await) makes this a no-op once the session it names has been replaced.
-   * Omit it only when the write happens in the same tick the request arrived.
-   */
-  appendToEnv(env: Record<string, string>, generation?: number) {
-    return Effect.gen({ self: this }, function* () {
-      if (this.session === null) {
-        return yield* new SessionError({ message: "no active session" })
-      }
-      if (this.isStale(generation)) return
-
-      for (const [key, value] of Object.entries(env)) {
-        this.session.env.set(key, value)
-      }
-      this.session.lastActivity = new Date()
-      this.notifyChange(this.session)
-    })
-  }
-
-  /**
-   * Remove specific keys from the session env without touching anything else.
-   * `appendToEnv` can only ever set a key to SOME value — it cannot express
-   * "this credential no longer carries this var." A bridging var like
-   * `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` needs a real delete: a blank
-   * value is not "absent" to every downstream CLI, and leaving the previous
-   * value standing after a credential that no longer has one authenticates
-   * is exactly the stale-env bug this exists to prevent.
-   *
-   * `generation` works as for `appendToEnv`.
-   */
-  removeFromEnv(keys: string[], generation?: number) {
-    return Effect.gen({ self: this }, function* () {
-      if (this.session === null) {
-        return yield* new SessionError({ message: "no active session" })
-      }
-      if (this.isStale(generation)) return
-
-      for (const key of keys) {
-        this.session.env.delete(key)
-      }
-      this.session.lastActivity = new Date()
-      this.notifyChange(this.session)
-    })
-  }
-
-  /**
    * Add `entries` (directories, such as those on the user's login-shell PATH)
    * to the end of the session's PATH, skipping those already on it. Returns
    * the entries added to the PATH scripts run with.
@@ -406,7 +407,7 @@ export class SessionManager {
    * keep that PATH instead of the next launch's. Added to both, PATH is saved
    * as a change only if a script changed it.
    *
-   * `generation` works as for `appendToEnv`.
+   * `generation` works as for setEnvExport.
    */
   appendToPath(entries: readonly string[], delimiter: string, generation?: number) {
     return Effect.gen({ self: this }, function* () {
@@ -486,7 +487,7 @@ export class SessionManager {
 
   /**
    * Register a git worktree path. No-op if already registered, or if
-   * `generation` (as for `appendToEnv`) names a replaced session.
+   * `generation` (as for setEnvExport) names a replaced session.
    */
   registerWorkTreePath(path: string, generation?: number): void {
     if (this.session === null || this.isStale(generation)) return
@@ -499,7 +500,7 @@ export class SessionManager {
 
   /**
    * Set the explicitly selected active worktree path (user switches in UI).
-   * No-op if `generation` (as for `appendToEnv`) names a replaced session.
+   * No-op if `generation` (as for setEnvExport) names a replaced session.
    */
   setActiveWorkTreePath(path: string, generation?: number): void {
     if (this.session === null || this.isStale(generation)) return

@@ -13,7 +13,7 @@ interface DetectedCredentialsPromptProps {
 
 /**
  * Confirm-before-use gate for auto-detected credentials. Detection is read-only
- * metadata; nothing reaches the session env and no outputs are registered until
+ * metadata; nothing is exported and no outputs are registered until
  * the user says yes here — that is what makes an ambient
  * GOOGLE_APPLICATION_CREDENTIALS *this block's* credential.
  */

@@ -56,6 +56,12 @@ export interface InstructionProps {
    */
   interpreter?: string | undefined
   /**
+   * The auth blocks whose sign-in the command or script runs with (a script
+   * block's `envFrom` prop). Their credentials are secrets the page doesn't
+   * have, so only the blocks' ids are shown.
+   */
+  envFrom?: readonly string[] | undefined
+  /**
    * An embedded form shown before the command — e.g. a Command's nested
    * `<Inputs>`. Its values reach `templateContext`, so the command updates as
    * the user fills it in.
@@ -78,6 +84,7 @@ export interface InstructionProps {
 
 const EMPTY_CONTEXT: TemplateContext = { inputs: {}, outputs: {} }
 const NO_ENV: Readonly<Record<string, string>> = {}
+const NO_ENV_FROM: readonly string[] = []
 
 /**
  * Shared presentation primitive for instruction mode (spec §6.3). Renders a
@@ -100,6 +107,7 @@ export function Instruction({
   env = NO_ENV,
   workingDir,
   interpreter,
+  envFrom = NO_ENV_FROM,
   inputs,
   note,
   icon: Icon = ListChecks,
@@ -234,6 +242,20 @@ export function Instruction({
                 className="text-sm text-muted-foreground"
               >
                 Run this with <span className="font-mono text-foreground">{interpreter}</span>:
+              </div>
+            )}
+
+            {envFrom.length > 0 && (
+              <div
+                data-testid={id ? `instruction-${id}-env-from` : undefined}
+                className="flex items-start gap-1.5 text-xs text-muted-foreground"
+              >
+                <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0 text-warning" />
+                <span>
+                  This step uses the credentials of{" "}
+                  <span className="font-mono">{envFrom.join(", ")}</span>. Sign in to the same
+                  accounts in your shell before you run it.
+                </span>
               </div>
             )}
 
