@@ -5,7 +5,9 @@
  * - the header: the progress step mark, the tag, the id and the title, and
  *   the description under it. A task's own form, written in its markdown
  *   (`nestedIn`), draws inside the task with no header and no status: the
- *   task's say what it waits for;
+ *   task's say what it waits for. A configured display block has neither:
+ *   its view draws all of it (`drawsItself`), so it can take itself off
+ *   the page;
  * - the "Script changed" notice, while files the block names differ on disk
  *   from the text the session holds (`scriptChange.tsx`), whatever the
  *   block's class or configuration;
@@ -90,6 +92,27 @@ function instructedIn(kind: DocumentBlock["class"]): boolean {
     default: {
       const unhandled: never = kind
       throw new Error(`The frame has no instruction mode for the class ${String(unhandled)}.`)
+    }
+  }
+}
+
+/**
+ * Whether a configured block of `kind` draws all of itself, so the frame
+ * draws nothing around its view: no header and no description. A display
+ * block has no step, status or fold for a header to show, and its view may
+ * take it off the page, as a note the person closes does.
+ */
+function drawsItself(kind: DocumentBlock["class"]): boolean {
+  switch (kind) {
+    case "display":
+      return true
+    case "form":
+    case "task":
+    case "credential":
+      return false
+    default: {
+      const unhandled: never = kind
+      throw new Error(`The frame has no drawing for the class ${String(unhandled)}.`)
     }
   }
 }
@@ -186,6 +209,7 @@ export function BlockFrame({
       />
     )
   const nested = block._tag === "Configured" && block.nestedIn !== undefined
+  const bare = block._tag === "Configured" && drawsItself(block.class)
   const done = status?._tag === "Done"
   const folds =
     block._tag === "Configured" && block.autoCollapse === true && foldsWhenDone(block.class)
@@ -199,12 +223,12 @@ export function BlockFrame({
   const folded = folds && done && !opened
   return (
     <section
-      className="block"
+      className={bare ? "block-bare" : "block"}
       aria-label={`<${block.tag}> block`}
       id={block.id === undefined ? undefined : frameId(block.id)}
       data-folded={folded}
     >
-      {nested ? null : (
+      {nested || bare ? null : (
         <header className="block-header">
           {block._tag === "Configured" && block.step ? <StepMark done={done} /> : null}
           <code className="block-tag">{`<${block.tag}>`}</code>
@@ -224,7 +248,7 @@ export function BlockFrame({
       )}
       {folded ? null : (
         <>
-          {block.description === undefined ? null : (
+          {bare || block.description === undefined ? null : (
             <p className="block-description">{block.description}</p>
           )}
           {view?.filesOnDisk === undefined ? null : (
