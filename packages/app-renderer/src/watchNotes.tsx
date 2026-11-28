@@ -15,7 +15,7 @@
  * held no reload back, and its watch-mode spec says nothing of either.
  */
 import type { DocumentView, ReloadHeld } from "@runbooks/core/protocol"
-import { BlockLink } from "./frame.tsx"
+import { BlockLink } from "./blockLink.tsx"
 import { useEnded, useReloadHeld, useUnwatched } from "./following.ts"
 import { framedIn } from "./markdown.tsx"
 import { place } from "./place.ts"

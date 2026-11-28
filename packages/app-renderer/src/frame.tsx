@@ -44,6 +44,7 @@ import type {
   LogPage,
   OutputView,
 } from "@runbooks/core/protocol"
+import { BlockLink, frameId } from "./blockLink.tsx"
 import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
 import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
@@ -60,21 +61,6 @@ type Failure = Extract<BlockStatus, { readonly _tag: "Failed" }>["error"]
  */
 export const ViewsContext =
   createContext<Readonly<Partial<Record<string, View<Schema.Json>>>>>(views)
-
-/** The element id of a block's frame, which a link to the block scrolls to. */
-const frameId = (block: string): string => `runbook-block-${block}`
-
-/** Scrolls the frame of `block` to the middle of the window, as the old app's `BlockLink` does. */
-export function scrollToBlock(
-  document: {
-    readonly getElementById: (
-      id: string,
-    ) => { readonly scrollIntoView: (options: ScrollIntoViewOptions) => void } | null
-  },
-  block: string,
-) {
-  document.getElementById(frameId(block))?.scrollIntoView({ behavior: "smooth", block: "center" })
-}
 
 /** Whether instruction mode shows a block of `kind` as its instruction. */
 function instructedIn(kind: DocumentBlock["class"]): boolean {
@@ -396,29 +382,6 @@ function Blockers({
         </>
       )}
     </div>
-  )
-}
-
-/** A block's id: a link that scrolls to its frame, or its text when the page draws none. */
-export function BlockLink({
-  block,
-  onPage,
-}: {
-  readonly block: string
-  readonly onPage: ReadonlySet<string>
-}) {
-  if (!onPage.has(block)) return <code className="block-link">{block}</code>
-  return (
-    <a
-      href={`#${frameId(block)}`}
-      className="block-link"
-      onClick={(event) => {
-        event.preventDefault()
-        scrollToBlock(event.currentTarget.ownerDocument, block)
-      }}
-    >
-      {block}
-    </a>
   )
 }
 
