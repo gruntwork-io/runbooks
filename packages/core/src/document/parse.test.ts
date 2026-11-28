@@ -765,6 +765,16 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("suggests no YAML prop for a near miss: the block takes its YAML only from the fence", () => {
+      const doc = parsed(
+        '<Form id="f" variabls={[]}>\n```yaml\n- name: a\n  type: string\n```\n</Form>',
+      )
+      expect(brief(doc.warnings)).toEqual([
+        ["unknownProp", 1, "<Form> has no `variabls` prop, so it is ignored."],
+      ])
+      expect(doc.warnings[0]).not.toHaveProperty("suggestion")
+    })
+
     it("gives a shared prop to the block as well when the block has its own", () => {
       const doc = parsed(
         '<Note title="Careful" inputsId={["config"]} />\n\n<Form id="config">\n```yaml\n[]\n```\n</Form>',
