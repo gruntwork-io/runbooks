@@ -4,6 +4,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
+import { testSessionCipher } from "@runbooks/core/test-utils/TestSessionCipher"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { appEngine } from "./engine.ts"
 import {
@@ -223,6 +224,7 @@ describe("sessionRunbook", () => {
             appVersion: "0.31.0",
             processEnvironment: {},
             fakeCredentials: false,
+            sessionCipher: testSessionCipher(),
           }),
         ),
       ),

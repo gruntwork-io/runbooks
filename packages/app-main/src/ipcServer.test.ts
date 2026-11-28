@@ -12,6 +12,7 @@ import {
   type WatchMode,
 } from "@runbooks/core/protocol"
 import { VcsCredentials } from "@runbooks/core/services/VcsCredentials"
+import { testSessionCipher } from "@runbooks/core/test-utils/TestSessionCipher"
 import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { GitCliClientLive } from "@runbooks/platform-node/layers/GitCliClient"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
@@ -130,6 +131,7 @@ const withServer = <A>(use: (seen: Seen) => Effect.Effect<A, unknown, Scope.Scop
               userData: path.join(folder, "user data"),
               appVersion: "0.31.0",
               fakeCredentials: false,
+              sessionCipher: testSessionCipher(),
               processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
             }),
           ),
@@ -573,6 +575,7 @@ const launchEngine = (openSession?: Layer.Layer<Rpc.Handler<"OpenSession">>) => 
       userData: path.join(folder, "user data"),
       appVersion: "0.31.0",
       fakeCredentials: false,
+      sessionCipher: testSessionCipher(),
       processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
     }),
     NodeFileSystemLive,

@@ -26,9 +26,14 @@
  *
  * It hosts the engine (`engine.ts`), which keeps its files in the user data
  * folder, and reads the process's environment once, here, for its runs.
- * Unpackaged, with RUNBOOKS_FAKE_CREDENTIALS=1, its credential blocks sign
- * in against the fake providers (`fakeCredentialsOn`). The
- * engine serves the window's page over IPC (`ipcServer.ts`), and only it.
+ * The engine encrypts what it saves of a session with Electron's
+ * safeStorage (`sessionCipher.ts`). Unpackaged, with
+ * RUNBOOKS_FAKE_CREDENTIALS=1, its credential blocks sign in against the
+ * fake providers (`fakeCredentialsOn`); with
+ * RUNBOOKS_TEST_INSECURE_SESSION_KEY=1, where Linux has no secret service,
+ * it saves sessions with Chromium's hardcoded key (`insecureSessionKeyOn`).
+ * The engine serves the window's page over IPC (`ipcServer.ts`), and only
+ * it.
  * A runbook given on the command line is opened first (`launch.ts`), in
  * the watch mode its flags ask for: `--watch`, with or without
  * `--disable-live-file-reload` (`watchModeOf`). One a
@@ -49,7 +54,16 @@
  */
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { app, BrowserWindow, net, protocol, type Session, session, shell } from "electron"
+import {
+  app,
+  BrowserWindow,
+  net,
+  protocol,
+  safeStorage,
+  type Session,
+  session,
+  shell,
+} from "electron"
 import { Cause, Effect, Fiber, FiberSet, Layer, type Scope, Semaphore } from "effect"
 import type { Rpc } from "effect/rpc"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
@@ -81,6 +95,7 @@ import { notFound } from "./pathGuard.ts"
 import { clonesFolder, removeClones } from "./remoteRunbook.ts"
 import { serveRunbookAsset, sessionRunbook } from "./runbookAssets.ts"
 import { ASSET_SCHEME, PAGE_SCHEME } from "./schemes.ts"
+import { INSECURE_SESSION_KEY, insecureSessionKeyOn, safeStorageCipher } from "./sessionCipher.ts"
 
 /** The repository's version, set by the build (electron.vite.app.config.ts). */
 declare const __RUNBOOKS_VERSION__: string
@@ -194,6 +209,13 @@ if (fakeCredentials)
     `${FAKE_CREDENTIALS}=1: credential blocks sign in against the fake providers, not AWS or any other.`,
   )
 
+/** Whether sessions may be encrypted with Linux's hardcoded key: never in a packaged app. */
+const insecureKey = insecureSessionKeyOn(app.isPackaged, processEnvironment)
+if (insecureKey)
+  console.warn(
+    `${INSECURE_SESSION_KEY}=1: where Linux has no secret service, sessions are encrypted with the key Chromium hardcodes, which protects nothing.`,
+  )
+
 // Electron answers a server that asks for a client certificate with the
 // first one in the OS store, which identifies the user to that server.
 app.on("select-client-certificate", (event, _contents, _url, _certificates, callback) => {
@@ -283,6 +305,10 @@ if (firstInstance)
                   appVersion: __RUNBOOKS_VERSION__,
                   processEnvironment,
                   fakeCredentials,
+                  sessionCipher: safeStorageCipher(safeStorage, {
+                    platform: process.platform,
+                    insecureKey,
+                  }),
                 }),
                 NodeFileSystemLive,
                 RemoteLive,
