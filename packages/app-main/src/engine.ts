@@ -10,14 +10,17 @@
  *
  * Until the sessions database is wired (row 3n), it keeps no session, so it
  * resumes none, and retention never drops a session's folders. Until the
- * plugin transport, no credential provider opens; the registry has no
- * credential block yet.
+ * plugin transport, no real credential provider opens. In dev mode
+ * (`fakeCredentialsOn`), credential blocks sign in against the fakes
+ * (`@runbooks/blocks/fakes`), which run in memory and start no binary.
  */
 import path from "node:path"
 import { Effect, Layer } from "effect"
 import type { Rpc } from "effect/rpc"
 import { CredentialError } from "@runbooks/blocks-core/contract"
 import * as registry from "@runbooks/blocks"
+import { fakeScripts } from "@runbooks/blocks/fakes"
+import { fakeCredentialProviders } from "@runbooks/core/credential/fake"
 import { CredentialProviders } from "@runbooks/core/credential/provider"
 import { serveEngine } from "@runbooks/core/handlers"
 import type { EngineCommand } from "@runbooks/core/protocol"
@@ -34,7 +37,23 @@ export interface AppEngineOptions {
   readonly appVersion: string
   /** The app's process environment, read at the entry point. */
   readonly processEnvironment: Readonly<Record<string, string>>
+  /** Whether credential blocks sign in against the fake providers: `fakeCredentialsOn`. */
+  readonly fakeCredentials: boolean
 }
+
+/** The variable that asks an app that is not packaged for the fake credential providers. */
+export const FAKE_CREDENTIALS = "RUNBOOKS_FAKE_CREDENTIALS"
+
+/**
+ * The dev mode: whether credential blocks sign in against the fakes. Only
+ * an app that is not packaged (Electron's `app.isPackaged`, which an
+ * environment cannot change), started with RUNBOOKS_FAKE_CREDENTIALS=1. A
+ * packaged app never does, whatever its environment says.
+ */
+export const fakeCredentialsOn = (
+  packaged: boolean,
+  environment: Readonly<Record<string, string>>,
+): boolean => !packaged && environment[FAKE_CREDENTIALS] === "1"
 
 const NoCredentialProviders = Layer.succeed(CredentialProviders, {
   open: (provider) =>
@@ -56,7 +75,9 @@ export const appEngine = (options: AppEngineOptions): Layer.Layer<Rpc.ToHandler<
     processEnvironment: options.processEnvironment,
   }).pipe(
     Layer.provide(SettingsStore.layer.pipe(Layer.provide(nodeSettingsFile(options.userData)))),
-    Layer.provide(NoCredentialProviders),
+    Layer.provide(
+      options.fakeCredentials ? fakeCredentialProviders(fakeScripts) : NoCredentialProviders,
+    ),
     Layer.provide(NoSavedSessions),
     Layer.provide(Layer.mergeAll(NodeFileSystemLive, ChildProcessSpawnerLive)),
   )

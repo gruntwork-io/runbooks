@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineClient } from "@runbooks/core/protocol"
-import { appEngine } from "./engine.ts"
+import { appEngine, fakeCredentialsOn } from "./engine.ts"
 
 // The app's engine over a real user data folder, the real Node layers and
 // bash, driven as a client drives it.
@@ -53,6 +53,7 @@ const stoppedIn = (session: string) =>
 const withClient = <A>(
   use: (client: EngineClient) => Effect.Effect<A, unknown>,
   env: Record<string, string> = {},
+  fakeCredentials = false,
 ): Promise<A> =>
   Effect.runPromise(
     Effect.scoped(Effect.flatMap(makeInProcessClient("person"), use)).pipe(
@@ -61,12 +62,52 @@ const withClient = <A>(
           userData: userData(),
           appVersion: "0.31.0",
           processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...env },
+          fakeCredentials,
         }),
       ),
     ),
   )
 
+/** AwsAuth's testdata: `aws` looks in the environment for the fake's secret key. */
+const AWS_FIXTURE = path.resolve(import.meta.dirname, "../../../blocks/aws-auth/testdata/detect")
+
 describe("the app's engine", () => {
+  it("signs credential blocks in against the fakes only unpackaged, when RUNBOOKS_FAKE_CREDENTIALS=1 asks", () => {
+    const on = { RUNBOOKS_FAKE_CREDENTIALS: "1" }
+    expect(fakeCredentialsOn(false, on)).toBe(true)
+    expect(fakeCredentialsOn(true, on)).toBe(false)
+    expect(fakeCredentialsOn(false, {})).toBe(false)
+    expect(fakeCredentialsOn(false, { RUNBOOKS_FAKE_CREDENTIALS: "true" })).toBe(false)
+  })
+
+  it("finds the fake's login for a credential block in dev mode, and opens no provider otherwise", async () => {
+    const stateOf = (fakeCredentials: boolean) =>
+      withClient(
+        (client) =>
+          Effect.gen(function* () {
+            const result = yield* client.OpenSession({
+              path: path.join(AWS_FIXTURE, "runbook.mdx"),
+            })
+            if (result._tag !== "Opened")
+              throw new Error(result.errors.map((e) => e.message).join())
+            const { session, trust } = result.session
+            yield* client.TrustSession({ session, hash: trust.hash })
+            const target = { session, block: Schema.decodeSync(BlockId)("aws") }
+            for (;;) {
+              const { block } = yield* client.WaitForBlock({ ...target, timeoutMillis: 1_000 })
+              if (block.status?._tag !== "Running") return block.credential
+            }
+          }),
+        { AWS_SECRET_ACCESS_KEY: "fake-aws-secret-0001" },
+        fakeCredentials,
+      )
+    expect(await stateOf(true)).toMatchObject({ _tag: "Found", source: "env" })
+    expect(await stateOf(false)).toMatchObject({
+      _tag: "Unavailable",
+      error: { kind: "providerFailed" },
+    })
+  })
+
   it("keeps its settings in settings.json, in the user data folder", async () => {
     const file = path.join(userData(), "settings.json")
     const shown = await withClient((client) =>

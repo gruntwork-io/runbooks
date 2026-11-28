@@ -222,6 +222,7 @@ describe("sessionRunbook", () => {
             userData: path.join(root, "user data"),
             appVersion: "0.31.0",
             processEnvironment: {},
+            fakeCredentials: false,
           }),
         ),
       ),
