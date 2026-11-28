@@ -403,6 +403,30 @@ describe("parseRunbook", () => {
       })
     })
 
+    it("refuses YAML children its schema refuses with an error for each problem, at its own line", () => {
+      const found = errors(
+        [
+          '<Form id="f">',
+          "```yaml",
+          "- name: a",
+          "  type: nope",
+          "- name: b",
+          "  type: string",
+          "  required: maybe",
+          "```",
+          "</Form>",
+        ].join("\n"),
+      )
+      expect(found.map((e) => [e.code, e.location.span.start, e.location.prop])).toEqual([
+        ["badChildren", { line: 4, column: 3 }, "variables"],
+        ["badChildren", { line: 7, column: 3 }, "variables"],
+      ])
+      for (const error of found)
+        expect(error.message).toStartWith("The YAML in <Form> isn't valid: ")
+      expect(found[0]?.message).toEndWith("(at 0.type).")
+      expect(found[1]?.message).toEndWith("(at 1.required).")
+    })
+
     it("refuses YAML children that do not parse, at their line", () => {
       const found = errors('<Form id="i">\n```yaml\n- name: [unclosed\n```\n</Form>')
       expect(found).toHaveLength(1)
@@ -721,6 +745,36 @@ describe("parseRunbook", () => {
       ])
     })
 
+    it("reads a block's YAML only from the fence inside it: the prop written as an attribute is ignored", () => {
+      const doc = parsed(
+        '<Form id="f" variables={[{ name: "attr", type: "string" }]}>\n```yaml\n- name: fenced\n  type: string\n```\n</Form>',
+      )
+      expect(doc.blocks[0]?.props).toEqual({ variables: [{ name: "fenced", type: "string" }] })
+      expect(brief(doc.warnings)).toEqual([
+        [
+          "unknownProp",
+          1,
+          "<Form> takes its YAML only in a ```yaml code fence inside it, so the `variables` prop is ignored.",
+        ],
+      ])
+      expect(doc.warnings[0]?.location.prop).toBe("variables")
+      expect(doc.warnings[0]).not.toHaveProperty("suggestion")
+      // Without a fence, it has none.
+      expect(brief(errors('<Form id="f" variables={[]} />'))).toEqual([
+        ["badChildren", 1, "<Form> needs its YAML, in a ```yaml code fence inside it."],
+      ])
+    })
+
+    it("suggests no YAML prop for a near miss: the block takes its YAML only from the fence", () => {
+      const doc = parsed(
+        '<Form id="f" variabls={[]}>\n```yaml\n- name: a\n  type: string\n```\n</Form>',
+      )
+      expect(brief(doc.warnings)).toEqual([
+        ["unknownProp", 1, "<Form> has no `variabls` prop, so it is ignored."],
+      ])
+      expect(doc.warnings[0]).not.toHaveProperty("suggestion")
+    })
+
     it("gives a shared prop to the block as well when the block has its own", () => {
       const doc = parsed(
         '<Note title="Careful" inputsId={["config"]} />\n\n<Form id="config">\n```yaml\n[]\n```\n</Form>',
@@ -767,27 +821,21 @@ describe("parseRunbook", () => {
       ])
     })
 
-    it("refuses a field value nested deeper than a form's values may be, from YAML or a prop, and throws nothing", () => {
+    it("refuses a field value nested deeper than a form's values may be, at its line, and throws nothing", () => {
       const deep = (depth: number) => `${"[".repeat(depth)}"fake-secret-d33p"${"]".repeat(depth)}`
       const fenced = (depth: number) =>
         `<Form id="config">\n\`\`\`yaml\n- name: a\n  type: list\n  default: ${deep(depth)}\n\`\`\`\n</Form>`
       expect(configErrors(parse(fenced(MAX_VALUE_DEPTH)))).toEqual([])
-      const prop = (depth: number) =>
-        `<Form id="config" variables={[{ name: "a", type: "list", default: ${deep(depth)} }]} />`
-      expect(configErrors(parse(prop(MAX_VALUE_DEPTH)))).toEqual([])
-      // `variables` is the prop Form's YAML children fill, so either way it is a children error.
-      for (const source of [fenced(MAX_VALUE_DEPTH + 1), prop(MAX_VALUE_DEPTH + 1)]) {
-        const found = errors(source)
-        expect(brief(found)).toEqual([
-          [
-            "badChildren",
-            1,
-            `the \`variables\` prop of <Form>: Expected a value nested at most ${MAX_VALUE_DEPTH} levels deep (at 0.default)`,
-          ],
-        ])
-        expect(found[0]?.location.prop).toBe("variables")
-        expect(JSON.stringify(found)).not.toContain("fake-secret-d33p")
-      }
+      const found = errors(fenced(MAX_VALUE_DEPTH + 1))
+      expect(brief(found)).toEqual([
+        [
+          "badChildren",
+          5,
+          `The YAML in <Form> isn't valid: Expected a value nested at most ${MAX_VALUE_DEPTH} levels deep (at 0.default).`,
+        ],
+      ])
+      expect(found[0]?.location.prop).toBe("variables")
+      expect(JSON.stringify(found)).not.toContain("fake-secret-d33p")
       // Deeper than the yaml library can read: it stops, and says why in our words.
       expect(brief(errors(fenced(8_000)))).toEqual([
         [

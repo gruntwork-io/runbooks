@@ -7,8 +7,8 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 import { Option, Result, Schema, SchemaAST, SchemaIssue } from "effect"
-import { type Document, isMap, isScalar } from "yaml"
-import { parseYaml, yamlData } from "./yamlData.ts"
+import { type Document, isMap, isScalar, type LineCounter } from "yaml"
+import { nodeAt, parseYaml, yamlData } from "./yamlData.ts"
 import {
   BlockId,
   type Capability,
@@ -206,6 +206,11 @@ class Parse {
   private readonly named: NamedFile[] = []
   /** The files each task names that are its scripts, by its index: they make no edges. */
   private readonly scriptFiles = new Map<number, ReadonlySet<string>>()
+  /** Each block's YAML children, parsed, by its index, and where the YAML starts in the file. */
+  private readonly yamlRead = new Map<
+    number,
+    { readonly doc: Document.Parsed; readonly lines: LineCounter; readonly start: Span["start"] }
+  >()
   private frontMatterRead: FrontMatter = {}
   private tree: TreeNode = { type: "root", children: [] }
   /** The result when the parse stopped early, at the front matter's version or a syntax error. */
@@ -595,15 +600,24 @@ class Parse {
     let credentialAlias: Written | undefined
     for (const [key, prop] of written) {
       if (key === "id") continue
-      const ownsKey = own === undefined ? !isShared(key) : own.has(key)
+      // The prop a block's YAML children fill is read only from them.
+      const ownsKey = key !== childrenProp && (own === undefined ? !isShared(key) : own.has(key))
       if (isShared(key) && takes(block, key)) shared[key] = prop.value
       else if (key === GIT_CREDENTIAL_ALIAS && !ownsKey && credentialProp !== undefined) {
         credentialAlias = prop
       } else if (ENV_FROM_ALIASES.has(key) && !ownsKey && takes(block, "envFrom")) {
         aliases.push([key, prop])
-      } else if (!ownsKey && key !== childrenProp) {
+      } else if (key === childrenProp) {
+        this.warn(
+          "unknownProp",
+          `<${tag}> takes its YAML only in a \`\`\`yaml code fence inside it, so the \`${key}\` prop is ignored.`,
+          prop.span,
+          where,
+          key,
+        )
+      } else if (!ownsKey) {
         const known = [
-          ...(own ?? []),
+          ...[...(own ?? [])].filter((k) => k !== childrenProp),
           ...[...SHARED_KEYS].filter(isShared).filter((k) => takes(block, k)),
         ]
         const suggestion = nearest(key, known)
@@ -647,7 +661,8 @@ class Parse {
       children,
       this.decodeShared(index, shared, aliases, written, span, where),
     )
-    const props = Schema.decodeUnknownResult(block.props)(input)
+    // Every problem, so an author fixes them all at once.
+    const props = Schema.decodeUnknownResult(block.props)(input, { errors: "all" })
     if (Result.isFailure(props)) {
       // YAML that did not parse is already reported; its prop's absence is not news.
       const skip = yamlRead ? undefined : childrenProp
@@ -817,6 +832,7 @@ class Parse {
     if (fence === undefined || typeof fence.value !== "string") return true
     const {
       doc,
+      lines,
       problems: [problem],
     } = parseYaml(fence.value)
     if (problem) {
@@ -845,6 +861,7 @@ class Parse {
       return false
     }
     input[prop] = data.success
+    this.yamlRead.set(index, { doc, lines, start: spanOf(fence).start })
     return true
   }
 
@@ -1046,22 +1063,41 @@ class Parse {
     skip?: string,
   ): void {
     const byProp = new Map<string, string[]>()
+    const yaml = this.yamlRead.get(index)
     for (const { message, path = [] } of formatIssue(issue).issues) {
-      const [head, ...rest] = path.map((segment) =>
-        typeof segment === "object" ? String(segment.key) : String(segment),
-      )
+      const keys = path.map((segment) => (typeof segment === "object" ? segment.key : segment))
+      const [head, ...rest] = keys.map(String)
       const prop = head ?? ""
       const at = rest.length > 0 ? ` (at ${rest.join(".")})` : ""
+      // In YAML children, each problem is an error of its own, at its own line.
+      if (prop === childrenProp && yaml !== undefined && prop !== skip) {
+        const offset = nodeAt(yaml.doc.contents, keys.slice(1))?.range?.[0] ?? 0
+        const { line, col } = yaml.lines.linePos(offset)
+        this.error(
+          "badChildren",
+          `The YAML in <${where.tag}> isn't valid: ${message}${at}.`,
+          pointSpan(yaml.start.line + line, yaml.start.column - 1 + col),
+          { block: where, index, prop },
+        )
+        continue
+      }
       byProp.set(prop, [...(byProp.get(prop) ?? []), `${message}${at}`])
     }
     for (const [prop, messages] of byProp) {
       if (prop === skip) continue
-      const value = written.get(prop)
+      // The YAML children's prop written as an attribute is ignored, so it is not written.
+      const value = prop === childrenProp ? undefined : written.get(prop)
       const missing = value === undefined && messages.every((m) => m === "Missing key")
       const code: BlockErrorCode = prop === childrenProp ? "badChildren" : "badProp"
-      const message = missing
-        ? `<${where.tag}> needs the \`${prop}\` prop.`
-        : `the \`${prop}\` prop of <${where.tag}>: ${messages.join("; ")}`
+      // A problem with YAML children that were read is at its own line, above: here, there are none.
+      const message =
+        prop === childrenProp
+          ? missing
+            ? `<${where.tag}> needs its YAML, in a \`\`\`yaml code fence inside it.`
+            : `<${where.tag}> has no YAML inside it: ${messages.join("; ")}.`
+          : missing
+            ? `<${where.tag}> needs the \`${prop}\` prop.`
+            : `the \`${prop}\` prop of <${where.tag}>: ${messages.join("; ")}`
       this.error(code, message, value?.span ?? fallback, {
         block: where,
         index,

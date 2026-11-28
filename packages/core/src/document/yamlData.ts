@@ -15,7 +15,18 @@
  * file: the yaml library refuses that ("Excessive alias count").
  */
 import { Result } from "effect"
-import { type Alias, type Document, type ErrorCode, LineCounter, parseDocument, visit } from "yaml"
+import {
+  type Alias,
+  type Document,
+  type ErrorCode,
+  isMap,
+  isScalar,
+  isSeq,
+  LineCounter,
+  type Node,
+  parseDocument,
+  visit,
+} from "yaml"
 
 /** Why YAML could not be parsed, for each error the yaml library gives: never its message. */
 const REASONS: { readonly [Code in ErrorCode]: string } = {
@@ -76,6 +87,28 @@ export function parseYaml(text: string): {
       return { line, column: col, reason: REASONS[error.code] }
     }),
   }
+}
+
+/**
+ * The YAML node a decode issue at `path` points at: for a key, the key
+ * itself, so an unexpected key's line is its own; for a key that is
+ * missing, the map that lacks it.
+ */
+export function nodeAt(root: Node | null, path: ReadonlyArray<PropertyKey>): Node | null {
+  let node = root
+  for (const [i, key] of path.entries()) {
+    if (isMap(node)) {
+      const pair = node.items.find((p) => isScalar(p.key) && String(p.key.value) === String(key))
+      if (pair === undefined) return node
+      if (i === path.length - 1) return pair.key as Node
+      node = pair.value as Node | null
+    } else if (isSeq(node)) {
+      const item = typeof key === "number" ? node.items[key] : undefined
+      if (item === undefined) return node
+      node = item as Node
+    } else return node
+  }
+  return node
 }
 
 /** Why a document's data cannot be read, and the offset of the alias at fault. */
