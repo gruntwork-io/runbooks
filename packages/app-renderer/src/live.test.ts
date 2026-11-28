@@ -1,9 +1,10 @@
 import { describe, expect, it } from "bun:test"
 import { Effect, Fiber, Queue, Schema } from "effect"
-import { DocumentView, SessionId } from "@runbooks/core/protocol"
+import { DocumentView, type Instruction, SessionId, Settings } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
 import { dies, type FakeMain, fails, fakeMain } from "./fakeMain.ts"
 import { follow, type Live } from "./live.ts"
+import { makeSettingsStore, type SettingsStore } from "./settings.ts"
 
 // The window following a session, against a main that answers the engine's
 // commands from `engine` below and streams the events a test sends. Each
@@ -108,18 +109,48 @@ const event = (value: Record<string, unknown>) => ({
   event: value,
 })
 
+/** The settings as the engine sends them, with instruction mode `on`. */
+const settingsWith = (on: boolean, fields: Record<string, unknown> = {}) =>
+  Schema.decodeUnknownSync(Settings)({
+    theme: "system",
+    instructionMode: on,
+    runbookWidth: null,
+    askAboutGeneratedFiles: true,
+    caBundleFile: null,
+    proxy: null,
+    agentAccess: false,
+    confirmAgentRuns: true,
+    recentGitHubHosts: [],
+    lastSelectedGitHubHost: null,
+    recentGitLabHosts: [],
+    lastSelectedGitLabHost: null,
+    ...fields,
+  })
+
 /**
- * Follows the session `main` answers for, running `test` with each state
- * the follower shows, in turn, and stops following when it returns.
+ * Follows the session `main` answers for, in the settings `settings` hold
+ * (none read, by default), running `test` with each state the follower
+ * shows, in turn, and stops following when it returns. `shown` is called
+ * with each state as the follower shows it.
  */
-const following = (main: FakeMain, test: (next: Effect.Effect<Live>) => Effect.Effect<void>) =>
+const following = (
+  main: FakeMain,
+  test: (next: Effect.Effect<Live>) => Effect.Effect<void>,
+  {
+    settings = makeSettingsStore(undefined),
+    shown: onShow = () => {},
+  }: { readonly settings?: SettingsStore; readonly shown?: (live: Live) => void } = {},
+) =>
   Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const engine = yield* makeEngineClient(main.bridge)
         const shown = yield* Queue.unbounded<Live>()
         const fiber = yield* Effect.forkScoped(
-          follow(engine, SESSION, OPENED, (live) => Queue.offerUnsafe(shown, live)),
+          follow(engine, SESSION, OPENED, settings, (live) => {
+            Queue.offerUnsafe(shown, live)
+            onShow(live)
+          }),
         )
         yield* test(Queue.take(shown))
         yield* Fiber.interrupt(fiber)
@@ -128,6 +159,14 @@ const following = (main: FakeMain, test: (next: Effect.Effect<Live>) => Effect.E
   )
 
 const statusOf = (live: Live, block: string) => live.blocks.get(block)?.status?._tag
+
+/** Each block the window asked the engine for (`GetBlock`), in turn. */
+const blocksRead = (main: FakeMain) =>
+  main.asked.flatMap(({ tag, payload }) =>
+    tag === "GetBlock" ? [(payload as { block: string }).block] : [],
+  )
+
+const code = (text: string): Instruction => [{ kind: "code", language: "bash", code: text }]
 
 describe("the window following a session", () => {
   it("shows each block with a lifecycle as the engine has it, and starts its events where the session's view ends", async () => {
@@ -147,6 +186,20 @@ describe("the window following a session", () => {
         ])
       }),
     )
+  })
+
+  it("has asked for the session's events by the time it first shows the session", async () => {
+    const main = fakeMain(answering({ greet: task("greet") }))
+    const askedWhenShown: string[][] = []
+    await following(
+      main,
+      (next) =>
+        Effect.gen(function* () {
+          yield* next
+        }),
+      { shown: () => askedWhenShown.push(main.asked.map(({ tag }) => tag)) },
+    )
+    expect(askedWhenShown[0]).toContain("Events")
   })
 
   it("reads every event a session logged when its view reflects none", async () => {
@@ -291,27 +344,191 @@ describe("the window following a session", () => {
     )
   })
 
-  it("re-reads every block's instruction when a value it may read changes", async () => {
-    const engine: Engine = {
-      deploy: task("deploy", {
-        instruction: [{ kind: "code", language: "bash", code: "echo us-east-1" }],
-      }),
+  describe("each block's instruction", () => {
+    /** A task whose instruction reads the form `config`, and a task with none. */
+    const instructed = (): Engine => ({
+      deploy: task("deploy", { instruction: code("echo us-east-1") }),
       config: { ...task("config"), tag: "Survey", class: "form" },
-    }
-    const main = fakeMain(answering(engine))
-    await following(main, (next) =>
-      Effect.gen(function* () {
-        yield* next
-        engine.deploy = {
-          ...engine.deploy,
-          instruction: [{ kind: "code", language: "bash", code: "echo eu-west-1" }],
-        }
-        main.stream("Events", [event({ _tag: "FieldsChanged", block: "config", fields: [] })])
-        expect((yield* next).blocks.get("deploy")?.instruction).toEqual([
-          { kind: "code", language: "bash", code: "echo eu-west-1" },
-        ])
-      }),
-    )
+      build: task("build"),
+    })
+
+    it("is read again in instruction mode when a value or an output it may read changes", async () => {
+      const engine = instructed()
+      const main = fakeMain(answering(engine))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            expect((yield* next).instructionMode).toBe(true)
+            engine.deploy = { ...engine.deploy, instruction: code("echo eu-west-1") }
+            main.stream("Events", [event({ _tag: "FieldsChanged", block: "config", fields: [] })])
+            const changed = yield* next
+            expect(changed.blocks.get("deploy")?.instruction).toEqual(code("echo eu-west-1"))
+            engine.deploy = { ...engine.deploy, instruction: code("echo ap-south-1") }
+            main.stream("Events", [event({ _tag: "OutputsWithdrawn", block: "build" })])
+            expect((yield* next).blocks.get("deploy")?.instruction).toEqual(code("echo ap-south-1"))
+            // The start's reads, then the value's, then the output's.
+            expect(blocksRead(main)).toEqual([
+              "deploy",
+              "config",
+              "build",
+              "config",
+              "deploy",
+              "build",
+              "deploy",
+            ])
+          }),
+        { settings: makeSettingsStore(settingsWith(true)) },
+      )
+    })
+
+    it("is not read out of instruction mode: a value or an output change reads only the blocks it names", async () => {
+      const main = fakeMain(answering(instructed()))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            expect((yield* next).instructionMode).toBe(false)
+            main.stream("Events", [
+              event({ _tag: "FieldsChanged", block: "config", fields: [] }),
+              event({ _tag: "OutputsWithdrawn", block: "build" }),
+            ])
+            expect((yield* next).instructionMode).toBe(false)
+            expect(blocksRead(main)).toEqual(["deploy", "config", "build", "config", "build"])
+          }),
+        { settings: makeSettingsStore(settingsWith(false)) },
+      )
+    })
+
+    it("is read again when instruction mode turns on, before the window shows the mode", async () => {
+      const engine = instructed()
+      const main = fakeMain(answering(engine))
+      const settings = makeSettingsStore(settingsWith(false))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            // Out of the mode, the window keeps deploy's instruction as it read it.
+            engine.deploy = { ...engine.deploy, instruction: code("echo eu-west-1") }
+            main.stream("Events", [event({ _tag: "FieldsChanged", block: "config", fields: [] })])
+            expect((yield* next).blocks.get("deploy")?.instruction).toEqual(code("echo us-east-1"))
+            settings.set(settingsWith(true))
+            const on = yield* next
+            expect(on.instructionMode).toBe(true)
+            expect(on.blocks.get("deploy")?.instruction).toEqual(code("echo eu-west-1"))
+            expect(blocksRead(main)).toEqual(["deploy", "config", "build", "config", "deploy"])
+          }),
+        { settings },
+      )
+    })
+
+    it("is not read when instruction mode turns off", async () => {
+      const main = fakeMain(answering(instructed()))
+      const settings = makeSettingsStore(settingsWith(true))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            settings.set(settingsWith(false))
+            expect((yield* next).instructionMode).toBe(false)
+            expect(blocksRead(main)).toEqual(["deploy", "config", "build"])
+          }),
+        { settings },
+      )
+    })
+
+    it("is read again when instruction mode turns on while the window reads the session at the start", async () => {
+      const engine = instructed()
+      const settings = makeSettingsStore(settingsWith(false))
+      const main = fakeMain((tag, payload) => {
+        if (tag === "GetSession") settings.set(settingsWith(true))
+        return answering(engine)(tag, payload)
+      })
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            expect((yield* next).instructionMode).toBe(false)
+            expect((yield* next).instructionMode).toBe(true)
+            expect(blocksRead(main)).toEqual(["deploy", "config", "build", "deploy"])
+          }),
+        { settings },
+      )
+    })
+
+    it("still says the session closed when instruction mode turns on after it closed", async () => {
+      const main = fakeMain(answering(instructed()))
+      const settings = makeSettingsStore(settingsWith(false))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            main.stream("Events", [event({ _tag: "SessionClosed" })])
+            expect((yield* next).ended).toBe(
+              "This runbook's session closed, so the window shows it as it was left.",
+            )
+            settings.set(settingsWith(true))
+            const on = yield* next
+            expect(on.instructionMode).toBe(true)
+            expect(on.ended).toBe(
+              "This runbook's session closed, so the window shows it as it was left.",
+            )
+          }),
+        { settings },
+      )
+    })
+
+    it("stops listening to the settings once the window stops following", async () => {
+      const store = makeSettingsStore(settingsWith(false))
+      let listening = 0
+      const settings: SettingsStore = {
+        get: store.get,
+        subscribe: (listener) => {
+          listening++
+          const stop = store.subscribe(listener)
+          return () => {
+            listening--
+            stop()
+          }
+        },
+      }
+      const main = fakeMain(answering(instructed()))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            expect(listening).toBe(1)
+          }),
+        { settings },
+      )
+      expect(listening).toBe(0)
+    })
+
+    it("is not read, and nothing is shown again, when a setting other than the mode changes", async () => {
+      const engine = instructed()
+      const main = fakeMain(answering(engine))
+      const settings = makeSettingsStore(settingsWith(true))
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            settings.set(settingsWith(true, { theme: "dark" }))
+            engine.build = task("build", { status: { _tag: "Running" }, actions: ["cancel"] })
+            main.stream("Events", [
+              event({ _tag: "BlockStatusChanged", block: "build", status: { _tag: "Running" } }),
+            ])
+            // The next state shown is the event's.
+            expect(statusOf(yield* next, "build")).toBe("Running")
+            expect(blocksRead(main)).toEqual(["deploy", "config", "build", "build"])
+          }),
+        { settings },
+      )
+    })
   })
 
   it("draws the runbook the session holds once it reloads it: a block it no longer has goes, one it added is read, and one it kept is read again", async () => {

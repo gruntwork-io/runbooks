@@ -13,6 +13,10 @@ export interface SettingsStore {
   readonly subscribe: (listener: () => void) => () => void
 }
 
+/** Whether the settings now turn instruction mode on. Off while none were read. */
+export const instructionModeOf = (settings: SettingsStore): boolean =>
+  settings.get()?.instructionMode === true
+
 /** A store of `initial` until `set` is called. */
 export function makeSettingsStore(
   initial: Settings | undefined,
