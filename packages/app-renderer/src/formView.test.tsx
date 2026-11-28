@@ -43,29 +43,36 @@ const shown = (value: FieldValue) => ({ _tag: "Shown" as const, value })
 
 /**
  * An engine that answers late: it holds each `SetValues` the form sends
- * until the test answers it, and the form shows the fields the test last
- * published, as the window's store does.
+ * until the test answers it, and the form shows the view of the fields the
+ * test last published, as the window's store does. Each answer logs one
+ * event, so the answers' sequences are 1, 2, 3 and on. A view is read at
+ * the sequence the test gives it, or before any event when it gives none.
  */
 function lateEngine(first: ReadonlyArray<FieldView>, sections: ReadonlyArray<Section> = []) {
-  let fields = first
+  let view: { readonly fields: ReadonlyArray<FieldView>; readonly sequence: number | undefined } = {
+    fields: first,
+    sequence: undefined,
+  }
+  let logged = 0
   const listeners = new Set<() => void>()
   const sent: Array<Readonly<Record<string, FieldValue>>> = []
-  const waiting: Array<(effect: Effect.Effect<void>) => void> = []
+  const waiting: Array<(effect: Effect.Effect<number | undefined>) => void> = []
   const subscribe = (listener: () => void) => {
     listeners.add(listener)
     return () => listeners.delete(listener)
   }
   const enter = (values: Readonly<Record<string, FieldValue>>) =>
-    Effect.callback<void>((resume) => {
+    Effect.callback<number | undefined>((resume) => {
       sent.push(values)
       waiting.push(resume)
     })
   function Page() {
-    const now = useSyncExternalStore(subscribe, () => fields)
+    const now = useSyncExternalStore(subscribe, () => view)
     return (
       <FormView
-        fields={now}
+        fields={now.fields}
         sections={sections}
+        sequence={now.sequence}
         enter={enter}
         runbook="/work/runbook.mdx"
         session="s-1"
@@ -80,10 +87,11 @@ function lateEngine(first: ReadonlyArray<FieldView>, sections: ReadonlyArray<Sec
     sent,
     waiting: () => waiting.length,
     page: () => render(<Page />),
-    /** Answers the oldest `SetValues` not yet answered. */
+    /** Answers the oldest `SetValues` not yet answered, with the event its values logged. */
     answer: () =>
       act(async () => {
-        waiting.shift()?.(Effect.void)
+        logged += 1
+        waiting.shift()?.(Effect.succeed(logged))
         await settle()
       }),
     /** Ends the oldest `SetValues` not yet answered with a defect, as a call that dies does. */
@@ -92,10 +100,10 @@ function lateEngine(first: ReadonlyArray<FieldView>, sections: ReadonlyArray<Sec
         waiting.shift()?.(Effect.die(new Error("the engine's call died")))
         await settle()
       }),
-    /** Publishes a view of the fields, as a `GetBlock` answer does. */
-    show: (next: ReadonlyArray<FieldView>) =>
+    /** Publishes a view of the fields read at `sequence`, as a `GetBlock` answer does. */
+    show: (next: ReadonlyArray<FieldView>, sequence?: number) =>
       act(async () => {
-        fields = next
+        view = { fields: next, sequence }
         for (const listener of listeners) listener()
         await settle()
       }),
@@ -174,7 +182,7 @@ describe("FormView", () => {
     await user.type(box("Name"), "abc")
     // An answer and a view from before the last keystrokes.
     await engine.answer()
-    await engine.show([name("a")])
+    await engine.show([name("a")], 1)
     expect(box("Name").value).toBe("abc")
     await user.keyboard("{ArrowLeft}X")
     expect(box("Name").value).toBe("abXc")
@@ -182,20 +190,22 @@ describe("FormView", () => {
     await engine.answer()
     await engine.answer()
     await engine.answer()
-    await engine.show([name("ab")])
+    // Every value sent is answered, the last at 4, and the view, from 2, lags.
+    await engine.show([name("ab")], 2)
+    expect(box("Name").value).toBe("abXc")
     await user.keyboard("Y")
     expect(box("Name").value).toBe("abXYc")
     expect(box("Name").selectionStart).toBe(4)
-    while (engine.waiting() > 0) await engine.answer()
-    // Every value is answered, and the view, from before the last, still lags.
-    await engine.show([name("abXc")])
+    await engine.answer()
+    // Every value is answered, the last at 5, and a read that started before it brings a view from 4.
+    await engine.show([name("abXc")], 4)
     expect(box("Name").value).toBe("abXYc")
-    await engine.show([name("abXYc")])
+    await engine.show([name("abXYc")], 5)
     expect(box("Name").value).toBe("abXYc")
     expect(box("Name").selectionStart).toBe(4)
     expect(engine.sent.map((values) => values["Name"])).toEqual(["a", "ab", "abc", "abXc", "abXYc"])
     // Once the engine caught up, the field shows what it holds.
-    await engine.show([name("set elsewhere")])
+    await engine.show([name("set elsewhere")], 6)
     expect(box("Name").value).toBe("set elsewhere")
   })
 
@@ -207,15 +217,34 @@ describe("FormView", () => {
     await user.type(box("Name"), "b")
     await engine.answer()
     await user.keyboard("{Backspace}")
-    // The engine still holds "a" while "a" is unanswered: the view shows "a" from before "ab".
+    // The engine still holds "ab" while "a" is unanswered: the view shows "a" from before "ab".
     await engine.show([name("a")])
-    await engine.show([name("ab")])
+    await engine.show([name("ab")], 1)
     expect(box("Name").value).toBe("a")
     await engine.answer()
-    await engine.show([name("a")])
+    expect(box("Name").value).toBe("a")
+    await engine.show([name("a")], 2)
     expect(box("Name").value).toBe("a")
     expect(engine.sent).toEqual([{ Name: "ab" }, { Name: "a" }])
   })
+
+  it.each([3, 4])(
+    "shows another writer's value in a view read at or after the last answer, here %d, and not before",
+    async (at) => {
+      const user = userEvent.setup()
+      const name = (value: string) => field("Name", "string", { value: shown(value) })
+      const engine = lateEngine([field("Name", "string")])
+      engine.page()
+      await user.type(box("Name"), "bar")
+      while (engine.waiting() > 0) await engine.answer()
+      // Every value is answered, the last at 3. A read that started before it brings a view from 2.
+      await engine.show([name("ba")], 2)
+      expect(box("Name").value).toBe("bar")
+      // An agent's SetValues: the engine holds its value, and the view says so.
+      await engine.show([name("foo")], at)
+      expect(box("Name").value).toBe("foo")
+    },
+  )
 
   it("shows the engine's value again once a value it never answered has ended", async () => {
     const user = userEvent.setup()
@@ -224,9 +253,27 @@ describe("FormView", () => {
     engine.page()
     await user.type(box("Name"), "b")
     await engine.die()
+    // No answer, so no view to wait for: the field shows the view it has.
+    expect(box("Name").value).toBe("a")
     await engine.show([name("ab")])
     await engine.show([name("set elsewhere")])
     expect(box("Name").value).toBe("set elsewhere")
+  })
+
+  it("waits, after a value the engine never answered, for a view of the last one it answered", async () => {
+    const user = userEvent.setup()
+    const name = (value: string) => field("Name", "string", { value: shown(value) })
+    const engine = lateEngine([name("a")])
+    engine.page()
+    await user.type(box("Name"), "b")
+    await engine.answer()
+    await user.type(box("Name"), "c")
+    await engine.die()
+    // A view from before the answer at 1.
+    await engine.show([name("a")])
+    expect(box("Name").value).toBe("abc")
+    await engine.show([name("ab")], 1)
+    expect(box("Name").value).toBe("ab")
   })
 
   it("shows what the engine holds once a field the person emptied is empty, or turns read-only", async () => {

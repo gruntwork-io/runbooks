@@ -196,6 +196,7 @@ const followingViews = (...views: BlockView[]): Following => {
     reloading: makeReloadingStore(),
     scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
+    enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
   }
@@ -650,6 +651,38 @@ describe("the window asking the engine for a block", () => {
     expect((await asking(answer, request)).said).toBe(line)
   })
 
+  it("gives what entering values says, and the last event the engine had logged once it entered them", async () => {
+    const entering = (answer: unknown) => {
+      const main = fakeMain((tag) =>
+        tag === "GetSession" || tag === "GetBlock" ? undefined : answer,
+      )
+      return Effect.runPromise(
+        Effect.scoped(
+          Effect.flatMap(makeEngineClient(main.bridge), (engine) =>
+            followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+              document: OPENED,
+              settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+            }).enter(Schema.decodeSync(BlockView.fields.block)("config"), { owner: "me" }),
+          ),
+        ).pipe(Effect.timeout("2 seconds")),
+      )
+    }
+    expect(
+      await entering({
+        errors: {},
+        rejected: { owner: "It is read-only." },
+        unreviewed: [],
+        sequence: 7,
+      }),
+    ).toEqual({ said: "owner: It is read-only.", sequence: 7 })
+    expect(
+      await entering(fails({ _tag: "UnknownBlock", session: SESSION, block: "config" })),
+    ).toEqual({
+      said: "The engine has no block config in this runbook's session.",
+      sequence: undefined,
+    })
+  })
+
   it("sends each request once the engine answered the one before, in the order asked", async () => {
     let answerValues = () => {}
     const answered: string[] = []
@@ -676,9 +709,10 @@ describe("the window asking the engine for a block", () => {
             settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
           })
           const block = Schema.decodeSync(BlockView.fields.block)("config")
+          // A form's values (`enter`) wait their turn with a view's requests.
           const asks = [
             following.act(block, { _tag: "SetValues", values: { region: "e" } }),
-            following.act(block, { _tag: "SetValues", values: { region: "eu" } }),
+            following.enter(block, { region: "eu" }),
             following.act(block, { _tag: "RunBlock" }),
           ]
           const all = yield* Effect.forkChild(Effect.all(asks, { concurrency: "unbounded" }))
@@ -752,6 +786,7 @@ describe("a block's frame, following the engine", () => {
           reloading: makeReloadingStore(),
           scriptFiles: NO_SCRIPT_FILES,
           act: () => Effect.never,
+          enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
           trust: () => Effect.void,
           reload: () => Effect.void,
         },

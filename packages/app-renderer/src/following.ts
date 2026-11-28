@@ -4,8 +4,9 @@
  * (`live.ts`), the settings now (`settings.ts`), what came of asking to
  * trust the session (`trust.ts`) or to reload a block's files
  * (`reload.ts`), the script files of each block whose source view is open
- * (`scriptFiles.ts`), and a way to ask the engine to act on a block, trust the
- * session, or reload a block's files. The app provides it (`app.tsx`).
+ * (`scriptFiles.ts`), and a way to ask the engine to act on a block, enter a
+ * form's values, trust the session, or reload a block's files. The app
+ * provides it (`app.tsx`).
  * With none, as a page rendered on its own, no block has a view, no trust
  * or setting is read, and nothing is asked.
  */
@@ -49,6 +50,18 @@ import {
   type TrustingStore,
 } from "./trust.ts"
 
+/** What came of entering values in a block's form. */
+export interface Entered {
+  /** What to tell the person about the answer, if anything. */
+  readonly said: string | undefined
+  /**
+   * The last event the engine had logged once it entered them
+   * (`SetValuesResult.sequence`). Absent when it did not answer, or had
+   * logged none.
+   */
+  readonly sequence: SetValuesResult["sequence"]
+}
+
 export interface Following {
   readonly live: LiveStore
   readonly settings: SettingsStore
@@ -68,6 +81,11 @@ export interface Following {
     block: BlockView["block"],
     request: ViewRequest,
   ) => Effect.Effect<string | undefined>
+  /** Asks the engine to enter `values` in `block`'s form, in turn with `act`'s requests. */
+  readonly enter: (
+    block: BlockView["block"],
+    values: Extract<ViewRequest, { readonly _tag: "SetValues" }>["values"],
+  ) => Effect.Effect<Entered>
   /**
    * Asks the engine to trust the session for the hash of what the prompt
    * shows: the runbook the page draws (`DocumentView.hash`), or what the
@@ -92,6 +110,7 @@ export const FollowingContext = createContext<Following>({
   reloading: makeReloadingStore(),
   scriptFiles: NO_SCRIPT_FILES,
   act: () => Effect.succeed(undefined),
+  enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
   trust: () => Effect.void,
   reload: () => Effect.void,
 })
@@ -198,6 +217,7 @@ export function followingOf(
     reloading,
     scriptFiles,
     act: (block, request) => inTurn.withPermit(ask(engine, session, block, request)),
+    enter: (block, values) => inTurn.withPermit(enterValues(engine, session, block, values)),
     trust: () => {
       const { document } = live.get()
       if (document === undefined) return Effect.void
@@ -269,23 +289,50 @@ const ask = (
       }
     }
   })()
-  return asked.pipe(
+  return answered(asked, block, (said) => said)
+}
+
+/** Enters `values` in `block`'s form, and gives what to tell the person and the answer's sequence. */
+const enterValues = (
+  engine: EngineClient,
+  session: SessionId,
+  block: BlockId,
+  values: Extract<ViewRequest, { readonly _tag: "SetValues" }>["values"],
+): Effect.Effect<Entered> =>
+  answered(
+    Effect.map(engine.SetValues({ session, block, values }), (result) => ({
+      said: entered(result),
+      sequence: result.sequence,
+    })),
+    block,
+    (said) => ({ said, sequence: undefined }),
+  )
+
+/** What asking the engine for a view's request fails with: what it refuses, and a call it never answered. */
+type AskFailure = Effect.Error<ReturnType<EngineClient[ViewRequest["_tag"]]>>
+
+/** What `asked` gives, or, when it failed, what to tell the person, as `failed` gives it. */
+const answered = <A>(
+  asked: Effect.Effect<A, AskFailure>,
+  block: BlockId,
+  failed: (said: string) => A,
+): Effect.Effect<A> =>
+  asked.pipe(
     Effect.catchTags({
-      UnknownSession: () => Effect.succeed("This runbook's session closed."),
+      UnknownSession: () => Effect.succeed(failed("This runbook's session closed.")),
       UnknownBlock: () =>
-        Effect.succeed(`The engine has no block ${block} in this runbook's session.`),
+        Effect.succeed(failed(`The engine has no block ${block} in this runbook's session.`)),
       WrongClass: (error) =>
-        Effect.succeed(`The engine doesn't take that for a ${error.class} block.`),
+        Effect.succeed(failed(`The engine doesn't take that for a ${error.class} block.`)),
       RpcClientError: (error) =>
-        Effect.succeed(`The engine did not answer: ${clientErrorText(error)}`),
+        Effect.succeed(failed(`The engine did not answer: ${clientErrorText(error)}`)),
     }),
     Effect.catchCause((cause) =>
       Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
-        : Effect.succeed(`The engine failed: ${defectText(cause)}`),
+        : Effect.succeed(failed(`The engine failed: ${defectText(cause)}`)),
     ),
   )
-}
 
 /** What a run's answer says, when the run did not start. */
 function ran(result: RunResult): string | undefined {

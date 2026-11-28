@@ -7,10 +7,12 @@
  *
  * What the person enters goes to the engine as they enter it (`enter`). The
  * field shows what they entered until every value entered in it has been
- * answered and the engine's view of the field shows it too, so an answer or
- * a view that arrives while they type never takes a keystroke back or moves
- * the cursor. A sensitive field's value never comes back (`Hidden`), so its
- * box holds only what the person typed in it.
+ * answered and the engine's view of the field either shows it or was read at
+ * or after the last answer (`BlockView.sequence`). So an answer or a view
+ * that arrives while they type never takes a keystroke back or moves the
+ * cursor, and a value entered since by another writer, such as an agent,
+ * shows. A sensitive field's value never comes back (`Hidden`), so its box
+ * holds only what the person typed in it.
  *
  * Fields are drawn in runs of one section each, as the engine orders them
  * (`BlockView.sections`): a section that starts folded (`collapsed`) has a
@@ -19,9 +21,9 @@
  *
  * Field types are a closed set: the switch over them names every one.
  */
-import { Effect, Equal } from "effect"
+import { Effect, Equal, Exit } from "effect"
 import { type ReactNode, useId, useState } from "react"
-import type { BlockView, FieldView } from "@runbooks/core/protocol"
+import type { BlockView, FieldView, SetValuesResult } from "@runbooks/core/protocol"
 import { fieldLabel } from "./label.ts"
 import { Markdown } from "./markdown.tsx"
 
@@ -66,44 +68,55 @@ function blankOf(type: FieldView["type"]): FieldValue {
 const shownBy = (field: FieldView): FieldValue | undefined =>
   field.value?._tag === "Shown" ? field.value.value : undefined
 
-interface Entry {
-  /** What the person entered in each field, shown in place of the engine's value. */
-  readonly drafts: ReadonlyMap<string, FieldValue>
-  /** How many of the values entered in each field the engine has not answered. */
-  readonly waiting: ReadonlyMap<string, number>
+type Sequence = NonNullable<BlockView["sequence"]>
+
+/** What the person entered in a field, shown in place of the engine's value until the engine has caught up. */
+interface Draft {
+  readonly value: FieldValue
+  /** How many of the values entered in the field the engine has not answered. */
+  readonly waiting: number
+  /**
+   * The latest sequence the engine answered the field's values with
+   * (`SetValuesResult.sequence`). Absent while none came with one: there is
+   * no view to wait for.
+   */
+  readonly answered: Sequence | undefined
 }
 
-const NOTHING_ENTERED: Entry = { drafts: new Map(), waiting: new Map() }
-
-function counted(waiting: Entry["waiting"], name: string, by: number): Entry["waiting"] {
-  const next = new Map(waiting)
-  const count = (waiting.get(name) ?? 0) + by
-  if (count === 0) next.delete(name)
-  else next.set(name, count)
-  return next
-}
+/** The later of two sequences, either of which may be absent. */
+const later = (one: Sequence | undefined, other: Sequence | undefined): Sequence | undefined =>
+  one === undefined ? other : other === undefined ? one : Math.max(one, other)
 
 /**
- * `entry` without the drafts the engine has caught up with: those whose
- * values are all answered, of a field the form no longer shows, one that is
- * sensitive or read-only, or one whose view shows the draft. The engine's views come in the
+ * `drafts` without those the engine has caught up with. Once a field's
+ * values are all answered, its draft goes when the form no longer shows the
+ * field, or shows it sensitive or read-only, or when the view was read at or
+ * after the last answer (`sequence`), whatever it shows, or shows the draft.
+ * A read can start before an answer and end after it, so a view from before
+ * that shows another value keeps the draft. The engine's views come in the
  * order it made them, so once nothing is waiting, a view that shows the
  * draft is not one from before it.
  */
-function settled(entry: Entry, fields: ReadonlyArray<FieldView>): Entry {
-  const drafts = new Map(entry.drafts)
-  for (const [name, draft] of entry.drafts) {
-    if (entry.waiting.has(name)) continue
+function settled(
+  drafts: ReadonlyMap<string, Draft>,
+  fields: ReadonlyArray<FieldView>,
+  sequence: Sequence | undefined,
+): ReadonlyMap<string, Draft> {
+  const next = new Map(drafts)
+  for (const [name, draft] of drafts) {
+    if (draft.waiting > 0) continue
     const field = fields.find((shown) => shown.name === name)
     if (
       field === undefined ||
       field.sensitive ||
       field.readOnly ||
-      Equal.equals(shownBy(field) ?? blankOf(field.type), draft)
+      draft.answered === undefined ||
+      (sequence !== undefined && sequence >= draft.answered) ||
+      Equal.equals(shownBy(field) ?? blankOf(field.type), draft.value)
     )
-      drafts.delete(name)
+      next.delete(name)
   }
-  return drafts.size === entry.drafts.size ? entry : { ...entry, drafts }
+  return next.size === drafts.size ? drafts : next
 }
 
 type Section = NonNullable<BlockView["sections"]>[number]
@@ -134,33 +147,61 @@ const resettable = (
 export function FormView({
   fields,
   sections,
+  sequence,
   enter,
   runbook,
   session,
 }: {
   readonly fields: ReadonlyArray<FieldView>
   readonly sections: ReadonlyArray<Section>
-  /** Sends values the person entered, as `SetValues` takes them. It ends once the engine answered. */
-  readonly enter: (values: Readonly<Record<string, FieldValue>>) => Effect.Effect<void>
+  /** The last event the view of the fields reflects (`BlockView.sequence`). */
+  readonly sequence: Sequence | undefined
+  /**
+   * Sends values the person entered, as `SetValues` takes them. It ends once
+   * the engine answered, with the answer's `sequence`: absent when it did
+   * not answer.
+   */
+  readonly enter: (
+    values: Readonly<Record<string, FieldValue>>,
+  ) => Effect.Effect<SetValuesResult["sequence"]>
   /** The runbook file and the session that has it open, which a description is walked with. */
   readonly runbook: string
   readonly session: string
 }) {
-  const [entry, setEntry] = useState(NOTHING_ENTERED)
-  const current = settled(entry, fields)
-  if (current !== entry) setEntry(current)
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, Draft>>(new Map())
+  const current = settled(drafts, fields, sequence)
+  if (current !== drafts) setDrafts(current)
   const change = (name: string, value: FieldValue) => {
-    setEntry((before) => ({
-      drafts: new Map(before.drafts).set(name, value),
-      waiting: counted(before.waiting, name, 1),
-    }))
-    const answered = Effect.sync(() =>
-      setEntry((before) => ({ ...before, waiting: counted(before.waiting, name, -1) })),
+    setDrafts((before) => {
+      const was = before.get(name)
+      return new Map(before).set(name, {
+        value,
+        waiting: (was?.waiting ?? 0) + 1,
+        answered: was?.answered,
+      })
+    })
+    // A draft stays while its values wait, so it is there for each answer.
+    const answered = (at: Sequence | undefined) =>
+      Effect.sync(() =>
+        setDrafts((before) => {
+          const was = before.get(name)
+          if (was === undefined) return before
+          return new Map(before).set(name, {
+            ...was,
+            waiting: was.waiting - 1,
+            answered: later(was.answered, at),
+          })
+        }),
+      )
+    Effect.runFork(
+      Effect.onExit(enter({ [name]: value }), (exit) =>
+        answered(Exit.isSuccess(exit) ? exit.value : undefined),
+      ),
     )
-    Effect.runFork(Effect.ensuring(enter({ [name]: value }), answered))
   }
   const drawn = (field: FieldView) => {
-    const value = current.drafts.has(field.name) ? current.drafts.get(field.name) : shownBy(field)
+    const draft = current.get(field.name)
+    const value = draft === undefined ? shownBy(field) : draft.value
     return (
       <FormField
         key={field.name}
