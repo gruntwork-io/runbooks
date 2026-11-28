@@ -1,0 +1,23 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: embedded
+    inputs:
+      repo_inputs.GithubOrgName: acme
+    steps:
+      - block: create_repo
+        expect: success
+        assertions:
+          - type: output_equals
+            block: create_repo
+            output: repo
+            value: acme/my-next-app
+      - block: scaffold
+        expect: success
+        assertions:
+          - type: output_equals
+            block: scaffold
+            output: options
+            value: TypeScript Yes Turbopack @/*

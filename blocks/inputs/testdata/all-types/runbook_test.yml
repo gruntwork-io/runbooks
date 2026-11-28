@@ -1,0 +1,61 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: all-types
+    inputs:
+      all_types.required_string: given
+      all_types.list_field: [a, b]
+      all_types.map_field:
+        team: platform
+    steps:
+      - block: all_types
+        expect: success
+      - block: show
+        expect: success
+        assertions:
+          - type: output_equals
+            block: show
+            output: plain
+            value: hello world
+          - type: output_equals
+            block: show
+            output: required
+            value: given
+          - type: output_equals
+            block: show
+            output: email
+            value: user@example.com
+          - type: output_equals
+            block: show
+            output: int
+            value: "42"
+          - type: output_equals
+            block: show
+            output: float
+            value: "0.5"
+          - type: output_equals
+            block: show
+            output: bool
+            value: "true"
+          - type: output_equals
+            block: show
+            output: enum
+            value: dev
+          - type: output_equals
+            block: show
+            output: list
+            value: '["a","b"]'
+          - type: output_equals
+            block: show
+            output: choices
+            value: '["us-east-1"]'
+          - type: output_equals
+            block: show
+            output: map
+            value: '{"team":"platform"}'
+          - type: output_equals
+            block: show
+            output: secret_length
+            value: "6"

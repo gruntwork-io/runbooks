@@ -1,0 +1,91 @@
+# Every field type
+
+`all_types` has a field of each type, with defaults, a validation and a sensitive field.
+
+<Inputs id="all_types">
+```yaml
+variables:
+  - name: plain_string
+    type: string
+    description: A plain string with a default
+    default: hello world
+  - name: required_string
+    type: string
+    description: This field is required
+    validations:
+      - required
+  - name: email_field
+    type: string
+    description: Must be a valid email address
+    default: user@example.com
+    validations:
+      - email
+  - name: int_field
+    type: int
+    description: An integer input
+    default: 42
+  - name: float_field
+    type: float
+    description: A decimal input
+    default: 0.5
+  - name: bool_field
+    type: bool
+    description: A boolean toggle
+    default: true
+  - name: enum_field
+    type: enum
+    description: Pick an environment
+    options: [dev, staging, prod]
+    default: dev
+  - name: list_field
+    type: list
+    description: A dynamic list of items
+  - name: choices_field
+    type: list
+    description: Pick any regions
+    x-options: [us-east-1, eu-west-1, ap-south-1]
+    default: [us-east-1]
+  - name: map_field
+    type: map
+    description: A key-value map
+  - name: secret_field
+    type: string
+    description: A sensitive password field
+    sensitive: true
+    default: s3cret
+```
+</Inputs>
+
+`show` reads every field. It gives the secret's length, not the secret.
+
+<Command
+  id="show"
+  inputsId="all_types"
+  env={{
+    PLAIN: "{{ .inputs.plain_string }}",
+    REQUIRED: "{{ .inputs.required_string }}",
+    EMAIL: "{{ .inputs.email_field }}",
+    INT: "{{ .inputs.int_field }}",
+    FLOAT: "{{ .inputs.float_field }}",
+    BOOL: "{{ .inputs.bool_field }}",
+    ENUM: "{{ .inputs.enum_field }}",
+    LIST: "{{ .inputs.list_field }}",
+    CHOICES: "{{ .inputs.choices_field }}",
+    MAP: "{{ .inputs.map_field }}",
+    SECRET: "{{ .inputs.secret_field }}",
+  }}
+  outputs={["plain", "required", "email", "int", "float", "bool", "enum", "list", "choices", "map", "secret_length"]}
+  command={`{
+  echo "plain=$PLAIN"
+  echo "required=$REQUIRED"
+  echo "email=$EMAIL"
+  echo "int=$INT"
+  echo "float=$FLOAT"
+  echo "bool=$BOOL"
+  echo "enum=$ENUM"
+  echo "list=$LIST"
+  echo "choices=$CHOICES"
+  echo "map=$MAP"
+  echo "secret_length=\${#SECRET}"
+} >> "$RUNBOOK_OUTPUT"`}
+/>
