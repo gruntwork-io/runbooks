@@ -1,0 +1,15 @@
+# AwsAuth, misconfigured
+
+Each of these is a configuration error, which shows in the block's place.
+
+<AwsAuth id="two_blocks" detectCredentials={[{ block: "keys" }, { block: "other_keys" }]} />
+
+<AwsAuth id="no_detection" detectCredentials={true} />
+
+`off` turns detection off, so it waits for the person to sign in.
+
+<AwsAuth id="off" detectCredentials={false} defaultTab="sso" ssoStartUrl="https://example.awsapps.com/start" />
+
+<Command id="keys" command="true" />
+
+<Command id="other_keys" command="true" />

@@ -1,0 +1,24 @@
+# AwsAuth, detected
+
+`runbooks test` signs these blocks in against the fake AWS provider (`blocks/aws-auth/fake.ts`), which knows the secret key `fake-aws-secret-0001`.
+
+`aws` looks in the environment, and pins nothing, so the person confirms the login it finds.
+
+<AwsAuth id="aws" title="Sign in to AWS" description="Use the **staging** keys." />
+
+`prod` reads only the `PROD_` variables, and pins its account and role, so a login that reaches them needs no confirmation.
+
+<AwsAuth
+  id="prod"
+  detectCredentials={[{ env: { prefix: "PROD_" } }]}
+  ssoAccountId="111111111111"
+  ssoRoleName="Admin"
+/>
+
+`deploy` gets `aws`'s keys through `envFrom`, and only through it.
+
+<Command
+  id="deploy"
+  envFrom={["aws"]}
+  command={`test "$AWS_SECRET_ACCESS_KEY" = fake-aws-secret-0001 || exit 7`}
+/>

@@ -1,0 +1,15 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: misconfigured
+    env:
+      AWS_SECRET_ACCESS_KEY: fake-aws-secret-0001
+    steps:
+      - block: two_blocks
+        expect: config_error
+        error_contains: "it names more than one block"
+      - block: no_detection
+        expect: config_error
+        error_contains: "detectCredentials"

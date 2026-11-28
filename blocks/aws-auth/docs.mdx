@@ -1,0 +1,139 @@
+---
+title: <AwsAuth>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<AwsAuth>` block signs the user in to AWS. Once it is signed in, the [Command](/authoring/blocks/command/) blocks that name it in `envFrom` run with its credentials.
+
+## Basic usage
+
+```mdx
+<AwsAuth
+  id="aws"
+  title="Sign in to AWS"
+  description="Sign in to the account you deploy to."
+/>
+
+<Command
+  id="whoami"
+  envFrom={["aws"]}
+  command="aws sts get-caller-identity"
+/>
+```
+
+## Sign-in methods
+
+The block shows one tab per sign-in method the AWS provider offers:
+
+| Tab | What the user gives |
+|-----|---------------------|
+| **Static Credentials** | An access key ID and secret access key, and a session token for temporary keys |
+| **AWS SSO** | The SSO start URL and region. The block shows a link to the AWS sign-in page and waits; then the user chooses an account and a role |
+| **Local Profile** | A local AWS profile, chosen from a list |
+
+Each tab also has a **Default Region**, which `defaultRegion` fills in.
+
+## Props
+
+All props are optional.
+
+- `id` (string): the block's id, which `envFrom` names.
+- `title`, `description` (string): the block's heading and text.
+- `defaultTab` (string): the tab the block opens on: `"credentials"`, `"sso"` or `"profile"`. Any other value, or none, opens **Static Credentials**.
+- `defaultRegion` (string): fills in each tab's **Default Region**. Default `us-east-1`.
+- `ssoStartUrl` (string): fills in the SSO tab's start URL, such as `https://my-org.awsapps.com/start`.
+- `ssoRegion` (string): fills in the SSO tab's region. Default `us-east-1`.
+- `ssoAccountId`, `ssoRoleName` (string): the account and role to use. See [Pre-selecting the account and role](#pre-selecting-the-account-and-role). `ssoAccountId` takes effect only with `ssoRoleName`.
+- `detectCredentials` (`false` or an array): where to look for credentials before the user signs in. See [Credential detection](#credential-detection).
+- `autoCollapse` (boolean): folds the block down to its title once it's signed in.
+
+The props are used as written. A `{{ .inputs.name }}` or `{{ .outputs.id.key }}` in any of them is not filled in, and Runbooks warns of each prop that has one. The block takes no `inputsId`: Runbooks warns of it too, and ignores it.
+
+## Giving blocks the credentials
+
+A Command block gets an AwsAuth block's credentials only when it names the block in `envFrom`:
+
+```mdx
+<Command id="deploy" envFrom={["aws"]} command="tofu apply" />
+```
+
+Its run gets the AWS variables the signed-in credentials hold, of these: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` and `AWS_CREDENTIAL_EXPIRATION`. Its run button waits until the AwsAuth block is signed in. A block that doesn't name it gets none of these, even from the environment Runbooks started in, so a script can't pick up AWS credentials by accident.
+
+`awsAuthId="aws"` still works, with a warning: it is `envFrom={["aws"]}`.
+
+<Aside type="caution">
+Earlier versions set the credentials in the session environment, so every later block got them, and published the keys as block outputs. The keys now reach only the runs of blocks that name the block in `envFrom`.
+</Aside>
+
+## Block outputs
+
+The block publishes identity, not keys. Its outputs are the values the signed-in credentials hold under these names:
+
+| Output | Value |
+|--------|-------|
+| `AWS_REGION` | The region a run gets |
+| `AWS_CREDENTIAL_EXPIRATION` | When the credentials expire, if they do |
+
+Reference them with `{{ .outputs.aws.AWS_REGION }}`. The block shows who signed in, and the account and role, on its own card.
+
+## Pre-selecting the account and role
+
+```mdx
+<AwsAuth
+  id="prod"
+  ssoStartUrl="https://my-org.awsapps.com/start"
+  ssoAccountId="123456789012"
+  ssoRoleName="AdministratorAccess"
+/>
+```
+
+With both `ssoAccountId` and `ssoRoleName`, the block uses only credentials for that account and role. After an SSO sign-in it selects them without asking, and it refuses credentials that can't reach them. Without them, the user chooses an account, then a role, after an SSO sign-in.
+
+## Credential detection
+
+By default, the block looks for credentials in the standard AWS environment variables of the environment Runbooks started in. `detectCredentials` lists the places to look, in order:
+
+| Source | Where it looks |
+|--------|----------------|
+| `'env'` | The standard AWS environment variables |
+| `{ env: { prefix: 'PROD_' } }` | The same variables under a prefix: `PROD_AWS_ACCESS_KEY_ID`, and so on |
+| `{ block: 'block-id' }` | The outputs of an earlier block, such as a Command that assumes a role. One per AwsAuth block |
+
+`detectCredentials={false}` turns detection off: the user always signs in.
+
+The block looks once the runbook is trusted. A `{ block }` source that hasn't run by then has no outputs, so the block finds nothing there: run that block, then choose **Check again** on the AwsAuth block.
+
+Two `{ block }` sources are a configuration error, which shows in the block's place.
+
+### Confirming detected credentials
+
+When the block finds credentials and pins no account and role, it shows who they belong to and where it found them, and waits for the user to choose **Use this login**, or **Sign in another way**. Until then, no block gets them. When it pins both, credentials that reach them are used without asking.
+
+## Expiring credentials
+
+The card shows when the credentials expire. Five minutes before then, the block treats them as expired: the blocks that name it no longer get them, and it asks the user to sign out and sign in again.
+
+## Instruction mode
+
+In instruction mode, the block shows "Log into AWS", with the account `ssoAccountId` names, and the SSO start URL, region and role, so the reader can sign in by hand. It doesn't sign in.
+
+## Testing
+
+`runbooks test` signs AwsAuth blocks in against a fake AWS provider, which never contacts AWS. Its secret key is `fake-aws-secret-0001`: set it in a test's `env` as `AWS_SECRET_ACCESS_KEY`, or under the prefix the block reads, and the block finds it. A test step for the block confirms what it finds. With nothing to find, the step is skipped, and the blocks that name the block in `envFrom` are blocked.
+
+```yaml
+tests:
+  - name: signs in
+    env:
+      AWS_SECRET_ACCESS_KEY: fake-aws-secret-0001
+    steps:
+      - block: aws
+        expect: success
+```
+
+## Security
+
+- The keys the user types go to Runbooks and never come back to the window. The window shows who signed in, not the keys.
+- The keys are never block outputs.
+- A run gets them only from a block it names in `envFrom`.
