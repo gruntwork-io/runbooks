@@ -1,0 +1,22 @@
+# Admonitions
+
+Each type of callout, as an author writes them.
+
+<Admonition id="a_note" type="note" title="A note" description="This is a note admonition." />
+
+<Admonition id="an_info" type="info" title="Some info" description="This is an info admonition." />
+
+<Admonition id="a_warning" type="warning" title="A warning" description="This is a warning admonition." closable={true} />
+
+<Admonition id="a_danger" type="danger" title="Danger zone" description="This is a danger admonition." confirmationText="I understand the risks" />
+
+An admonition with no title is headed by its type's name, and markdown
+written inside it shows under its description.
+
+<Admonition id="untitled" type="info" description="Billing applies.">
+Read the **pricing** page first.
+</Admonition>
+
+An admonition needs no id when nothing refers to it.
+
+<Admonition type="note" description="A note without an id." />

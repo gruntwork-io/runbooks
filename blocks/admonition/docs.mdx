@@ -1,0 +1,147 @@
+---
+title: <Admonition>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<Admonition>` block renders a callout box for a note, info, warning, or danger message. It only shows text: it runs nothing, it isn't a step of the runbook's progress, and Runbooks saves nothing of it.
+
+## Basic usage
+
+```mdx
+<Admonition
+    type="info"
+    title="Important Note"
+    description="Make sure you have AWS credentials configured before proceeding."
+/>
+```
+
+## Props
+
+### Required props
+
+- `type` (string): `"note"`, `"info"`, `"warning"`, or `"danger"`. A missing type, or any other, is a configuration error, which shows in the admonition's place.
+
+### Optional props
+
+- `id` (string): an identifier, which a [runbook test](/authoring/testing/) uses to name the admonition. Nothing else refers to an admonition, so it needs none otherwise.
+- `title` (string): the heading of the callout box. Without one, or with an empty one, the heading is the type's name: "Note", "Info", "Warning" or "Danger".
+- `description` (string): the message, shown above any markdown written inside the block.
+- `closable` (boolean): adds a close button (×) that hides the admonition. Default `false`.
+- `confirmationText` (string): adds a button with this label that hides the admonition. An empty label is a configuration error.
+
+The `title` and `description` show as written. Markdown in them isn't formatted, and neither `{{ .inputs.name }}` nor `{{ .outputs.<id>.<key> }}` is filled in: Runbooks warns of each. To format the message, write it as markdown inside the block.
+
+<Aside type="caution">
+`inputsId` doesn't work on an admonition: Runbooks ignores it, with a warning, and shows the admonition's text as written. Earlier versions filled in `{{ .inputs.name }}` and `{{ .outputs.<id>.<key> }}` in its `title`, `description` and `confirmationText`.
+</Aside>
+
+## Types
+
+### Note (gray)
+
+```mdx
+<Admonition
+    type="note"
+    title="Note"
+    description="This is a general note for additional context."
+/>
+```
+
+### Info (blue)
+
+```mdx
+<Admonition
+    type="info"
+    title="Helpful Tip"
+    description="You can use environment variables instead of hardcoding values."
+/>
+```
+
+### Warning (yellow)
+
+```mdx
+<Admonition
+    type="warning"
+    title="Caution"
+    description="This operation cannot be undone. Make sure you have backups."
+/>
+```
+
+### Danger (red)
+
+```mdx
+<Admonition
+    type="danger"
+    title="Danger"
+    description="This will delete all data in your production database!"
+/>
+```
+
+A warning's or a danger's confirmation button is red.
+
+## Markdown content
+
+Write markdown inside the block, such as lists, code blocks, and links. It shows under the `description`, when the admonition has one:
+
+````mdx
+<Admonition type="info" title="Prerequisites">
+Before proceeding, you need:
+
+- AWS CLI installed
+- OpenTofu v1.6+
+- Valid AWS credentials configured
+
+Check your credentials with:
+
+```bash
+aws sts get-caller-identity
+```
+</Admonition>
+````
+
+Put the content on lines of its own, between the opening and closing tags. Content that starts on the same line as the opening tag must end on that line too, and is read as inline markdown:
+
+```mdx
+<Admonition type="warning">**Do not** run this in production without testing first.</Admonition>
+```
+
+## Closable admonitions
+
+```mdx
+<Admonition
+    type="info"
+    title="Did you know?"
+    description="You can skip optional checks using the Skip checkbox."
+    closable={true}
+/>
+```
+
+## Confirmation button
+
+Ask readers to acknowledge the message before it goes away:
+
+```mdx
+<Admonition
+    type="danger"
+    title="Destructive Operation"
+    description="This will permanently delete all resources."
+    confirmationText="I understand this cannot be undone"
+/>
+```
+
+A closed or confirmed admonition stays hidden until the runbook is shown again: when it's reloaded, or opened again.
+
+## Testing
+
+A [runbook test](/authoring/testing/) step can name an admonition by its `id`. It expects `success` when the admonition is configured, or `config_error`, with `error_contains`, when it isn't:
+
+```yaml
+steps:
+  - block: welcome
+    expect: success
+```
+
+:::tip[See it in action]
+The [admonition feature demo](https://github.com/gruntwork-io/runbooks/tree/main/testdata/feature-demos/admonition) shows each type, an admonition written in markdown, and both ways to dismiss one.
+:::

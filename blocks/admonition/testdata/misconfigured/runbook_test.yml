@@ -1,0 +1,15 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: misconfigured
+    steps:
+      - block: no_type
+        expect: config_error
+        error_contains: "<Admonition> needs the `type` prop."
+      - block: unknown_type
+        expect: config_error
+        error_contains: 'the `type` prop of <Admonition>: Expected "note" | "info" | "warning" | "danger"'
+      - block: fine
+        expect: success

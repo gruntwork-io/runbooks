@@ -29,6 +29,7 @@ import type {
   RunBlock,
   SetValues,
 } from "@runbooks/core/protocol"
+import { view as admonition } from "./admonition/View.tsx"
 import * as registry from "./index.ts"
 
 type ViewRpc =
@@ -104,4 +105,4 @@ export function viewsFromJson<R extends Registry>(
   )
 }
 
-export const views = viewsFromJson(registry, {})
+export const views = viewsFromJson(registry, { ...admonition })
