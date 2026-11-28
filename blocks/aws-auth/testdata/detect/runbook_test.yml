@@ -1,0 +1,22 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: found
+    env:
+      AWS_SECRET_ACCESS_KEY: fake-aws-secret-0001
+      PROD_AWS_SECRET_ACCESS_KEY: fake-aws-secret-0001
+    steps:
+      - block: aws
+        expect: success
+      - block: prod
+        expect: success
+      - block: deploy
+        expect: success
+  - name: nothing to find
+    steps:
+      - block: aws
+        expect: skip
+      - block: deploy
+        expect: blocked

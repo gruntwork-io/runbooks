@@ -7,5 +7,6 @@
  * (`@runbooks/blocks-core/registry`).
  */
 export { admonition as Admonition } from "./admonition/block.ts"
+export { awsAuth as AwsAuth } from "./aws-auth/block.ts"
 export { command as Command } from "./command/block.ts"
 export { inputs as Inputs } from "./inputs/block.ts"

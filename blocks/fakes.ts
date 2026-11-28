@@ -8,5 +8,8 @@
  *   aws: AWS_FAKE,
  */
 import type { FakeScript } from "@runbooks/core/credential/fake"
+import { AWS_FAKE } from "./aws-auth/fake.ts"
 
-export const fakeScripts: { readonly [provider: string]: FakeScript } = {}
+export const fakeScripts: { readonly [provider: string]: FakeScript } = {
+  aws: AWS_FAKE,
+}
