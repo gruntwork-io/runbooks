@@ -332,3 +332,201 @@ describe("FormView", () => {
     expect(size.value).toBe("m")
   })
 })
+
+describe("FormView's lists and maps", () => {
+  const within = (name: string) => screen.getByTestId(`field-${name}`)
+  const entries = (name: string) =>
+    [...within(name).querySelectorAll("li")].map((li) => li.textContent)
+
+  it("adds a list's entries with Enter or Add, trimmed, and removes them", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([field("AllowedIPs", "list", { value: shown(["10.0.0.0/8"]) })])
+    engine.page()
+    const entry = screen.getByPlaceholderText("Type an entry and press Enter...")
+    expect(screen.getByLabelText("Allowed IPs")).toBe(entry)
+    await user.type(entry, " 10.1.0.0/16 {Enter}")
+    expect(engine.sent).toEqual([{ AllowedIPs: ["10.0.0.0/8", "10.1.0.0/16"] }])
+    await user.type(entry, "   ")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    await user.type(entry, "10.2.0.0/16")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(entries("AllowedIPs")).toEqual([
+      "10.0.0.0/8Remove",
+      "10.1.0.0/16Remove",
+      "10.2.0.0/16Remove",
+    ])
+    expect(entry).toHaveProperty("value", "")
+    await user.click(screen.getByRole("button", { name: "Remove 10.1.0.0/16" }))
+    expect(engine.sent).toEqual([
+      { AllowedIPs: ["10.0.0.0/8", "10.1.0.0/16"] },
+      { AllowedIPs: ["10.0.0.0/8", "10.1.0.0/16", "10.2.0.0/16"] },
+      { AllowedIPs: ["10.0.0.0/8", "10.2.0.0/16"] },
+    ])
+  })
+
+  it("chooses a list's options with a box each, kept in the options' order", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("AllowedRegions", "list", {
+        options: ["us-east-1", "eu-west-1", "ap-south-1"],
+        optionLabels: { "eu-west-1": "Ireland" },
+        value: shown(["eu-west-1"]),
+      }),
+    ])
+    engine.page()
+    const group = screen.getByRole("group", { name: "Allowed Regions" })
+    const choice = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement
+    expect(group.contains(choice("Ireland"))).toBe(true)
+    expect(
+      [choice("us-east-1"), choice("Ireland"), choice("ap-south-1")].map((input) => input.checked),
+    ).toEqual([false, true, false])
+    await user.click(choice("ap-south-1"))
+    await user.click(choice("us-east-1"))
+    await user.click(choice("Ireland"))
+    expect(engine.sent).toEqual([
+      { AllowedRegions: ["eu-west-1", "ap-south-1"] },
+      { AllowedRegions: ["us-east-1", "eu-west-1", "ap-south-1"] },
+      { AllowedRegions: ["us-east-1", "ap-south-1"] },
+    ])
+  })
+
+  it("shows a chosen value the options don't list, keeps it, and removes it when unticked", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("Regions", "list", {
+        options: ["us-east-1", "eu-west-1"],
+        value: shown(["ap-south-1", "us-east-1"]),
+      }),
+    ])
+    engine.page()
+    const choice = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement
+    const unlisted = choice("ap-south-1 (not an option)")
+    expect(unlisted.checked).toBe(true)
+    await user.click(choice("eu-west-1"))
+    await user.click(unlisted)
+    expect(engine.sent).toEqual([
+      { Regions: ["us-east-1", "eu-west-1", "ap-south-1"] },
+      { Regions: ["us-east-1", "eu-west-1"] },
+    ])
+  })
+
+  it("adds a map's entry once it has a key and a value, trimmed, and removes it", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([field("Tags", "map", { value: shown({ team: "core" }) })])
+    engine.page()
+    const key = screen.getByPlaceholderText("Key")
+    const value = screen.getByPlaceholderText("Value")
+    await user.type(key, " env ")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(engine.sent).toEqual([])
+    await user.type(value, " prod ")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(entries("Tags")).toEqual(["team: coreRemove", "env: prodRemove"])
+    expect([key, value].map((input) => (input as HTMLInputElement).value)).toEqual(["", ""])
+    await user.click(screen.getByRole("button", { name: "Remove team" }))
+    expect(engine.sent).toEqual([
+      { Tags: { team: "core", env: "prod" } },
+      { Tags: { env: "prod" } },
+    ])
+  })
+
+  it("adds a structured map's entry from its schema's fields, each kept as text", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("AWSAccounts", "map", {
+        schema: { email: "string", id: "int", enabled: "bool" },
+        schemaInstanceLabel: "AWS Account Name",
+      }),
+    ])
+    engine.page()
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    const save = screen.getByRole("button", { name: "Save Entry" }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    await user.type(screen.getByRole("textbox", { name: /AWS Account Name/ }), " prod ")
+    await user.type(screen.getByRole("textbox", { name: /^email\b/i }), "ops@example.com")
+    await user.type(screen.getByRole("spinbutton", { name: "id (int)" }), "123")
+    expect(
+      (screen.getByRole("combobox", { name: "enabled (bool)" }) as HTMLSelectElement).value,
+    ).toBe("false")
+    await user.click(save)
+    expect(screen.queryByRole("button", { name: "Save Entry" })).toBeNull()
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    await user.type(screen.getByRole("textbox", { name: /AWS Account Name/ }), "dev")
+    await user.selectOptions(screen.getByRole("combobox", { name: "enabled (bool)" }), "true")
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("button", { name: "Save Entry" })).toBeNull()
+    expect(engine.sent).toEqual([
+      { AWSAccounts: { prod: { email: "ops@example.com", id: "123", enabled: "false" } } },
+    ])
+    expect(entries("AWSAccounts")).toEqual([
+      "prod: email: ops@example.com, id: 123, enabled: falseRemove",
+    ])
+    expect(
+      within("AWSAccounts").contains(screen.getByRole("group", { name: "AWS Accounts" })),
+    ).toBe(true)
+  })
+
+  it("enters a tuple's elements in position order, each as its type takes it", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("Endpoint", "list", { schema: { "1": "int", "0": "string", "2": "bool" } }),
+    ])
+    engine.page()
+    const group = screen.getByRole("group", { name: "Endpoint" })
+    expect([...group.querySelectorAll("label")].map((label) => label.textContent)).toEqual([
+      "Enter a string",
+      "Enter an integer",
+      "Enter a boolean",
+    ])
+    await user.type(screen.getByRole("textbox", { name: "Enter a string" }), "db")
+    await user.type(screen.getByRole("spinbutton", { name: "Enter an integer" }), "5432")
+    await user.selectOptions(screen.getByRole("combobox", { name: "Enter a boolean" }), "true")
+    expect(engine.sent.at(-1)).toEqual({ Endpoint: ["db", 5432, true] })
+    expect(engine.sent[0]).toEqual({ Endpoint: ["d", "", false] })
+  })
+
+  it("shows in a tuple's int element the whole number it sends", async () => {
+    const engine = lateEngine([field("Endpoint", "list", { schema: { "0": "int" } })])
+    engine.page()
+    const port = screen.getByRole("spinbutton", { name: "Enter an integer" }) as HTMLInputElement
+    fireEvent.change(port, { target: { value: "1.5" } })
+    expect(engine.sent).toEqual([{ Endpoint: [1] }])
+    expect(port.value).toBe("1")
+  })
+
+  it("shows a read-only tuple's and options list's values in controls that can't change", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("Endpoint", "list", {
+        readOnly: true,
+        schema: { "0": "string" },
+        value: shown(["db"]),
+      }),
+      field("Regions", "list", { readOnly: true, options: ["us-east-1"], value: shown([]) }),
+    ])
+    engine.page()
+    const host = screen.getByRole("textbox", { name: "Enter a string" }) as HTMLInputElement
+    const region = screen.getByRole("checkbox", { name: "us-east-1" }) as HTMLInputElement
+    expect([host.value, host.disabled, region.disabled]).toEqual(["db", true, true])
+    await user.type(host, "x")
+    await user.click(region)
+    expect(engine.sent).toEqual([])
+  })
+
+  it("shows a read-only list's and map's entries with nothing to add or remove", () => {
+    lateEngine([
+      field("AllowedIPs", "list", { readOnly: true, value: shown(["10.0.0.0/8"]) }),
+      field("Tags", "map", { readOnly: true, value: shown({ team: "core" }) }),
+      field("AWSAccounts", "map", {
+        readOnly: true,
+        schema: { email: "string" },
+        value: shown({ prod: { email: "ops@example.com" } }),
+      }),
+    ]).page()
+    expect(entries("AllowedIPs")).toEqual(["10.0.0.0/8"])
+    expect(entries("Tags")).toEqual(["team: core"])
+    expect(entries("AWSAccounts")).toEqual(["prod: email: ops@example.com"])
+    expect(screen.queryAllByRole("button")).toEqual([])
+    expect(screen.queryAllByRole("textbox")).toEqual([])
+  })
+})

@@ -22,6 +22,12 @@ import { Markdown } from "./markdown.tsx"
 
 /** A form value: what a field holds, and what `SetValues` takes. */
 export type FieldValue = NonNullable<FieldView["default"]>
+type Entries = { readonly [key: string]: FieldValue }
+
+const isList = (value: FieldValue | undefined): value is ReadonlyArray<FieldValue> =>
+  Array.isArray(value)
+const isEntries = (value: FieldValue | undefined): value is Entries =>
+  typeof value === "object" && !Array.isArray(value)
 /** A value as a box shows it: nothing for none, a list or map as JSON. */
 function textOf(value: FieldValue | undefined): string {
   if (value === undefined) return ""
@@ -239,8 +245,18 @@ function Control(props: ControlProps) {
     case "enum":
       return <EnumControl {...props} />
     case "list":
+      if ((field.options ?? []).length > 0) return <ChoicesControl {...props} />
+      return Object.keys(field.schema ?? {}).length > 0 ? (
+        <TupleControl {...props} />
+      ) : (
+        <ListControl {...props} />
+      )
     case "map":
-      return <p className="form-hidden">The window can't enter a {field.type} yet.</p>
+      return Object.keys(field.schema ?? {}).length > 0 ? (
+        <EntriesControl {...props} />
+      ) : (
+        <MapControl {...props} />
+      )
     default: {
       const unhandled: never = field.type
       throw new Error(`The form has no control for the type ${String(unhandled)}.`)
@@ -255,8 +271,9 @@ const numberIn = (text: string, parse: (text: string) => number): number | "" =>
 }
 
 /**
- * A number box. It shows the text the person typed while that is the value
- * it holds, so "1.50" stays as typed, not "1.5", with the cursor where it was.
+ * A number box. It shows the text the person typed while that text reads as
+ * the value it holds, so "1.50" stays as typed, not "1.5", with the cursor
+ * where it was, and "1.5" in a box that holds 1 shows as "1".
  */
 function NumberBox({
   id,
@@ -274,7 +291,7 @@ function NumberBox({
   readonly onChange: (value: number | "") => void
 }) {
   const [typed, setTyped] = useState<string>()
-  const shown = typed !== undefined && numberIn(typed, parse) === value ? typed : String(value)
+  const shown = typed !== undefined && numberIn(typed, Number) === value ? typed : String(value)
   return (
     <input
       type="number"
@@ -368,4 +385,327 @@ function EnumControl({ id, field, value, onChange }: ControlProps) {
       ))}
     </select>
   )
+}
+
+/**
+ * A list with `x-options`: a box for each option, then a ticked box for each
+ * chosen value the options don't list (from a default, an agent, or a runbook
+ * since edited), so none is dropped unseen. The choices keep that order.
+ */
+function ChoicesControl({ id, labelId, field, value, onChange }: ControlProps) {
+  const options = field.options ?? []
+  const chosen = isList(value) ? value : []
+  const unlisted = chosen.filter((each) => typeof each !== "string" || !options.includes(each))
+  const boxes: ReadonlyArray<FieldValue> = [...options, ...unlisted]
+  return (
+    <div id={id} className="form-choices" role="group" aria-labelledby={labelId}>
+      {boxes.map((box, index) => (
+        <label key={index}>
+          <input
+            type="checkbox"
+            checked={chosen.includes(box)}
+            disabled={field.readOnly}
+            onChange={(event) =>
+              onChange(
+                boxes.filter((each) =>
+                  each === box ? event.target.checked : chosen.includes(each),
+                ),
+              )
+            }
+          />
+          {index < options.length && typeof box === "string"
+            ? (field.optionLabels?.[box] ?? box)
+            : `${textOf(box)} (not an option)`}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+/** Entries, each with a button that removes it, unless the field is read-only. */
+function EntryList({
+  entries,
+  readOnly,
+  onRemove,
+}: {
+  readonly entries: ReadonlyArray<{ readonly name: string; readonly shown: string }>
+  readonly readOnly: boolean
+  readonly onRemove: (index: number) => void
+}) {
+  if (entries.length === 0) return null
+  return (
+    <ul className="form-entry-list">
+      {entries.map(({ name, shown }, index) => (
+        <li key={index}>
+          <span>{shown}</span>
+          {readOnly ? null : (
+            <button type="button" aria-label={`Remove ${name}`} onClick={() => onRemove(index)}>
+              Remove
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/** A list: a box to type an entry, added with Enter or Add, then its entries. */
+function ListControl({ id, field, value, onChange }: ControlProps) {
+  const items = isList(value) ? value : []
+  const [text, setText] = useState("")
+  const add = () => {
+    const item = text.trim()
+    if (item === "") return
+    onChange([...items, item])
+    setText("")
+  }
+  return (
+    <div className="form-entries">
+      {field.readOnly ? null : (
+        <div className="form-entry-add">
+          <input
+            type="text"
+            id={id}
+            placeholder="Type an entry and press Enter..."
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return
+              event.preventDefault()
+              add()
+            }}
+          />
+          <button type="button" onClick={add}>
+            Add
+          </button>
+        </div>
+      )}
+      <EntryList
+        entries={items.map((item) => ({ name: textOf(item), shown: textOf(item) }))}
+        readOnly={field.readOnly}
+        onRemove={(index) => onChange(items.filter((_, at) => at !== index))}
+      />
+    </div>
+  )
+}
+
+/** A map of names to text: a key and a value, added with Add, then its entries. */
+function MapControl({ id, field, value, onChange }: ControlProps) {
+  const map = isEntries(value) ? value : {}
+  const [key, setKey] = useState("")
+  const [text, setText] = useState("")
+  const add = () => {
+    if (key.trim() === "" || text.trim() === "") return
+    onChange({ ...map, [key.trim()]: text.trim() })
+    setKey("")
+    setText("")
+  }
+  const entries = Object.entries(map)
+  return (
+    <div className="form-entries">
+      {field.readOnly ? null : (
+        <div className="form-entry-add">
+          <input
+            type="text"
+            id={id}
+            placeholder="Key"
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+          />
+          <input
+            type="text"
+            placeholder="Value"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <button type="button" onClick={add}>
+            Add
+          </button>
+        </div>
+      )}
+      <EntryList
+        entries={entries.map(([name, entry]) => ({ name, shown: `${name}: ${textOf(entry)}` }))}
+        readOnly={field.readOnly}
+        onRemove={(index) => onChange(Object.fromEntries(entries.filter((_, at) => at !== index)))}
+      />
+    </div>
+  )
+}
+
+/** The element types of a list's or map's `x-schema`, in the key order given. */
+const schemaOf = (field: FieldView): ReadonlyArray<readonly [string, FieldView["type"]]> =>
+  Object.entries(field.schema ?? {})
+
+/**
+ * A map with an `x-schema`: Add opens a new entry, its name (labelled as the
+ * field's `schemaInstanceLabel` says) and a box for each of the schema's
+ * fields, which Save Entry adds. Each field's value is text, a true/false
+ * one "false" until chosen, as today's form keeps them.
+ */
+function EntriesControl({ id, labelId, field, value, onChange }: ControlProps) {
+  const map = isEntries(value) ? value : {}
+  const schema = schemaOf(field)
+  const [adding, setAdding] = useState<{
+    readonly key: string
+    readonly values: Readonly<Record<string, string>>
+  }>()
+  const entries = Object.entries(map)
+  const save = (key: string, values: Readonly<Record<string, string>>) => {
+    // In the schema's order; a field left empty is left out, a true/false one is "false".
+    const entry = schema.flatMap(([name, type]) => {
+      const set = values[name] ?? (type === "bool" ? "false" : undefined)
+      return set === undefined ? [] : [[name, set] as const]
+    })
+    onChange({ ...map, [key.trim()]: Object.fromEntries(entry) })
+    setAdding(undefined)
+  }
+  return (
+    <div id={id} className="form-entries" role="group" aria-labelledby={labelId}>
+      {field.readOnly ? null : adding === undefined ? (
+        <button type="button" onClick={() => setAdding({ key: "", values: {} })}>
+          Add
+        </button>
+      ) : (
+        <fieldset className="form-entry-new">
+          <legend>New Entry</legend>
+          <label htmlFor={`${id}-key`}>
+            {field.schemaInstanceLabel ?? "Entry name"} <span className="form-required">*</span>
+          </label>
+          <input
+            type="text"
+            id={`${id}-key`}
+            value={adding.key}
+            onChange={(event) => setAdding({ ...adding, key: event.target.value })}
+          />
+          {schema.map(([name, type]) => {
+            const shown = adding.values[name] ?? ""
+            const set = (text: string) =>
+              setAdding({ ...adding, values: { ...adding.values, [name]: text } })
+            return (
+              <div key={name} className="form-entry-field">
+                <label htmlFor={`${id}-${name}`}>{`${name} (${type})`}</label>
+                {type === "bool" ? (
+                  <select
+                    id={`${id}-${name}`}
+                    value={shown === "" ? "false" : shown}
+                    onChange={(event) => set(event.target.value)}
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : (
+                  <input
+                    type={type === "int" || type === "float" ? "number" : "text"}
+                    id={`${id}-${name}`}
+                    value={shown}
+                    onChange={(event) => set(event.target.value)}
+                  />
+                )}
+              </div>
+            )
+          })}
+          <div className="form-entry-actions">
+            <button
+              type="button"
+              disabled={adding.key.trim() === ""}
+              onClick={() => save(adding.key, adding.values)}
+            >
+              Save Entry
+            </button>
+            <button type="button" onClick={() => setAdding(undefined)}>
+              Cancel
+            </button>
+          </div>
+        </fieldset>
+      )}
+      <EntryList
+        entries={entries.map(([name, entry]) => ({
+          name,
+          shown: isEntries(entry)
+            ? `${name}: ${Object.entries(entry)
+                .map(([key, inner]) => `${key}: ${textOf(inner)}`)
+                .join(", ")}`
+            : `${name}: ${textOf(entry)}`,
+        }))}
+        readOnly={field.readOnly}
+        onRemove={(index) => onChange(Object.fromEntries(entries.filter((_, at) => at !== index)))}
+      />
+    </div>
+  )
+}
+
+/**
+ * A list with an `x-schema`: a tuple, one box per element in position order,
+ * the order an object's whole-number keys ("0", "1") always come in.
+ */
+function TupleControl({ id, labelId, field, value, onChange }: ControlProps) {
+  const elements = schemaOf(field)
+  const items = elements.map(
+    ([, type], index) =>
+      (isList(value) ? value[index] : undefined) ?? (type === "bool" ? false : ""),
+  )
+  const set = (index: number, item: FieldValue) =>
+    onChange(items.map((before, at) => (at === index ? item : before)))
+  return (
+    <div id={id} className="form-tuple" role="group" aria-labelledby={labelId}>
+      {elements.map(([position, type], index) => {
+        const elementId = `${id}-${position}`
+        const item = items[index]
+        return (
+          <div key={position} className="form-entry-field">
+            <label htmlFor={elementId}>{elementLabel(type)}</label>
+            {type === "int" || type === "float" ? (
+              <NumberBox
+                id={elementId}
+                value={typeof item === "number" ? item : ""}
+                parse={type === "int" ? (text) => parseInt(text, 10) : parseFloat}
+                step={type === "float" ? "any" : undefined}
+                disabled={field.readOnly}
+                onChange={(number) => set(index, number)}
+              />
+            ) : type === "bool" ? (
+              <select
+                id={elementId}
+                value={String(item === true)}
+                disabled={field.readOnly}
+                onChange={(event) => set(index, event.target.value === "true")}
+              >
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+            ) : (
+              <input
+                type="text"
+                id={elementId}
+                value={textOf(item)}
+                disabled={field.readOnly}
+                onChange={(event) => set(index, event.target.value)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+/** What a tuple element's box asks for, as today's form says it. */
+function elementLabel(type: FieldView["type"]): string {
+  switch (type) {
+    case "int":
+      return "Enter an integer"
+    case "float":
+      return "Enter a float"
+    case "bool":
+      return "Enter a boolean"
+    case "string":
+    case "list":
+    case "map":
+    case "enum":
+      return `Enter a ${type}`
+    default: {
+      const unhandled: never = type
+      throw new Error(`The form has no label for a tuple element of ${String(unhandled)}.`)
+    }
+  }
 }
