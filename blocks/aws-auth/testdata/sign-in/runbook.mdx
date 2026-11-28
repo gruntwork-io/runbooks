@@ -1,0 +1,27 @@
+# AwsAuth, signed in by hand
+
+`runbooks test` and the app's dev mode (RUNBOOKS_FAKE_CREDENTIALS=1) sign these blocks in against the fake AWS provider (`blocks/aws-auth/fake.ts`). Neither looks for credentials, so the person signs in.
+
+`keys` opens on the **Static Credentials** tab. The fake's secret access key signs it in as an IAM user that comes with its account and role.
+
+<AwsAuth
+  id="keys"
+  title="AWS Authentication (Optional)"
+  description="Profiles come from /very/long/path/that/goes/on/and/on/without/any/spaces/to/break/it/at/the/edge/of/the/window/so/it/has/to/wrap/inside/its/block/credentials."
+  detectCredentials={false}
+  defaultRegion="eu-west-1"
+/>
+
+`sso` opens on the **AWS SSO** tab, its start URL filled in, and pins nothing: after the sign-in the person chooses an account, then a role.
+
+<AwsAuth
+  id="sso"
+  title="Sign in with AWS SSO"
+  defaultTab="sso"
+  ssoStartUrl="https://fake.awsapps.example/start"
+  detectCredentials={false}
+/>
+
+`deploy` gets `keys`'s keys through `envFrom`, and checks it has a secret key without saying it.
+
+<Command id="deploy" envFrom={["keys"]} command={`test -n "$AWS_SECRET_ACCESS_KEY" || exit 7`} />
