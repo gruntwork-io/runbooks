@@ -7,9 +7,9 @@
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  */
 import path from "node:path"
-import type { ElectronApplication, Page } from "@playwright/test"
-import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
-import { expect, PAGE, test } from "./fixtures.ts"
+import type { Page } from "@playwright/test"
+import { runInMain } from "../electron/e2e/main-process.ts"
+import { expect, PAGE, recordSentToPage, test } from "./fixtures.ts"
 
 /** The window's preload in the build. */
 const PRELOAD = path.join(import.meta.dirname, "..", "app-out", "preload", "index.cjs")
@@ -73,27 +73,6 @@ function exchange(
       }),
     { outgoing: [...messages], waitMillis: options.waitMillis, until: options.until },
   )
-}
-
-/** Has main record every message it sends the app's window, and returns a reader of them. */
-async function recordSentToPage(app: ElectronApplication): Promise<() => Promise<string[]>> {
-  await runInMain(
-    app,
-    ({ BrowserWindow }) => {
-      const [appWindow] = BrowserWindow.getAllWindows()
-      if (!appWindow) throw new Error("the app has no window")
-      const sent: string[] = []
-      Object.assign(globalThis, { sentToPage: sent })
-      const send = appWindow.webContents.send.bind(appWindow.webContents)
-      appWindow.webContents.send = (channel, ...args) => {
-        sent.push(String(args[0]))
-        send(channel, ...args)
-      }
-    },
-    undefined,
-  )
-  return () =>
-    readFromMain(app, () => [...(Reflect.get(globalThis, "sentToPage") as string[])], undefined)
 }
 
 test.describe("the engine over IPC", () => {

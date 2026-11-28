@@ -11,18 +11,10 @@
 import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
-import type { Page } from "@playwright/test"
-import { expect, test } from "./fixtures.ts"
+import { expect, test, trust } from "./fixtures.ts"
 
 const testdata = (name: string) =>
   path.join(import.meta.dirname, "..", "blocks", "command", "testdata", name)
-
-/** Trusts the runbook through the trust prompt. */
-async function trust(page: Page) {
-  const prompt = page.getByRole("region", { name: "Trust this runbook" })
-  await prompt.getByRole("button", { name: "I trust this runbook" }).click()
-  await expect(prompt).toHaveCount(0)
-}
 
 /** Whether `pid` is a live process: a zombie waiting to be reaped has ended. */
 function alive(pid: number): boolean {
