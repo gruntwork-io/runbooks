@@ -96,7 +96,11 @@ describe("a view map drawing from the props the engine sends", () => {
     const Drawn = viewsFromJson(counted, { Count: CountView }).Count
     if (Drawn === undefined) throw new Error("no view for Count")
     return renderToStaticMarkup(
-      createElement(Drawn, { props, status: undefined, act: () => {} }, "Its markdown."),
+      createElement(
+        Drawn,
+        { props, status: undefined, act: () => {}, hidden: { has: () => false, hide: () => {} } },
+        "Its markdown.",
+      ),
     )
   }
 

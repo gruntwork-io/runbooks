@@ -37,9 +37,9 @@ const runbooksTest = (runbook: string) => {
 }
 
 describe("runbooks test, on Admonition's testdata", () => {
-  const RUNBOOKS = ["misconfigured", "types"]
+  const RUNBOOKS = ["misconfigured", "permanent-hide", "types"]
 
-  it("finds the two runbooks", () => {
+  it("finds the three runbooks", () => {
     expect(nodeFs.readdirSync(TESTDATA).sort()).toEqual(RUNBOOKS)
   })
 

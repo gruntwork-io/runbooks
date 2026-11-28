@@ -1,0 +1,11 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: permanent-hide
+    steps:
+      - block: welcome
+        expect: success
+      - block: always
+        expect: success

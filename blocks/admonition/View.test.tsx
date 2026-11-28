@@ -6,9 +6,15 @@ import { AdmonitionView } from "./View.tsx"
 // What Admonition's view draws from its props. Closing and confirming,
 // which need a page to click in, are e2e/admonition.spec.ts's.
 
-const drawn = (props: AdmonitionProps, children?: string) =>
+/** Nothing hidden in the runbook, and hiding asks nothing. */
+const NOTHING_HIDDEN: Parameters<typeof AdmonitionView>[0]["hidden"] = {
+  has: () => false,
+  hide: () => {},
+}
+
+const drawn = (props: AdmonitionProps, children?: string, hidden = NOTHING_HIDDEN) =>
   renderToStaticMarkup(
-    <AdmonitionView props={props}>
+    <AdmonitionView props={props} hidden={hidden}>
       {children === undefined ? null : <p>{children}</p>}
     </AdmonitionView>,
   )
@@ -56,5 +62,25 @@ describe("Admonition's view", () => {
     expect(button("info")).toContain("bg-sky-700")
     expect(button("warning")).toContain("bg-red-700")
     expect(button("danger")).toContain("bg-red-700")
+  })
+
+  const forGood = {
+    type: "info",
+    confirmationText: "Got it",
+    allowPermanentHide: true,
+    storageKey: "welcome",
+  } as const
+
+  it('offers "Don\'t show me this again" under its confirmation when it hides for good', () => {
+    expect(drawn(forGood)).toContain(
+      '<label class="mt-3 flex items-center gap-2"><input type="checkbox"/>Don&#x27;t show me this again</label>',
+    )
+    expect(drawn({ type: "info", confirmationText: "Got it" })).not.toContain("show me this again")
+  })
+
+  it("draws nothing once its storageKey is hidden in its runbook", () => {
+    const hidden = (key: string) => ({ has: (asked: string) => asked === key, hide: () => {} })
+    expect(drawn(forGood, undefined, hidden("welcome"))).toBe("")
+    expect(drawn(forGood, undefined, hidden("billing"))).toContain("Got it")
   })
 })

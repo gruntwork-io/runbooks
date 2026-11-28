@@ -29,6 +29,8 @@ The `<Admonition>` block renders a callout box for a note, info, warning, or dan
 - `description` (string): the message, shown above any markdown written inside the block.
 - `closable` (boolean): adds a close button (×) that hides the admonition. Default `false`.
 - `confirmationText` (string): adds a button with this label that hides the admonition. An empty label is a configuration error.
+- `allowPermanentHide` (boolean): with `confirmationText` and `storageKey`, adds a "Don't show me this again" checkbox under the button. See [Don't show again](#dont-show-again).
+- `storageKey` (string): the name the hide is kept under, up to 64 characters. It goes with `allowPermanentHide`: either one without the other, or `allowPermanentHide` without `confirmationText`, is a configuration error.
 
 The `title` and `description` show as written. Markdown in them isn't formatted, and neither `{{ .inputs.name }}` nor `{{ .outputs.<id>.<key> }}` is filled in: Runbooks warns of each. To format the message, write it as markdown inside the block.
 
@@ -131,6 +133,33 @@ Ask readers to acknowledge the message before it goes away:
 ```
 
 A closed or confirmed admonition stays hidden until the runbook is shown again: when it's reloaded, or opened again.
+
+## Don't show again
+
+Let readers hide the admonition for good:
+
+```mdx
+<Admonition
+    type="info"
+    title="Welcome!"
+    description="This is your first time running this runbook."
+    confirmationText="I've read the introduction"
+    allowPermanentHide={true}
+    storageKey="welcome-message"
+/>
+```
+
+When the reader ticks "Don't show me this again" and confirms, the admonition stays hidden every time they open this runbook again, on this computer. Runbooks keeps the hide in its settings, under the runbook's file and the `storageKey`:
+
+- **One runbook only.** An admonition in another runbook with the same `storageKey` still shows. Within a runbook, admonitions that share a `storageKey` are hidden together.
+- **The runbook's file.** A runbook moved or copied to another folder shows its admonitions again. So does a runbook opened from a URL, since Runbooks downloads it to a new folder each time.
+- **Up to 16 runbooks, with up to 16 hidden admonitions each.** Past that, the runbook hidden in longest ago, or a runbook's oldest hide, is forgotten, and its admonitions show again.
+
+To show the hidden admonitions again, quit Runbooks and remove `hiddenInRunbooks` from `settings.json` in its user data folder.
+
+<Aside>
+Earlier versions kept the hide in the window's storage, under the `storageKey` alone, so it hid admonitions with that key in every runbook. Those hides aren't carried over.
+</Aside>
 
 ## Testing
 

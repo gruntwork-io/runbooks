@@ -11,5 +11,11 @@ tests:
       - block: unknown_type
         expect: config_error
         error_contains: 'the `type` prop of <Admonition>: Expected "note" | "info" | "warning" | "danger"'
+      - block: no_storage_key
+        expect: config_error
+        error_contains: "it needs `storageKey`, the name the hide is kept under"
+      - block: no_hide
+        expect: config_error
+        error_contains: "it names a hide, so it does nothing without allowPermanentHide={true}"
       - block: fine
         expect: success

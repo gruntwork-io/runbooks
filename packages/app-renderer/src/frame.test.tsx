@@ -229,6 +229,43 @@ describe("a block's frame", () => {
     expect(shown).toContain('<p class="block-description">Read this.</p>')
     expect(shown).toContain("Line 3: the `type` prop of &lt;Example&gt;: unknown")
   })
+
+  it("gives a view what the person hid in its own runbook, and asks to hide a key there", () => {
+    const asked: string[] = []
+    const Hides: View<Schema.Json> = ({ hidden }) => {
+      hidden.hide("billing")
+      return <p>{`welcome ${hidden.has("welcome")}, intro ${hidden.has("intro")}`}</p>
+    }
+    const following: Following = {
+      ...followingViews(),
+      settings: makeSettingsStore(
+        Schema.decodeUnknownSync(Settings)({
+          ...SETTINGS,
+          hiddenInRunbooks: [
+            { runbook: "/work/other/runbook.mdx", keys: ["intro"] },
+            { runbook: RUNBOOK, keys: ["welcome"] },
+          ],
+        }),
+      ),
+      hide: (runbook, key) => Effect.sync(() => asked.push(`${key} in ${runbook}`)),
+    }
+    const shown = renderToStaticMarkup(
+      <ViewsContext value={{ Example: Hides }}>
+        <FollowingContext value={following}>
+          <Markdown
+            document={{
+              tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
+              blocks: [placed({ class: "display", step: false, props: {} })],
+            }}
+            runbook={RUNBOOK}
+            session={SESSION}
+          />
+        </FollowingContext>
+      </ViewsContext>,
+    )
+    expect(shown).toContain("<p>welcome true, intro false</p>")
+    expect(asked).toEqual([`billing in ${RUNBOOK}`])
+  })
 })
 
 /** A block's view as the engine sends it, for `following`. */
@@ -274,6 +311,7 @@ const followingViews = (...views: BlockView[]): Following => {
     enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
+    hide: () => Effect.void,
   }
 }
 
@@ -864,6 +902,7 @@ describe("a block's frame, following the engine", () => {
           enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
           trust: () => Effect.void,
           reload: () => Effect.void,
+          hide: () => Effect.void,
         },
         placed({ id: "greet" }),
       )
