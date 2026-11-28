@@ -974,6 +974,79 @@ describe("Engine", () => {
     )
   })
 
+  it("gives a block's view, and the answer to SetValues, the last event the session logged", async () => {
+    await withEngine(
+      CONFIG,
+      {},
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const session = yield* open
+        const rb = yield* commandsFor(session)
+        const recording = yield* rb.record
+        const answer = yield* rb.set("config", { region: "eu-west-1" })
+        const view = yield* rb.block("config")
+        expect(view.sequence).toBeNumber()
+        expect(view.sequence).toBe(answer.sequence)
+        // Events after the view start with the next change.
+        const after = yield* Effect.forkChild(
+          Stream.runCollect(
+            engine
+              .events({ session: session.session, after: view.sequence ?? -1 })
+              .pipe(Stream.take(1)),
+          ),
+        )
+        yield* rb.trust
+        expect(yield* Fiber.join(after)).toMatchObject([
+          { sequence: (view.sequence ?? -1) + 1, event: { _tag: "TrustChanged" } },
+        ])
+        yield* rb.close
+        const written = (yield* Fiber.join(recording)).filter(
+          ({ sequence }) => sequence <= (answer.sequence ?? -1),
+        )
+        expect(written.at(-1)?.event).toMatchObject({ _tag: "FieldsChanged", block: "config" })
+      }),
+    )
+  })
+
+  it("answers SetValues with the last event its write logged, though more is logged before the answer", async () => {
+    const database = memorySessionDatabase()
+    const saving = makeHold()
+    await withEngine(
+      CONFIG,
+      {},
+      Effect.gen(function* () {
+        const engine = yield* Engine
+        const session = yield* open
+        const rb = yield* commandsFor(session)
+        const recording = yield* rb.record
+        // The values are saved on a slow disk, and the session is trusted meanwhile.
+        database.holding.set("putEvent", saving)
+        const setting = yield* Effect.forkChild(rb.set("config", { region: "eu-west-1" }))
+        yield* Deferred.await(saving.reached)
+        const trusting = yield* Effect.forkChild(rb.trust)
+        yield* Stream.runDrain(
+          engine
+            .events({ session: session.session })
+            .pipe(Stream.takeUntil(({ event }) => event._tag === "TrustChanged")),
+        )
+        database.holding.delete("putEvent")
+        yield* Deferred.succeed(saving.release, undefined)
+        const answer = yield* Fiber.join(setting)
+        yield* Fiber.join(trusting)
+        yield* rb.close
+        const all = yield* Fiber.join(recording)
+        expect(all.find(({ sequence }) => sequence === answer.sequence)?.event).toMatchObject({
+          _tag: "FieldsChanged",
+          block: "config",
+        })
+        const trusted = all.find(({ event }) => event._tag === "TrustChanged")
+        expect(answer.sequence).toBeLessThan(trusted?.sequence ?? -1)
+      }),
+      "person",
+      database,
+    )
+  })
+
   it("waits for a run to end, or says it timed out", async () => {
     const gate = makeGate()
     await withEngine(
@@ -1397,6 +1470,7 @@ describe("Engine values", () => {
           errors: {},
           rejected: {},
           unreviewed: ["count"],
+          sequence: expect.any(Number),
         })
         expect((yield* rb.fields("config"))?.map((f) => [f.name, f.value, f.reviewed])).toEqual([
           ["region", shown("eu-west-1"), true],

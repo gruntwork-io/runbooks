@@ -306,6 +306,13 @@ export type FilesOnDisk = typeof FilesOnDisk.Type
 export const BlockView = Schema.Struct({
   ...BlockSummary.fields,
   /**
+   * The last event this view reflects, as a session's view has it
+   * (`SessionView.sequence`). A view at or after a `SetValuesResult.sequence`
+   * shows the values entered, or what changed them since. Absent while the
+   * session has logged none.
+   */
+  sequence: Schema.optionalKey(Sequence),
+  /**
    * A task's or credential block's instruction, from its props and what it
    * reads now, built before trust as the contract has it. Absent for a form
    * or display block, and for one whose configuration has errors.
@@ -643,6 +650,12 @@ export const SetValuesResult = Schema.Struct({
   rejected: Schema.Record(Schema.String, Schema.String),
   /** Fields an agent has still not set or confirmed. */
   unreviewed: Schema.Array(Schema.String),
+  /**
+   * The last event the session had logged once the values were entered: the
+   * last they logged, or, when they changed nothing, the last before them.
+   * Absent while the session has logged none.
+   */
+  sequence: Schema.optionalKey(Sequence),
 })
 export type SetValuesResult = typeof SetValuesResult.Type
 

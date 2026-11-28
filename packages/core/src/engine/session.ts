@@ -1110,6 +1110,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
   const log = makeWindow<EventEnvelope>(LIMITS.keptEvents, options.firstSequence)
+  /** The last event the session has logged, as a view's `sequence`: none while it has logged none. */
+  const lastLogged = (): { readonly sequence?: number } =>
+    log.end() === 0 ? {} : { sequence: log.end() - 1 }
 
   for (const slot of slots) {
     const values = resume?.values.get(slot.id)
@@ -1637,6 +1640,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * started blocks' providers.
    */
   const update = <A>(change: (emit: (event: EngineEvent) => void) => A): Effect.Effect<A> =>
+    Effect.map(updateLogged(change), ({ result }) => result)
+
+  /**
+   * As `update`, and gives with `change`'s result the last event the session
+   * had logged at the end of that step (`sequence`). Events logged after
+   * the step, before it returns, are not its.
+   */
+  const updateLogged = <A>(
+    change: (emit: (event: EngineEvent) => void) => A,
+  ): Effect.Effect<{ readonly result: A; readonly sequence?: number }> =>
     Effect.clockWith((clock) =>
       Effect.sync(() => {
         const events: EngineEvent[] = []
@@ -1646,11 +1659,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         events.push(
           ...inOnePass(() => [...derivedOutputChanges(), ...statusChanges(), ...heldChanges()]),
         )
-        if (closed) return { result, logged: false, started }
+        if (closed) return { result, logged: false, started, last: lastLogged() }
         const at = DateTime.makeUnsafe(clock.currentTimeMillisUnsafe())
         const first = log.end()
         log.push(events.map((event, i) => ({ session: id, sequence: first + i, at, event })))
-        return { result, logged: events.length > 0, started }
+        return { result, logged: events.length > 0, started, last: lastLogged() }
       }),
     ).pipe(
       Effect.tap(({ logged }) => (logged ? PubSub.publish(changed, undefined) : Effect.void)),
@@ -1661,7 +1674,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           ? Effect.void
           : credentials.begin(started, trust.runner.openProvider),
       ),
-      Effect.map(({ result }) => result),
+      Effect.map(({ result, last }) => ({ result, ...last })),
     )
 
   const store = makeCredentialStore(credentialSlots.map((slot) => slot.id))
@@ -2130,6 +2143,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     const sections = form === undefined ? [] : sectionsOf(form)
     return {
       ...summaryOf(slot),
+      ...lastLogged(),
       ...(instruction === undefined ? {} : { instruction }),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
       outputs: outputs === undefined ? {} : outputsView(outputs),
@@ -2387,7 +2401,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       path: document.file,
       ...(document.frontMatter.title === undefined ? {} : { title: document.frontMatter.title }),
       // Read in the same step as the statuses: a change logs its events as it makes them.
-      ...(log.end() === 0 ? {} : { sequence: log.end() - 1 }),
+      ...lastLogged(),
       trust: { trusted: trust._tag === "Trusted", hash: document.hash.combined },
       blocks: inOnePass(() => slots.map(summaryOf)),
       warnings: document.warnings,
@@ -2586,7 +2600,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         Effect.gen(function* () {
           yield* notClosing
           const slot = yield* formOrTaskSlot(block)
-          return yield* update((emit): SetValuesResult => {
+          const { result, ...logged } = yield* updateLogged((emit): SetValuesResult => {
             const form = forms.get(slot.index)
             if (form === undefined) {
               const reason = noForm(slot)
@@ -2601,6 +2615,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
               unreviewed: unreviewedOf(entered.form),
             }
           })
+          return { ...result, ...logged }
         }),
       ),
 

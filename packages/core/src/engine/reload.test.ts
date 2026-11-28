@@ -391,7 +391,7 @@ describe("reloading a session's runbook", () => {
           "dependent",
         ])
         // As it was: its run, log and outputs, under the same run id.
-        expect(yield* rb.block("kept")).toEqual(kept)
+        expect(yield* rb.block("kept")).toEqual({ ...kept, sequence: expect.any(Number) })
         const changed = yield* rb.block("changed")
         expect([changed.status, changed.log, changed.outputs]).toEqual([
           { _tag: "Idle" },
@@ -459,7 +459,11 @@ describe("reloading a session's runbook", () => {
             ),
           ),
         ).toEqual({ _tag: "Reloaded" })
-        expect(yield* rb.block("titled")).toEqual({ ...titled, title: "Deploy the VPC" })
+        expect(yield* rb.block("titled")).toEqual({
+          ...titled,
+          title: "Deploy the VPC",
+          sequence: expect.any(Number),
+        })
         expect((yield* rb.block("staged")).status).toEqual({ _tag: "Idle" })
       }),
       { scripts: SCRIPTS },
