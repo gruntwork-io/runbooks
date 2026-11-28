@@ -115,7 +115,7 @@ export const SharedProps = Schema.Struct({
   description: Schema.optionalKey(Schema.String),
   /** Fold the block to its header once it is done. */
   autoCollapse: Schema.optionalKey(Schema.Boolean),
-  /** Any block but a display block: the forms whose values it reads (capability `values`). */
+  /** Any block but a display or credential block: the forms whose values it reads (capability `values`). */
   inputsId: Schema.optionalKey(OneOrMoreIds),
   /** Task: blocks that must be done first (capability `run`). */
   dependsOn: Schema.optionalKey(OneOrMoreIds),
@@ -146,7 +146,8 @@ export type EdgeSource = typeof EdgeSource.Type
 /**
  * One reference between two blocks, each named by its index in
  * `RunbookDocument.blocks`, as the tree's `block` nodes are. A display
- * block makes none: nothing fills in its text.
+ * block makes none, and a credential block only those its reference props
+ * name: nothing fills in a `{{ }}` in either's props.
  */
 export const Edge = Schema.Struct({
   /** The block that reads. */

@@ -139,16 +139,23 @@ const SHARED_REFERENCES = [
   ["envFrom", "env"],
 ] as const satisfies ReadonlyArray<readonly [SharedKey, Capability]>
 
+/**
+ * Whether the contract gives `block` no reads: a display block's text, and
+ * a credential block's `request` and `instruction`, take its props as
+ * written, so nothing fills in a `{{ }}` in them.
+ */
+const getsNoReads = (block: AnyBlock): boolean =>
+  block.class === "display" || block.class === "credential"
+
 /** Whether `block` takes the shared prop `key`: it depends on its class and its effects. */
 function takes(block: AnyBlock, key: SharedKey): boolean {
   switch (key) {
     case "title":
     case "description":
       return true
-    // The contract gives a display block no reads, so nothing would fill in
-    // its text with the values.
+    // Nothing would fill in the block's props with the values.
     case "inputsId":
-      return block.class !== "display"
+      return !getsNoReads(block)
     case "autoCollapse":
       return block.class !== "display"
     case "dependsOn":
@@ -706,7 +713,7 @@ class Parse {
       block.class === "task" && block.scripts !== undefined && Result.isFailure(props) ? {} : input
     // The inputs its run is given, from its own props and the shared ones it doesn't only show.
     const inputs = new Set<string>()
-    // A display block may own a shared prop, so its text is read twice: it is warned of once.
+    // A block may own a shared prop, so the prop is read twice: it is warned of once.
     const unfilled = new Set<string>()
     const readFrom = (
       values: Readonly<Record<string, unknown>>,
@@ -715,9 +722,9 @@ class Parse {
       for (const [prop, value] of Object.entries(values)) {
         if (scriptProps.has(prop)) continue
         const at = written.get(prop)?.span ?? span
-        // The contract gives a display block no reads, so nothing fills in its text.
-        if (block.class === "display") {
-          if (!unfilled.has(prop)) this.unfilledReads(where, prop, value, at)
+        // The contract gives the block no reads, so nothing fills in its props.
+        if (getsNoReads(block)) {
+          if (!unfilled.has(prop)) this.unfilledReads(where, block.class, prop, value, at)
           unfilled.add(prop)
           continue
         }
@@ -977,11 +984,13 @@ class Parse {
 
   /**
    * A warning for the `{{ .inputs }}` and `{{ .outputs }}` references in a
-   * display block's prop: nothing fills them in, so its text shows them as
-   * written, and none is a reference in the graph.
+   * prop of a block the contract gives no reads (`getsNoReads`): nothing
+   * fills them in, so the block uses them as written, and none is a
+   * reference in the graph.
    */
   private unfilledReads(
     where: { readonly tag: string; readonly id?: string },
+    blockClass: AnyBlock["class"],
     prop: string,
     value: unknown,
     span: Span,
@@ -997,7 +1006,11 @@ class Parse {
     const block = where.id === undefined ? `<${where.tag}>` : `<${where.tag} id="${where.id}">`
     this.warn(
       "unfilledReference",
-      `\`${prop}\` on ${block} reads ${named.join(", ")}, which nothing fills in: a display block's text shows as written.`,
+      `\`${prop}\` on ${block} reads ${named.join(", ")}, which nothing fills in: ${
+        blockClass === "display"
+          ? "a display block's text shows as written"
+          : "a credential block's props are used as written"
+      }.`,
       span,
       where,
       prop,

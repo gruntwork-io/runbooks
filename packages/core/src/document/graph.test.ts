@@ -87,6 +87,30 @@ describe("the reference graph", () => {
     ])
   })
 
+  it("makes no edge for a credential block's inputsId or the values its props name, and keeps its reference props' edges", () => {
+    const doc = parsed([
+      '<Run id="build" command="make" outputs={["path"]} />',
+      INPUTS,
+      '<CloudLogin id="cloud" keysFrom="build" account="{{ .outputs.build.path }}" role="{{ .inputs.region }}" inputsId={["config"]} />',
+    ])
+    // keysFrom is the block's own reference prop, not a value it reads.
+    expect(edges(doc)).toEqual([[2, 0, { _tag: "Prop", prop: "keysFrom", capability: "run" }]])
+    expect(doc.blocks[2]?.inputs).toEqual([])
+    expect(doc.warnings.map((w) => [w.code, w.message, w.location.prop])).toEqual([
+      [
+        "unfilledReference",
+        '`account` on <CloudLogin id="cloud"> reads {{ .outputs.build.path }}, which nothing fills in: a credential block\'s props are used as written.',
+        "account",
+      ],
+      [
+        "unfilledReference",
+        '`role` on <CloudLogin id="cloud"> reads {{ .inputs.region }}, which nothing fills in: a credential block\'s props are used as written.',
+        "role",
+      ],
+      ["unknownProp", "<CloudLogin> has no `inputsId` prop, so it is ignored.", "inputsId"],
+    ])
+  })
+
   it("names the prop an *AuthId edge was written as", () => {
     const doc = parsed([
       '<GitHubLogin id="gh" />',
