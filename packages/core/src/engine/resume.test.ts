@@ -531,6 +531,63 @@ describe("resuming a session", () => {
     expect(resumed.deploy).toEqual({ _tag: "Idle" })
   })
 
+  it("brings back a form's first Submit: a reader gets its values once it was submitted, even if reset since, and its starting values if never", async () => {
+    const runbook = [
+      '<Form id="form" variables={[{ name: "region", type: "string", required: true }]} />',
+      '<Run id="read" command="none" inputsId="form" />',
+    ].join("\n\n")
+    const heldByForm = {
+      _tag: "Blocked",
+      by: [{ _tag: "WaitingFor", block: blockId("form"), capability: "values" }],
+    } as const
+    const statuses = Effect.gen(function* () {
+      const rb = yield* open
+      return [(yield* rb.block("form")).status, (yield* rb.block("read")).status]
+    })
+
+    // Typed, never submitted: the reader gets the field as it starts, empty, which it waits on.
+    const typed = machine(runbook)
+    await start(
+      typed,
+      Effect.gen(function* () {
+        const rb = yield* open
+        yield* rb.trust
+        yield* rb.set("form", { region: "eu-west-1" })
+      }),
+    )
+    expect(await start(typed, statuses)).toEqual([{ _tag: "Idle" }, heldByForm])
+
+    // Submitted: the form comes back done, and the reader gets the value as it is.
+    const submitted = machine(runbook)
+    await start(
+      submitted,
+      Effect.gen(function* () {
+        const rb = yield* open
+        yield* rb.trust
+        yield* rb.set("form", { region: "eu-west-1" })
+        yield* rb.run("form")
+      }),
+    )
+    expect(await start(submitted, statuses)).toEqual([
+      { _tag: "Done", outcome: "success" },
+      { _tag: "Idle" },
+    ])
+
+    // Submitted, then reset: the reader gets the value as it is.
+    const reset = machine(runbook)
+    await start(
+      reset,
+      Effect.gen(function* () {
+        const rb = yield* open
+        yield* rb.trust
+        yield* rb.set("form", { region: "eu-west-1" })
+        yield* rb.run("form")
+        yield* rb.reset("form")
+      }),
+    )
+    expect(await start(reset, statuses)).toEqual([{ _tag: "Idle" }, { _tag: "Idle" }])
+  })
+
   it("starts a session of its own for a runbook open already (open decision 18), and resumes the one closed last", async () => {
     const on = machine(FORM_AND_DEPLOY)
     const ids = await start(

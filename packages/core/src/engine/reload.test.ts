@@ -14,6 +14,7 @@ import {
   type TaskEvent,
   type TaskInput,
 } from "@runbooks/blocks-core/contract"
+import { templateText } from "@runbooks/blocks-core/form"
 import {
   type CredentialEnv,
   CredentialProviders,
@@ -272,6 +273,67 @@ const SCRIPTS = {
 }
 
 const DONE = { _tag: "Done", outcome: "success" } as const
+
+/** Outputs, as `out`, the region it reads. */
+const echoesRegion: Script = (input) =>
+  Stream.make({
+    _tag: "Output",
+    key: "out",
+    value: templateText(Redacted.value(input.values.get("region") ?? Redacted.make(""))),
+  })
+
+describe("a form's first Submit, across a reload", () => {
+  it("stays with a form that is as it was, and goes with one that changed", () =>
+    withEngine(
+      runbookOf(
+        formOf("form", ["region"]),
+        '<Run id="read" command="echo" inputsId="form" outputs={["out"]} />',
+        '<Run id="other" command="kept" />',
+      ),
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        const readOut = Effect.map(
+          Effect.andThen(rb.run("read"), rb.block("read")),
+          (view) => view.outputs,
+        )
+        yield* rb.set("form", { region: "eu-west-1" })
+        yield* rb.run("form")
+        yield* Effect.flatMap(Engine, (engine) =>
+          engine.resetBlock({ session: rb.view.session, block: blockId("form") }),
+        )
+
+        // Another block changed; the form is as it was, so its reader still gets what it holds.
+        yield* rb.save(
+          runbookOf(
+            formOf("form", ["region"]),
+            '<Run id="read" command="echo" inputsId="form" outputs={["out"]} />',
+            '<Run id="other" command="kept" args={["--now"]} />',
+          ),
+        )
+        yield* rb.set("form", { region: "ap-south-1" })
+        expect(yield* readOut).toEqual({ out: { _tag: "Shown", value: "ap-south-1" } })
+
+        // The form changed: it is a form with no Submit yet, so its reader gets it as it now starts.
+        yield* rb.save(
+          runbookOf(
+            formOf("form", ["region", "zone"]).replace(
+              "- name: region\n  type: string",
+              "- name: region\n  type: string\n  default: eu-north-1",
+            ),
+            '<Run id="read" command="echo" inputsId="form" outputs={["out"]} />',
+            '<Run id="other" command="kept" args={["--now"]} />',
+          ),
+        )
+        expect((yield* rb.block("form")).fields?.[0]?.value).toEqual({
+          _tag: "Shown",
+          value: "ap-south-1",
+        })
+        expect(yield* readOut).toEqual({ out: { _tag: "Shown", value: "eu-north-1" } })
+      }),
+      { scripts: { ...SCRIPTS, echo: echoesRegion } },
+    ))
+})
 
 describe("reloading a session's runbook", () => {
   it("keeps each block that is as it was, starts over each that changed, drops each that went, and adds each new one", () =>

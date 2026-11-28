@@ -764,6 +764,17 @@ function taskErrorOf(cause: Cause.Cause<TaskError>): TaskError {
 
 /** A submitted form, as it is saved: a submit is the form's run. */
 const SUBMITTED: Saved = { kind: "run", payload: { _tag: "Submitted" } }
+/** A form reset after a Submit, as it is saved: its readers still get its values live. */
+const RESET_AFTER_SUBMIT: Saved = { kind: "run", payload: { _tag: "ResetAfterSubmit" } }
+
+/** Where a form block is, as the session saves it. */
+type SubmitState = "never" | "submitted" | "reset"
+
+/**
+ * When the blocks that read a form get what is entered in it: from its first
+ * Submit on, or at once.
+ */
+export type FormValues = "afterSubmit" | "live"
 
 /** A run as it is saved. Its log is saved from the end. */
 function savedRunOf(run: Run): SavedRun {
@@ -823,6 +834,7 @@ function restoredRun(slot: Slot, saved: SavedRun): Run | undefined {
   }
   switch (saved._tag) {
     case "Submitted":
+    case "ResetAfterSubmit":
       return undefined
     case "Running":
       return restore(
@@ -1030,6 +1042,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   readonly saver: SessionSaver
   /** The sequence of the session's first event: where a resumed session's earlier one ended. */
   readonly firstSequence: number
+  /** When the blocks that read a form get what is entered in it (`EngineOptions.formValues`). */
+  readonly formValues: FormValues
   /**
    * What watches the runbook and the files it names on disk, given the
    * session and what it holds at each named path now. It runs in the
@@ -1082,8 +1096,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const runs = new Map<number, Run>()
   /** Each block's form, by block index: a form block's, or a task's own. */
   const forms = new Map(opening.forms)
+  /** Each form as it starts, from its defaults: what its readers get until its first Submit. */
+  const starts = new Map(opening.forms)
   /** The form blocks submitted since they were last reset. */
   const submitted = new Set<number>()
+  /**
+   * The form blocks submitted at least once: their readers get each change,
+   * live. A reset undoes a submit, not this, so it holds `submitted`.
+   */
+  const released = new Set<number>()
   /** Each done form's and credential block's outputs, as last published. */
   const published = new Map<number, ReadonlyMap<string, Held<string>>>()
   const statuses = new Map<number, BlockStatus>()
@@ -1096,8 +1117,20 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       forms.set(slot.index, restoreValues(form, values.values))
     const saved = resume?.runs.get(slot.id)
     if (saved === undefined) continue
-    if (slot.node.class === "form" && slot.node.errors.length === 0 && saved._tag === "Submitted")
-      submitted.add(slot.index)
+    if (slot.node.class === "form" && slot.node.errors.length === 0)
+      switch (saved._tag) {
+        case "Submitted":
+          submitted.add(slot.index)
+          released.add(slot.index)
+          break
+        case "ResetAfterSubmit":
+          released.add(slot.index)
+          break
+        case "Running":
+        case "Done":
+        case "Failed":
+          break
+      }
     const run = slot.node.class === "task" ? restoredRun(slot, saved) : undefined
     if (run !== undefined) runs.set(slot.index, run)
   }
@@ -1110,12 +1143,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     number,
     {
       readonly form: Form | undefined
-      readonly submitted: boolean | undefined
+      readonly submitted: SubmitState | undefined
       readonly run: RunState | null | undefined
       readonly credential: CredentialState | undefined
       readonly env: CredentialEnv | undefined
     }
   >()
+  /** Where a form block is: never submitted, submitted, or reset after a Submit. */
+  const submitStateOf = (index: number): SubmitState =>
+    submitted.has(index) ? "submitted" : released.has(index) ? "reset" : "never"
+
   /**
    * Whether a person trusted the document the session holds
    * (`TrustSession`, or the trust a resumed session gets back), or chose
@@ -1203,11 +1240,15 @@ export const makeSession = Effect.fnUntraced(function* (options: {
                 files,
               ),
             )
-          const isSubmitted = submitted.has(slot.index)
-          const submitChanged = slot.node.class === "form" && isSubmitted !== last.submitted
+          const submitState = submitStateOf(slot.index)
+          const submitChanged = slot.node.class === "form" && submitState !== last.submitted
           if (submitChanged)
             writes.push(
-              isSubmitted ? saver.put(slot.id, SUBMITTED, files) : saver.drop(slot.id, "run"),
+              submitState === "submitted"
+                ? saver.put(slot.id, SUBMITTED, files)
+                : submitState === "reset"
+                  ? saver.put(slot.id, RESET_AFTER_SUBMIT, files)
+                  : saver.drop(slot.id, "run"),
             )
           const run = runs.get(slot.index)
           const state = run?.state ?? null
@@ -1230,7 +1271,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           if (formChanged || submitChanged || runChanged || loginChanged)
             saved.set(slot.index, {
               form,
-              submitted: isSubmitted,
+              submitted: submitState,
               run: state,
               credential: login,
               env,
@@ -1288,11 +1329,29 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return form === undefined ? [] : fieldErrors(form).map(([name]) => name)
   }
 
-  /** A block that reads values waits for a form without errors; any other reference, for a done block. */
+  /**
+   * The form at `index` as a block that reads it gets it: as it starts, from
+   * its defaults, until its first Submit, as today's app registers a form's
+   * values when it appears; then as it is, each change live. A task's own
+   * form, and a form nested in a task, have no Submit: they are always live.
+   */
+  const readFormAt = (index: number): Form | undefined => {
+    const node = slotAt.get(index)?.node
+    const live =
+      options.formValues === "live" ||
+      node?.class !== "form" ||
+      node.nestedIn !== undefined ||
+      released.has(index)
+    return live ? forms.get(index) : starts.get(index)
+  }
+
+  /** A block that reads values waits for a form without errors, as it reads it; any other reference, for a done block. */
   const isSatisfied = ({ target, blocker }: Wait): boolean => {
     switch (blocker.capability) {
-      case "values":
-        return forms.has(target) && needsInput(target).length === 0
+      case "values": {
+        const form = readFormAt(target)
+        return form !== undefined && fieldErrors(form).length === 0
+      }
       case "run":
       case "env":
       case "git-credential":
@@ -1309,7 +1368,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    */
   const emptyInputsOf = (slot: Slot): ReadonlyArray<Blocker> => {
     const lastFirst = [...slot.reads, slot].reverse().flatMap((read) => {
-      const form = forms.get(read.index)
+      const form = readFormAt(read.index)
       return form === undefined ? [] : [{ block: read.id, form }]
     })
     return slot.node.inputs.flatMap((input) => {
@@ -1406,7 +1465,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   const valuesFor = (slot: Slot): TaskValues =>
     new Map(
       [...slot.reads, slot].flatMap(({ index }) => {
-        const form = forms.get(index)
+        const form = readFormAt(index)
         return form === undefined ? [] : Array.from(valuesOf(form))
       }),
     )
@@ -1933,7 +1992,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         return { _tag: "Refused", reason: { _tag: "Misconfigured" } } as const
       const reason = notReady(slot) ?? reviewFor(slot, origin)
       if (reason !== undefined) return { _tag: "Refused", reason } as const
-      yield* update(() => submitted.add(slot.index))
+      yield* update(() => {
+        submitted.add(slot.index)
+        released.add(slot.index)
+      })
       return { _tag: "Submitted" } as const
     })
 
@@ -2176,12 +2238,20 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           moveTo(runs, before, nextSlots, isKept)
           forms.clear()
           for (const [index, form] of nextForms) forms.set(index, form)
-          const stillSubmitted = nextSlots.filter((slot) => {
-            const was = before.get(slot.id)
-            return was !== undefined && isKept(slot.id) && submitted.has(was.index)
-          })
+          starts.clear()
+          for (const [index, fresh] of read.forms) starts.set(index, fresh)
+          // A form that changed is a new form: it has had no Submit.
+          const keptIn = (marked: ReadonlySet<number>) =>
+            nextSlots.filter((slot) => {
+              const was = before.get(slot.id)
+              return was !== undefined && isKept(slot.id) && marked.has(was.index)
+            })
+          const stillSubmitted = keptIn(submitted)
+          const stillReleased = keptIn(released)
           submitted.clear()
           for (const slot of stillSubmitted) submitted.add(slot.index)
+          released.clear()
+          for (const slot of stillReleased) released.add(slot.index)
           // Moved for every block the document still has, so the derived changes compare against them.
           moveTo(published, before, nextSlots, () => true)
           moveTo(statuses, before, nextSlots, () => true)

@@ -597,6 +597,8 @@ const engineFor = <R extends Registry>(
     processEnvironment: { ...options.env, ...env },
     // As today's runner: the test file's `timeout` setting, which `settle` keeps, limits every step.
     blockTimeLimits: "ignore",
+    // As today's runner: a test's inputs reach each block that reads them, with no Submit.
+    formValues: "live",
   }).pipe(
     Layer.provideMerge(DefaultSettings),
     Layer.provide(NoCredentialProviders),
