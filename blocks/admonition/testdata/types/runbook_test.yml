@@ -15,3 +15,5 @@ tests:
         expect: success
       - block: untitled
         expect: success
+      - block: long_path
+        expect: success
