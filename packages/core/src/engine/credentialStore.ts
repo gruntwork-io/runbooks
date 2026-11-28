@@ -20,11 +20,16 @@ export interface CredentialStore {
   readonly delete: (block: BlockId) => void
   /** Every Ready block's values. */
   readonly entries: () => ReadonlyArray<readonly [BlockId, CredentialEnv]>
+  /**
+   * Holds entries for `blocks` from now on, and no others: the session's
+   * credential blocks once it reloads its runbook. Each other block's entry goes.
+   */
+  readonly useBlocks: (blocks: ReadonlyArray<BlockId>) => void
 }
 
 /** A store for the credential blocks `blocks`, and no others, so it holds at most one entry each. */
 export function makeCredentialStore(blocks: ReadonlyArray<BlockId>): CredentialStore {
-  const known = new Set(blocks)
+  let known = new Set(blocks)
   const held = new Map<BlockId, CredentialEnv>()
   return {
     get: (block) => held.get(block),
@@ -38,5 +43,9 @@ export function makeCredentialStore(blocks: ReadonlyArray<BlockId>): CredentialS
       held.delete(block)
     },
     entries: () => Array.from(held),
+    useBlocks: (next) => {
+      known = new Set(next)
+      for (const block of held.keys()) if (!known.has(block)) held.delete(block)
+    },
   }
 }

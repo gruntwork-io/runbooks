@@ -11,7 +11,6 @@ import { type TaskError, type TaskEvent, TaskTimedOut } from "@runbooks/blocks-c
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
 import { prepareStateDir } from "../credential/stateDir.ts"
-import type { ParseResult } from "../document/document.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -32,6 +31,7 @@ import {
   type ListSessions,
   type OpenSession,
   type ReloadFiles,
+  type ReloadHeld,
   type ResetBlock,
   type ResolveApproval,
   type RunBlock,
@@ -47,7 +47,13 @@ import {
 import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { copyGenerated, makeRunFiles, readRunFiles } from "./runFiles.ts"
-import { makeSession, type Runner, type Session } from "./session.ts"
+import {
+  makeSession,
+  type ParsedRunbook,
+  type ReloadResult,
+  type Runner,
+  type Session,
+} from "./session.ts"
 import { resumeOf, type SavedSession, SessionStore } from "./sessionStore.ts"
 import { SettingsStore } from "./settings.ts"
 
@@ -66,7 +72,7 @@ export interface EngineShape {
   readonly closeSession: Command<typeof CloseSession>
   readonly listSessions: Effect.Effect<Rpc.Success<typeof ListSessions>>
   readonly getSession: Command<typeof GetSession>
-  /** The document as the session opened it, with the errors the engine found then. */
+  /** The document the session holds, with the errors the engine found in it. */
   readonly getDocument: Command<typeof GetDocument>
   /** Person only. */
   readonly trustSession: Command<typeof TrustSession, Caller>
@@ -90,7 +96,17 @@ export interface EngineShape {
   readonly actOnCredential: Command<typeof ActOnCredential>
   /** Person only. */
   readonly resolveApproval: Command<typeof ResolveApproval, Caller>
+  /**
+   * Not a protocol command, and no client reaches it (`serveEngine`): what
+   * a session's watcher does once its runbook is saved, in a watch mode the
+   * person chose at open. Reads the runbook and the files its blocks name
+   * from disk again, and reloads the session with them (`Session.reload`).
+   */
+  readonly reloadRunbook: (session: SessionId) => Effect.Effect<RunbookReload, UnknownSession>
 }
+
+/** What reloading a session's runbook from disk did, or why the session holds the runbook it had. */
+export type RunbookReload = ReloadResult | Exclude<ReloadHeld, { readonly _tag: "Running" }>
 
 export interface EngineOptions<R extends Registry> {
   readonly registry: R
@@ -240,10 +256,24 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             : Effect.succeed(found)
         }
 
+        /** The runbook at `file`, which is absolute, and the files its blocks name, read from disk now. */
+        const load = (file: string) =>
+          loadRunbook(file, registry, { appVersion }).pipe(
+            Effect.provideContext(fileSystem),
+            Effect.catchTags({
+              FileNotFoundError: () => unreadable(file, `There is no file at ${file}.`),
+              FileReadError: ({ cause }) =>
+                unreadable(
+                  file,
+                  `${file} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+                ),
+            }),
+          )
+
         /** Opens a session of the loaded runbook as `id`, resuming `saved` when there is one. */
         const opened = Effect.fnUntraced(function* (
           file: string,
-          loaded: Extract<ParseResult, { readonly _tag: "Parsed" }>,
+          loaded: ParsedRunbook,
           saved: Option.Option<SavedSession>,
           id: SessionId,
         ) {
@@ -302,17 +332,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             // A transport decodes the payload; an in-process caller may not.
             if (!isAbsolute(file))
               return yield* unreadable(file, `${file} is not an absolute path.`)
-            const result = yield* loadRunbook(file, registry, { appVersion }).pipe(
-              Effect.provideContext(fileSystem),
-              Effect.catchTags({
-                FileNotFoundError: () => unreadable(file, `There is no file at ${file}.`),
-                FileReadError: ({ cause }) =>
-                  unreadable(
-                    file,
-                    `${file} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
-                  ),
-              }),
-            )
+            const result = yield* load(file)
             if (result._tag === "Invalid")
               return { _tag: "Invalid", errors: result.errors, warnings: result.warnings } as const
             // Taken in the step that checks it: two opens of one runbook at once
@@ -351,7 +371,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           }),
 
           getDocument: Effect.fn("Engine.getDocument")(function* ({ session }) {
-            return (yield* lookup(session)).documentView
+            return (yield* lookup(session)).documentView()
           }),
 
           trustSession: Effect.fn("Engine.trustSession")(function* ({ session, hash }) {
@@ -432,6 +452,27 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             // No session asks for an approval until the agent's run
             // confirmation (step 3, item 7), so none is pending to resolve.
             return yield* new UnknownApproval({ approval })
+          }),
+
+          reloadRunbook: Effect.fn("Engine.reloadRunbook")(function* (session) {
+            const found = yield* lookup(session)
+            const loaded = yield* load(found.summary().path).pipe(
+              Effect.catchTag("RunbookUnreadable", ({ message }) =>
+                Effect.succeed({ _tag: "Unreadable", message } as const),
+              ),
+            )
+            switch (loaded._tag) {
+              case "Unreadable":
+                return loaded
+              case "Invalid":
+                return {
+                  _tag: "Invalid",
+                  errors: loaded.errors,
+                  warnings: loaded.warnings,
+                } as const
+              case "Parsed":
+                return yield* found.reload(loaded)
+            }
           }),
         })
       }),
