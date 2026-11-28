@@ -92,6 +92,8 @@ export function savedLogOf(last: ReadonlyArray<LogLine>, total: number): SavedLo
 export const SavedRun = Schema.Union([
   /** A form block, submitted. */
   Schema.TaggedStruct("Submitted", {}),
+  /** A form block reset after a Submit: not submitted, but its readers get its values live. */
+  Schema.TaggedStruct("ResetAfterSubmit", {}),
   /** A run the app stopped on before it ended. */
   Schema.TaggedStruct("Running", {}),
   Schema.TaggedStruct("Done", {

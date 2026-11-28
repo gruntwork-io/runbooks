@@ -456,6 +456,7 @@ describe("its environment", () => {
             block: blockId("config"),
             values: { id: "i-1" },
           })
+          yield* s.start("config")
           expect(yield* s.run("c")).toEqual(success)
           return s.spawns[0]!.env
         }),

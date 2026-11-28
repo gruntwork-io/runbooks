@@ -55,6 +55,7 @@ import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
 import { copyGenerated, makeRunFiles, readRunFiles } from "./runFiles.ts"
 import {
+  type FormValues,
   makeSession,
   type ParsedRunbook,
   type ReloadFilesFrom,
@@ -160,6 +161,14 @@ export interface EngineOptions<R extends Registry> {
    * instead, as today's test runner does. Absent: `"apply"`.
    */
   readonly blockTimeLimits?: "apply" | "ignore"
+  /**
+   * When the blocks that read a form get what is entered in it. Absent, or
+   * `"afterSubmit"`: each field's starting value until the form's first
+   * Submit, then each change, live, as today's app. `runbooks test` sets
+   * `"live"`: today's test runner gives a test's inputs to each block that
+   * reads them, with no Submit.
+   */
+  readonly formValues?: FormValues
 }
 
 const decodeSessionId = Schema.decodeSync(SessionId)
@@ -373,6 +382,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
             saver,
             firstSequence,
+            formValues: options.formValues ?? "afterSubmit",
             // For the session's lifetime. Opening its runbook again opens another
             // session, in its own mode, and changes nothing of this one's.
             ...watcherOf(file, watch),

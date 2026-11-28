@@ -11,7 +11,7 @@ import {
   TaskFailed,
   type TaskInput,
 } from "@runbooks/blocks-core/contract"
-import type { FieldValue } from "@runbooks/blocks-core/form"
+import { type FieldValue, templateText } from "@runbooks/blocks-core/form"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { ContentHash } from "../document/document.ts"
 import { MAX_NESTING } from "../document/mdx.ts"
@@ -64,6 +64,20 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => {
     Solo: defineTask({ ...scripted, name: "Solo", exclusive: (p) => p.shell !== "beside" }),
     /** A `<Run>` that runs no commands: it declares no `process` effect. */
     Quiet: defineTask({ ...scripted, name: "Quiet", effects: [] }),
+    /** A `<Run>` whose instruction shows the values it reads: `name=value`, in their order. */
+    Show: defineTask({
+      ...scripted,
+      name: "Show",
+      instruction: (_p, reads) => [
+        {
+          kind: "text",
+          markdown: Array.from(
+            reads.values,
+            ([name, value]) => `${name}=${templateText(Redacted.value(value))}`,
+          ).join(" "),
+        },
+      ],
+    }),
     /** A task with a form of its own, from its YAML children, that runs commands, so it takes `env`. */
     Ask: defineTask({
       name: "Ask",
@@ -1453,7 +1467,15 @@ describe("Engine values", () => {
 
         expect((yield* rb.set("config", { count: 4 })).errors).toEqual({})
         expect(yield* rb.status("config")).toEqual({ _tag: "Idle" })
+        // Until its first Submit, a reader gets the form as it starts, which needs input.
+        expect(yield* rb.status("deploy")).toEqual(blocked)
+        expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
         expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+
+        // From then on, an invalid value blocks it as it is entered.
+        yield* rb.set("config", { count: "three" })
+        expect(yield* rb.status("deploy")).toEqual(blocked)
+        yield* rb.set("config", { count: 4 })
         expect((yield* rb.run("deploy"))._tag).toBe("Started")
       }),
     )
@@ -1509,6 +1531,9 @@ describe("Engine values", () => {
         const rb = yield* commandsFor(yield* open)
         yield* rb.trust
         yield* rb.set("config", { count: 5 })
+        yield* rb.run("config")
+        // Not submitted: the task gets the form as it starts.
+        yield* rb.set("extra", { region: "ap-south-1" })
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(seen).toEqual([{ region: "eu-west-1", count: 5, tier: "silver" }])
@@ -1566,6 +1591,7 @@ describe("Engine values", () => {
         const done = { _tag: "Done", outcome: "success" } as const
 
         yield* rb.set("config", { region: "eu-west-1" })
+        yield* rb.run("config")
         const after = yield* rb.block("deploy")
         expect(after.status).toEqual(done)
         expect(after.actions).toEqual(["run", "reset"])
@@ -1574,7 +1600,7 @@ describe("Engine values", () => {
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(seen.map((values) => values.region)).toEqual(["us-east-1", "eu-west-1"])
-        expect(yield* rb.outputs).toEqual({ deploy: { region: shown("eu-west-1") } })
+        expect((yield* rb.outputs).deploy).toEqual({ region: shown("eu-west-1") })
 
         yield* rb.set("config", { count: "many" })
         const invalid = yield* rb.block("deploy")
@@ -1621,13 +1647,13 @@ describe("Engine values", () => {
         expect(token?.value).toEqual({ _tag: "Hidden" })
         expect(token).not.toHaveProperty("default")
 
+        // The form's output carries the field, so it is sensitive as the field is.
+        yield* rb.run("config")
+        expect((yield* rb.outputs).config?.token).toEqual({ _tag: "Hidden" })
         yield* asAgent(rb.run("deploy"))
         yield* rb.wait("deploy")
         // The task that reads the form gets the value itself.
         expect(seen.map((values) => values.token)).toEqual(["typed-s3cret@example.com"])
-        // The form's output carries the field, so it is sensitive as the field is.
-        yield* rb.run("config")
-        expect((yield* rb.outputs).config?.token).toEqual({ _tag: "Hidden" })
 
         const views = [yield* rb.view, yield* rb.block("config"), yield* rb.block("deploy")]
         yield* rb.close
@@ -1751,6 +1777,7 @@ describe("Engine values", () => {
           ["account", shown("123"), true, true],
         ])
 
+        yield* rb.run("config")
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(seen).toEqual([{ region: "eu-west-2", account: "123", internal: "kept" }])
@@ -1790,6 +1817,7 @@ describe("Engine values", () => {
         expect(yield* rb.status("config")).toEqual({ _tag: "Idle" })
 
         yield* rb.set("config", { mode: "standard" })
+        yield* rb.run("config")
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(seen).toEqual([{ mode: "standard", endpoint: "" }])
@@ -1852,11 +1880,14 @@ describe("Engine values", () => {
           reason: { _tag: "NeedsInput", fields: ["name"] },
         })
 
-        // Valid is enough for the blocks that read its values; its outputs wait for the submit.
+        // Valid is not enough: until its first Submit, the blocks that read its
+        // values get it as it starts, and its outputs wait for the submit.
         yield* rb.set("config", { name: "ada" })
-        expect(yield* rb.status("read")).toEqual({ _tag: "Idle" })
+        const readsConfig = { _tag: "Blocked", by: [waitingForValues("config")] } as const
+        expect(yield* rb.status("read")).toEqual(readsConfig)
         expect(yield* rb.status("ship")).toEqual(waitingForConfig)
         expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
+        expect(yield* rb.status("read")).toEqual({ _tag: "Idle" })
         const submitted = yield* rb.block("config")
         expect(submitted.status).toEqual(done)
         expect(submitted.actions).toEqual(["run", "reset", "setValues", "confirmValues"])
@@ -1870,6 +1901,7 @@ describe("Engine values", () => {
         expect(yield* rb.status("config")).toEqual({ _tag: "NeedsInput", fields: ["name"] })
         expect(yield* rb.outputs).toEqual({})
         expect(yield* rb.status("ship")).toEqual(waitingForConfig)
+        expect(yield* rb.status("read")).toEqual(readsConfig)
         yield* rb.set("config", { name: "bob" })
         expect(yield* rb.outputs).toEqual({
           config: { region: shown("eu-west-1"), name: shown("bob") },
@@ -1881,6 +1913,8 @@ describe("Engine values", () => {
         expect([reset.status, reset.outputs]).toEqual([{ _tag: "Idle" }, {}])
         expect(reset.fields?.map((f) => f.value)).toEqual([shown("eu-west-1"), shown("bob")])
         expect(yield* rb.status("ship")).toEqual(waitingForConfig)
+        // It was submitted once, so its readers still get it as it is.
+        expect(yield* rb.status("read")).toEqual({ _tag: "Idle" })
 
         yield* rb.close
         const events = yield* Fiber.join(recording)
@@ -1979,11 +2013,11 @@ describe("Engine values", () => {
         yield* rb.set("config", { port: "", zone: "" })
         expect(yield* values).toEqual({ suffix: shown(""), enabled: shown(false) })
 
+        yield* rb.run("config")
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         const empty = { port: "", zone: "", note: "", suffix: "", tags: [], labels: {} }
         expect(seen).toEqual([{ ...empty, enabled: false }])
-        yield* rb.run("config")
         expect((yield* rb.block("config")).outputs).toEqual({
           port: shown(""),
           zone: shown(""),
@@ -2042,6 +2076,7 @@ describe("Engine values", () => {
         expect(yield* rb.run("deploy")).toEqual({ _tag: "Refused", reason: blocked })
 
         yield* rb.set("config", { id: "i-123" })
+        yield* rb.run("config")
         expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
         expect((yield* rb.run("deploy"))._tag).toBe("Started")
         yield* rb.wait("deploy")
@@ -2089,6 +2124,7 @@ describe("Engine values", () => {
           by: [waitingForValues("config"), emptyInput("config", "tags.env")],
         })
         yield* rb.set("config", { region: "eu-west-1", tags: { team: "infra" } })
+        yield* rb.run("config")
         const keyEmpty = { _tag: "Blocked", by: [emptyInput("config", "tags.env")] } as const
         expect(yield* rb.status("deploy")).toEqual(keyEmpty)
         // The map's default lets the map stay empty, not a key it holds.
@@ -2128,6 +2164,7 @@ describe("Engine values", () => {
           by: [emptyInput("second", "id")],
         })
         yield* rb.set("second", { id: "from-second" })
+        yield* rb.run("second")
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(envs.map(({ ID }) => ID)).toEqual(["from-second"])
@@ -2153,6 +2190,7 @@ describe("Engine values", () => {
           by: [emptyInput("first", "id")],
         })
         yield* rb.set("first", { id: "from-first" })
+        yield* rb.run("first")
         yield* rb.run("deploy")
         yield* rb.wait("deploy")
         expect(envs.map(({ ID }) => ID)).toEqual(["from-first"])
@@ -2419,6 +2457,92 @@ describe("Engine values", () => {
   })
 })
 
+describe("a form's readers", () => {
+  it("get its starting values until its first Submit, then each change, live, even after a reset", async () => {
+    const { script, seen } = recorder()
+    const runbook = [
+      CONFIG,
+      '<Run id="deploy" command="record" inputsId="config" />',
+      '<Show id="show" command="none" inputsId="config" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        const shown = Effect.map(rb.block("show"), (view) => view.instruction?.[0])
+        const deploy = Effect.andThen(rb.run("deploy"), rb.wait("deploy"))
+        const says = (markdown: string) => ({ kind: "text", markdown }) as const
+
+        yield* rb.set("config", { region: "eu-west-1" })
+        expect(yield* shown).toEqual(says("region=us-east-1 count=3"))
+        yield* deploy
+
+        expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
+        expect(yield* shown).toEqual(says("region=eu-west-1 count=3"))
+        yield* rb.set("config", { region: "ap-south-1" })
+        expect(yield* shown).toEqual(says("region=ap-south-1 count=3"))
+        yield* deploy
+
+        // A reset undoes the submit, not the first Submit.
+        yield* rb.reset("config")
+        expect(yield* rb.status("config")).toEqual({ _tag: "Idle" })
+        yield* rb.set("config", { region: "sa-east-1" })
+        expect(yield* shown).toEqual(says("region=sa-east-1 count=3"))
+        expect(seen).toEqual([
+          { region: "us-east-1", count: 3 },
+          { region: "ap-south-1", count: 3 },
+        ])
+      }),
+    )
+  })
+
+  it("wait before its first Submit on what it starts with: a Submit lets them run, typing does not", async () => {
+    const runbook = [
+      withFields('<Form id="config">', ["- name: name", "  type: string", "  required: true"]),
+      '<Run id="deploy" command="ok" inputsId="config" />',
+      withFields('<Form id="extra">', [
+        "- name: note",
+        "  type: string",
+        "- name: optional",
+        "  type: string",
+        '  default: ""',
+      ]),
+      '<Run id="use" command="use {{ .inputs.note }} {{ .inputs.optional }}" inputsId="extra" />',
+    ].join("\n\n")
+    await withEngine(
+      runbook,
+      { ok, "use {{ .inputs.note }} {{ .inputs.optional }}": ok },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        // A required field empty to start with holds a reader of the form.
+        const heldByConfig: BlockStatus = {
+          _tag: "Blocked",
+          by: [{ _tag: "WaitingFor", block: blockId("config"), capability: "values" }],
+        }
+        expect(yield* rb.status("deploy")).toEqual(heldByConfig)
+        yield* rb.set("config", { name: "web" })
+        expect(yield* rb.status("deploy")).toEqual(heldByConfig)
+        expect(yield* rb.run("config")).toEqual({ _tag: "Submitted" })
+        expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+
+        // An input empty to start with holds its reader, unless its field may be empty (#489).
+        const heldByNote: BlockStatus = {
+          _tag: "Blocked",
+          by: [{ _tag: "EmptyInput", block: blockId("extra"), input: "note" }],
+        }
+        expect(yield* rb.status("use")).toEqual(heldByNote)
+        yield* rb.set("extra", { note: "hello" })
+        expect(yield* rb.status("use")).toEqual(heldByNote)
+        expect(yield* rb.run("extra")).toEqual({ _tag: "Submitted" })
+        expect(yield* rb.status("use")).toEqual({ _tag: "Idle" })
+      }),
+    )
+  })
+})
+
 describe("a task's own form", () => {
   /** A `<Run>` with a form in its markdown children: the form is its own. */
   const withOwnForm = (lines: ReadonlyArray<string>) =>
@@ -2466,6 +2590,32 @@ describe("a task's own form", () => {
         yield* rb.reset("opts")
         expect(yield* rb.status("opts")).toEqual({ _tag: "Done", outcome: "success" })
         expect((yield* rb.block("opts")).actions).toEqual(["setValues", "confirmValues"])
+      }),
+    )
+  })
+
+  it("gives its task each change live, with no Submit, as it counts as submitted", async () => {
+    const { script, seen } = recorder()
+    await withEngine(
+      [
+        '<Run id="deploy" command="record">',
+        "",
+        withFields('<Form id="opts">', [
+          "- name: region",
+          "  type: string",
+          "  default: us-east-1",
+        ]),
+        "",
+        "</Run>",
+      ].join("\n"),
+      { record: script },
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        yield* rb.trust
+        yield* rb.set("opts", { region: "eu-west-1" })
+        yield* rb.run("deploy")
+        yield* rb.wait("deploy")
+        expect(seen).toEqual([{ region: "eu-west-1" }])
       }),
     )
   })
