@@ -96,6 +96,9 @@ type CommandProps = typeof CommandProps.Type
 const scriptOf = (p: CommandProps, files: ReadonlyMap<string, string>): string | undefined =>
   p.command ?? (p.path === undefined ? undefined : files.get(p.path))
 
+/** What a script is written in: the interpreter it runs with, which its shebang names, bash when it names none. */
+const languageOf = (script: string): string => resolveScriptRunner(script, "").interpreter
+
 const revealed = (env: RunEnv): Record<string, string> =>
   Object.fromEntries(Object.entries(env).map(([name, value]) => [name, Redacted.value(value)]))
 
@@ -135,6 +138,7 @@ export const command = defineTask({
       : p.path !== undefined
         ? [{ _tag: "File", path: p.path }]
         : [],
+  scriptLanguage: (_p, script) => languageOf(script),
   timeLimit: (p) => p.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   exclusive: (p) => p.exclusive === true,
   provides: ["run", "env"],
@@ -201,7 +205,7 @@ export const command = defineTask({
         kind: "text",
         markdown: p.command === undefined ? "Run this script:" : "Run this command:",
       },
-      { kind: "code", language: resolveScriptRunner(script, "").interpreter, code: script },
+      { kind: "code", language: languageOf(script), code: script },
     ]
   },
   plugins: [],
