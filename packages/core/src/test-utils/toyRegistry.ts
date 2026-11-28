@@ -69,10 +69,13 @@ const run = defineTask({
 export const ToyField = Schema.Struct({
   name: Schema.String,
   type: FieldType,
+  description: Schema.optionalKey(Schema.String),
   default: Schema.optionalKey(FieldValue),
   required: Schema.optionalKey(Schema.Boolean),
   options: Schema.optionalKey(Schema.Array(Schema.String)),
   optionLabels: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  schema: Schema.optionalKey(Schema.Record(Schema.String, FieldType)),
+  schemaInstanceLabel: Schema.optionalKey(Schema.String),
   section: Schema.optionalKey(Schema.String),
   validations: Schema.optionalKey(Schema.Array(Validation)),
   sensitive: Schema.optionalKey(Schema.Boolean),

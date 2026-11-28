@@ -18,11 +18,14 @@
 import { Context, Schema, Struct } from "effect"
 import { Rpc, type RpcClient, type RpcClientError, RpcGroup, RpcMiddleware } from "effect/rpc"
 import { BlockClass, BlockId, MachineEffect, RunbookPath } from "@runbooks/blocks-core/contract"
-import { Field, FieldType, FieldValue, Validation } from "@runbooks/blocks-core/form"
+import { Field, FieldType, FieldValue, Section, Validation } from "@runbooks/blocks-core/form"
 import { Blocker, BlockStatus } from "@runbooks/blocks-core/status"
 import { CredentialAction, CredentialState } from "../credential/lifecycle.ts"
 import { ConfigError, ConfigWarning, Span } from "../document/configError.ts"
 import { ContentHash, TreeNode } from "../document/document.ts"
+
+/** The window's walk reads its allowlist from the core (`MarkdownPart`). */
+export { MarkdownPart } from "../document/document.ts"
 
 // ---------------------------------------------------------------------------
 // Identifiers and limits
@@ -127,13 +130,23 @@ export type OutputView = typeof OutputView.Type
 export const FieldView = Schema.Struct({
   name: Schema.String,
   type: FieldType,
-  description: Schema.String,
+  /**
+   * The field's description, which the author writes as markdown, as the
+   * tree the window walks: the core parses it (`markdownTree`), as plain
+   * markdown, not MDX, and the window only walks it. A root with no
+   * children when there is none.
+   */
+  description: TreeNode,
   required: Schema.Boolean,
   sensitive: Schema.Boolean,
   options: Schema.optionalKey(Schema.Array(Schema.String)),
   optionLabels: Field.fields.optionLabels,
   /** The section the window groups the field in. */
   section: Field.fields.section,
+  /** A map's or list's entries as structured fields: each field's name, to its type. */
+  schema: Field.fields.schema,
+  /** What the window calls one entry of `schema`'s: "Account". */
+  schemaInstanceLabel: Field.fields.schemaInstanceLabel,
   /** Absent while the field is empty: an optional int left blank has no value, not `""`. */
   value: Schema.optionalKey(Visible(FieldValue)),
   /** The runbook's default. Left out for a sensitive field. */
@@ -300,8 +313,16 @@ export const BlockView = Schema.Struct({
   instruction: Schema.optionalKey(Instruction),
   log: Schema.optionalKey(LogPage),
   outputs: Schema.Record(Schema.String, OutputView),
-  /** A form block's fields, or a task's own form. */
+  /**
+   * A form block's fields, or a task's own form, in the order the window
+   * draws them: those in no section first, then each section's.
+   */
   fields: Schema.optionalKey(Schema.Array(FieldView)),
+  /**
+   * The form's sections, in order, for a form that has any: each its name,
+   * which its fields give (`FieldView.section`), and whether it starts folded.
+   */
+  sections: Schema.optionalKey(Schema.Array(Section)),
   credential: Schema.optionalKey(CredentialState),
   /**
    * The files the block's latest run wrote, changed or removed: one entry
@@ -454,9 +475,15 @@ export const DocumentBlock = Schema.Union([
     /**
      * Whether it is a progress step: a form, task or credential block, unless
      * its block's `step(props)` says not. A display block never is, and
-     * neither is a misconfigured one.
+     * neither is a misconfigured one, nor a task's own form (`nestedIn`).
      */
     step: Schema.Boolean,
+    /**
+     * For a form that is a task's own, written in the task's markdown
+     * children: the task's index. The window draws it inside the task, with
+     * no header and no Submit, since the task's run is what uses its values.
+     */
+    nestedIn: Schema.optionalKey(Schema.Int),
     /**
      * What its block declares it may do to the machine, for an alias its
      * block's: what trusting the session lets it do, which the trust prompt
@@ -479,7 +506,14 @@ export const DocumentBlock = Schema.Union([
      * script, such as Command's `command`, is in `props`.
      */
     scriptFiles: Schema.optionalKey(Schema.Array(RunbookPath)),
-  }),
+  }).check(
+    Schema.makeFilter(
+      (block: { readonly class: BlockClass; readonly step: boolean; readonly nestedIn?: number }) =>
+        block.nestedIn === undefined || (block.class === "form" && !block.step)
+          ? undefined
+          : "Expected a form nested in a task to be a form that is no step.",
+    ),
+  ),
   /**
    * The block's configuration has errors: the parser's, then those the
    * engine found when the session opened, as a form it could not read. Its

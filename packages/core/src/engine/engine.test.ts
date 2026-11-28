@@ -14,6 +14,7 @@ import {
 import type { FieldValue } from "@runbooks/blocks-core/form"
 import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { ContentHash } from "../document/document.ts"
+import { MAX_NESTING } from "../document/mdx.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
 import { testSettingsStore } from "../test-utils/TestSettingsFile.ts"
 import {
@@ -1192,7 +1193,7 @@ describe("Engine values", () => {
     )
   })
 
-  it("shows each field's section and option labels, and none for a field without them", async () => {
+  it("shows each field's section, option labels and entry schema, and none for a field without them", async () => {
     const fields = await withEngine(
       withFields('<Form id="config">', [
         "- name: region",
@@ -1202,6 +1203,10 @@ describe("Engine values", () => {
         "  section: Where",
         "- name: count",
         "  type: int",
+        "- name: accounts",
+        "  type: map",
+        "  schema: { email: string, id: int }",
+        "  schemaInstanceLabel: Account name",
       ]),
       {},
       Effect.gen(function* () {
@@ -1209,11 +1214,87 @@ describe("Engine values", () => {
         return yield* rb.fields("config")
       }),
     )
-    const [region, count] = fields ?? []
+    const [region, count, accounts] = fields ?? []
     expect(region?.section).toBe("Where")
     expect(region?.optionLabels).toEqual({ "us-east-1": "N. Virginia", "eu-west-1": "Ireland" })
     expect(count).not.toHaveProperty("section")
     expect(count).not.toHaveProperty("optionLabels")
+    expect(accounts?.schema).toEqual({ email: "string", id: "int" })
+    expect(accounts?.schemaInstanceLabel).toBe("Account name")
+    for (const field of [region, count]) {
+      expect(field).not.toHaveProperty("schema")
+      expect(field).not.toHaveProperty("schemaInstanceLabel")
+    }
+  })
+
+  it("shows each field's description as the tree the window walks, parsed as markdown, not MDX", async () => {
+    const fields = await withEngine(
+      withFields('<Form id="config">', [
+        "- name: region",
+        "  type: string",
+        '  description: "Where to **deploy**, as <b>{region}</b>"',
+        "- name: count",
+        "  type: int",
+      ]),
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        return yield* rb.fields("config")
+      }),
+    )
+    const text = (value: string) => ({ type: "text", value })
+    expect(fields?.map((field) => field.description)).toEqual([
+      {
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              text("Where to "),
+              { type: "strong", children: [text("deploy")] },
+              text(", as "),
+              { type: "html", value: "<b>" },
+              text("{region}"),
+              { type: "html", value: "</b>" },
+            ],
+          },
+        ],
+      },
+      { type: "root", children: [] },
+    ])
+  })
+
+  it("refuses a form whose description nests too deep for the window to draw, naming the field", async () => {
+    // Each `>` is a quote; the innermost holds a paragraph, which holds the text.
+    const quoted = (quotes: number) => `  description: "${"> ".repeat(quotes)}x"`
+    await withEngine(
+      withFields('<Form id="config">', [
+        "- name: region",
+        "  type: string",
+        quoted(MAX_NESTING - 1),
+        "- name: zone",
+        "  type: string",
+        quoted(MAX_NESTING - 2),
+      ]),
+      {},
+      Effect.gen(function* () {
+        const view = yield* open
+        const rb = yield* commandsFor(view)
+        const document = yield* (yield* Engine).getDocument({ session: view.session })
+        const config = document.blocks[0]
+        const errors = config?._tag === "Misconfigured" ? config.errors : []
+        expect(errors.map((e) => [e.code, e.location.block?.id, e.message])).toEqual([
+          [
+            "badProp",
+            "config",
+            `The description of the field "region" is nested more than ${MAX_NESTING} levels deep. A description may nest its quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`,
+          ],
+        ])
+        const block = yield* rb.block("config")
+        expect(block.status).toEqual({ _tag: "Misconfigured" })
+        expect(block).not.toHaveProperty("fields")
+      }),
+    )
   })
 
   it("marks a value reviewed once an agent sets or confirms it, and logs each change once", async () => {

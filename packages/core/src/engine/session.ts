@@ -71,6 +71,7 @@ import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, ParseResult, RunbookDocument } from "../document/document.ts"
 import type { FileFact } from "../document/files.ts"
+import { MAX_NESTING } from "../document/mdx.ts"
 import { nearest } from "../document/nearest.ts"
 import { SHOWN_SHARED_PROPS, startParse } from "../document/parse.ts"
 import {
@@ -378,8 +379,8 @@ const taskInput = (
 interface BlockRead {
   /** The block's node, with any error found reading it after the parser's. */
   readonly node: BlockNode
-  /** Its form: a form block's, or a task's own. */
-  readonly spec: Option.Option<FormSpec>
+  /** Its form, as it starts: a form block's, or a task's own. */
+  readonly form: Option.Option<Form>
   /** Its own props as a client is sent them (`DocumentBlock`). */
   readonly props: Option.Option<Schema.Json>
 }
@@ -400,7 +401,7 @@ const readBlocks = Effect.fnUntraced(function* (
 ) {
   const read = yield* Effect.forEach(document.blocks, (node): Effect.Effect<BlockRead> => {
     const block = node.errors.length > 0 ? undefined : resolveTag(registry, node.tag)?.block
-    const none: BlockRead = { node, spec: Option.none(), props: Option.none() }
+    const none: BlockRead = { node, form: Option.none(), props: Option.none() }
     switch (block?.class) {
       // The parser found errors in it: the block is Misconfigured, and nothing more is read.
       case undefined:
@@ -424,8 +425,8 @@ const readBlocks = Effect.fnUntraced(function* (
   })
   return {
     document: { ...document, blocks: read.map(({ node }) => node) },
-    specs: new Map(
-      read.flatMap(({ node, spec }) => (Option.isSome(spec) ? [[node.index, spec.value]] : [])),
+    forms: new Map(
+      read.flatMap(({ node, form }) => (Option.isSome(form) ? [[node.index, form.value]] : [])),
     ),
     props: new Map(
       read.flatMap(({ node, props }) => (Option.isSome(props) ? [[node.index, props.value]] : [])),
@@ -433,17 +434,37 @@ const readBlocks = Effect.fnUntraced(function* (
   }
 })
 
-/** A block's form. Its props are not sent: they define the form, and may hold a sensitive field's default. */
+/**
+ * A block's form. Its props are not sent: they define the form, and may
+ * hold a sensitive field's default. A field whose description nests too
+ * deep for the window to draw is a configuration error, one for each.
+ */
 const readForm = (
   document: RunbookDocument,
   node: BlockNode,
   fields: Effect.Effect<FormSpec, PropError>,
 ): Effect.Effect<BlockRead> =>
   Effect.match(fields, {
-    onSuccess: (spec) => ({ node, spec: Option.some(spec), props: Option.none() }),
+    onSuccess: (spec) =>
+      Result.match(makeForm(spec), {
+        onSuccess: (form) => ({ node, form: Option.some(form), props: Option.none() }),
+        onFailure: (names) => ({
+          node: names
+            .map((name) =>
+              openError(
+                document,
+                node,
+                `The description of the field "${name}" is nested more than ${MAX_NESTING} levels deep. A description may nest its quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`,
+              ),
+            )
+            .reduce(withError, node),
+          form: Option.none(),
+          props: Option.none(),
+        }),
+      }),
     onFailure: (error) => ({
       node: withError(node, openError(document, node, error.message, { prop: error.prop })),
-      spec: Option.none(),
+      form: Option.none(),
       props: Option.none(),
     }),
   })
@@ -457,8 +478,8 @@ function withOutputFields(
   read: BlockRead,
   outputs: FormOutputDecls,
 ): BlockRead {
-  if (Option.isNone(read.spec)) return read
-  const fields = read.spec.value.fields.map(({ name }) => name)
+  if (Option.isNone(read.form)) return read
+  const fields = read.form.value.map(({ field }) => field.name)
   const errors = Object.entries(outputs).flatMap(([output, { field }]) => {
     if (fields.includes(field)) return []
     const suggestion = nearest(field, fields)
@@ -473,7 +494,7 @@ function withOutputFields(
     ]
   })
   if (errors.length === 0) return read
-  return { node: errors.reduce(withError, read.node), spec: Option.none(), props: Option.none() }
+  return { node: errors.reduce(withError, read.node), form: Option.none(), props: Option.none() }
 }
 
 /**
@@ -486,7 +507,7 @@ function readProps(document: RunbookDocument, node: BlockNode, block: AnyBlock):
     Schema.decodeUnknownResult(Schema.Json)(props),
   )
   return Result.match(encoded, {
-    onSuccess: (props) => ({ node, spec: Option.none(), props: Option.some(props) }),
+    onSuccess: (props) => ({ node, form: Option.none(), props: Option.some(props) }),
     onFailure: (error) => ({
       node: withError(
         node,
@@ -496,7 +517,7 @@ function readProps(document: RunbookDocument, node: BlockNode, block: AnyBlock):
           `Runbooks could not send <${node.tag}>'s props to the window (${error.message.replace(/\s+/g, " ")}). This is a bug in Runbooks, not in the runbook.`,
         ),
       ),
-      spec: Option.none(),
+      form: Option.none(),
       props: Option.none(),
     }),
   })
@@ -1061,9 +1082,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   let closed = false
   const runs = new Map<number, Run>()
   /** Each block's form, by block index: a form block's, or a task's own. */
-  const forms = new Map(
-    Array.from(opening.specs, ([index, spec]) => [index, makeForm(spec)] as const),
-  )
+  const forms = new Map(opening.forms)
   /** The form blocks submitted since they were last reset. */
   const submitted = new Set<number>()
   /** Each done form's and credential block's outputs, as last published. */
@@ -2135,16 +2154,16 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           const nextForms = new Map<number, Form>()
           const formsChanged: Slot[] = []
           const nextSlotAt = new Map(nextSlots.map((slot) => [slot.index, slot]))
-          for (const [index, spec] of read.specs) {
+          for (const [index, fresh] of read.forms) {
             const slot = nextSlotAt.get(index)
             const was = slot === undefined ? undefined : before.get(slot.id)
             const held = was === undefined ? undefined : forms.get(was.index)
             const form =
               held === undefined
-                ? makeForm(spec)
+                ? fresh
                 : slot !== undefined && isKept(slot.id)
                   ? held
-                  : restoreValues(makeForm(spec), savedValuesOf(held))
+                  : restoreValues(fresh, savedValuesOf(held))
             nextForms.set(index, form)
             if (slot !== undefined && form !== held) formsChanged.push(slot)
           }

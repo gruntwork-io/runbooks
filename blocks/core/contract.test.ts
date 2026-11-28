@@ -306,6 +306,33 @@ describe("FormSpec", () => {
       Schema.decodeUnknownSync(FormSpec)({ fields: [{ ...field, type: "date" }], sections: [] }),
     ).toThrow()
   })
+
+  it("lists each section once, in order, saying whether it starts folded; each field names its own", () => {
+    const field = (name: string, section?: string) => ({
+      name,
+      type: "string",
+      description: "",
+      required: false,
+      validations: [],
+      sensitive: false,
+      locked: false,
+      hidden: false,
+      ...(section === undefined ? {} : { section }),
+    })
+    const written = {
+      fields: [field("name"), field("memory", "Advanced"), field("timeout", "Advanced")],
+      sections: [{ name: "Advanced", collapsed: true }],
+    }
+    expect(Schema.decodeUnknownSync(FormSpec)(written).sections).toEqual(written.sections)
+    // A section does not list its fields: `Field.section` is the one place that says.
+    const listing = [{ name: "Advanced", fields: ["memory"], collapsed: true }]
+    expect(Schema.decodeUnknownSync(FormSpec)({ ...written, sections: listing }).sections).toEqual(
+      written.sections,
+    )
+    expect(() =>
+      Schema.decodeUnknownSync(FormSpec)({ ...written, sections: [{ name: "Advanced" }] }),
+    ).toThrow(/at \["sections"\]\[0\]\["collapsed"\]/)
+  })
 })
 
 describe("BlockStatus", () => {

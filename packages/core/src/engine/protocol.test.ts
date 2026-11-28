@@ -14,7 +14,7 @@ import {
   Caller,
   CallerMiddleware,
   ChangeSettings,
-  type DocumentBlock,
+  DocumentBlock,
   DocumentView,
   type EngineCommand,
   type EngineEvent,
@@ -658,7 +658,7 @@ describe("engine protocol", () => {
     const field = (value: Partial<FieldView>): FieldView => ({
       name: "port",
       type: "int",
-      description: "",
+      description: { type: "root", children: [] },
       required: false,
       sensitive: false,
       readOnly: false,
@@ -672,6 +672,90 @@ describe("engine protocol", () => {
     expect(Schema.decodeUnknownSync(json)(empty)).toEqual(field({}))
     const blank = field({ type: "string", value: { _tag: "Shown", value: "" } })
     expect(Schema.decodeUnknownSync(json)(Schema.encodeSync(json)(blank))).toEqual(blank)
+  })
+
+  it("carries a form's sections in order, each saying whether it starts folded, and a field's description tree and entry schema, through JSON", () => {
+    const json = Schema.toCodecJson(BlockView)
+    const accounts: FieldView = {
+      name: "accounts",
+      type: "map",
+      description: {
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "One entry per " },
+              { type: "strong", children: [{ type: "text", value: "account" }] },
+            ],
+          },
+        ],
+      },
+      required: false,
+      sensitive: false,
+      section: "Accounts",
+      readOnly: false,
+      validations: [],
+      reviewed: false,
+      unresolved: [],
+      schema: { email: "string", id: "int" },
+      schemaInstanceLabel: "Account name",
+    }
+    const view: BlockView = {
+      block: config,
+      tag: "Form",
+      class: "form",
+      actions: ["run", "setValues", "confirmValues"],
+      outputs: {},
+      fields: [accounts],
+      sections: [
+        { name: "Accounts", collapsed: false },
+        { name: "Advanced", collapsed: true },
+      ],
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(view)))
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(view)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({ ...wire, sections: [{ name: "Advanced" }] }),
+    ).toThrow(/at \["sections"\]\[0\]\["collapsed"\]/)
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        fields: [{ ...wire.fields[0], schema: { id: "number" } }],
+      }),
+    ).toThrow(/at \["fields"\]\[0\]\["schema"\]\["id"\]/)
+    // The window only walks a description: it never gets the text to parse.
+    expect(() =>
+      Schema.decodeUnknownSync(json)({
+        ...wire,
+        fields: [{ ...wire.fields[0], description: "One entry per **account**" }],
+      }),
+    ).toThrow(/at \["fields"\]\[0\]\["description"\]/)
+  })
+
+  it("says which task a nested form is the own form of, and that it is no step", () => {
+    const json = Schema.toCodecJson(DocumentBlock)
+    const span = { start: { line: 4, column: 1 }, end: { line: 9, column: 10 } }
+    const nested: DocumentBlock = {
+      _tag: "Configured",
+      index: 1,
+      tag: "Form",
+      block: "Form",
+      class: "form",
+      id: config,
+      span,
+      step: false,
+      effects: [],
+      nestedIn: 0,
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(nested)))
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(nested)
+    for (const refused of [{ step: true }, { class: "task", tag: "Run", block: "Run" }])
+      expect(() => Schema.decodeUnknownSync(json)({ ...wire, ...refused })).toThrow(
+        "Expected a form nested in a task to be a form that is no step",
+      )
+    const { nestedIn: _, ...placed } = wire
+    expect(Schema.decodeUnknownSync(json)({ ...placed, step: true })).not.toHaveProperty("nestedIn")
   })
 
   it("answers a form's submit with no run to follow", () => {

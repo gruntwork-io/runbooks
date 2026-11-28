@@ -18,9 +18,11 @@
  *   guard, and only the props `MEDIA_PROPS` names. Any other shows its alt
  *   text and URL as text, and loads nothing: a remote URL, a path outside
  *   assets/, a `data:` or `file:` URL.
- * - A node of a type the walk doesn't know, or an element it doesn't create,
- *   shows its children, or its text value; `unknownParts` counts them for
- *   the page to say so.
+ * - The parts it knows, and what it reads of each, are the core's
+ *   allowlist (`MarkdownPart`), which a field's description is built of
+ *   too. A node of a type it doesn't know, or an element it doesn't
+ *   create, shows its children, or its text value; `unknownParts` counts
+ *   them for the page to say so.
  * - A block node is its frame (`frame.tsx`), its markdown children inside
  *   it. A frame is keyed by its block's id, so React keeps what it holds of
  *   its own (the engine's last answer, whether it is open) with its block
@@ -29,70 +31,14 @@
  */
 import { Option, Schema } from "effect"
 import { createElement, Fragment, type ReactNode } from "react"
-import type { DocumentView } from "@runbooks/core/protocol"
+import { type DocumentView, MarkdownPart } from "@runbooks/core/protocol"
 import { BlockFrame } from "./frame.tsx"
 
 type TreeNode = DocumentView["tree"]
 
-const Text = Schema.optionalKey(Schema.NullOr(Schema.String))
-const Flag = Schema.optionalKey(Schema.NullOr(Schema.Boolean))
-
-/** The mdast nodes, and the parser's elements and blocks, as the walk reads them. Their children are the tree's own. */
-const Part = Schema.Union([
-  Schema.Struct({
-    type: Schema.Literals([
-      "root",
-      "paragraph",
-      "blockquote",
-      "emphasis",
-      "strong",
-      "delete",
-      "thematicBreak",
-      "break",
-      "tableRow",
-      "tableCell",
-    ]),
-  }),
-  Schema.Struct({ type: Schema.Literal("heading"), depth: Schema.Literals([1, 2, 3, 4, 5, 6]) }),
-  Schema.Struct({
-    type: Schema.Literal("list"),
-    ordered: Flag,
-    start: Schema.optionalKey(Schema.NullOr(Schema.Int)),
-    spread: Flag,
-  }),
-  Schema.Struct({ type: Schema.Literal("listItem"), checked: Flag, spread: Flag }),
-  Schema.Struct({ type: Schema.Literals(["text", "inlineCode", "html"]), value: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("code"), value: Schema.String, lang: Text }),
-  Schema.Struct({ type: Schema.Literal("link"), url: Schema.String, title: Text }),
-  Schema.Struct({ type: Schema.Literal("image"), url: Schema.String, alt: Text }),
-  Schema.Struct({ type: Schema.Literal("linkReference"), identifier: Schema.String }),
-  Schema.Struct({ type: Schema.Literal("imageReference"), identifier: Schema.String, alt: Text }),
-  Schema.Struct({
-    type: Schema.Literal("definition"),
-    identifier: Schema.String,
-    url: Schema.String,
-    title: Text,
-  }),
-  Schema.Struct({
-    type: Schema.Literals(["footnoteReference", "footnoteDefinition"]),
-    identifier: Schema.String,
-    label: Text,
-  }),
-  Schema.Struct({
-    type: Schema.Literal("table"),
-    align: Schema.optionalKey(
-      Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Literals(["left", "right", "center"])))),
-    ),
-  }),
-  Schema.Struct({
-    type: Schema.Literals(["mdxJsxFlowElement", "mdxJsxTextElement"]),
-    name: Schema.String,
-    props: Schema.Record(Schema.String, Schema.Unknown),
-  }),
-  Schema.Struct({ type: Schema.Literal("block"), index: Schema.Int }),
-])
-type Part = typeof Part.Type
-const decodePart = Schema.decodeUnknownOption(Part)
+/** A part as the walk reads it: the core's allowlist. */
+type Part = MarkdownPart
+const decodePart = Schema.decodeUnknownOption(MarkdownPart)
 
 /** HTML elements the walk creates as written, with the props `PROPS` allows. */
 const ELEMENTS: ReadonlySet<string> = new Set(
