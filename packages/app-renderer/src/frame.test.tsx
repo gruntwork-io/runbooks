@@ -461,6 +461,50 @@ describe("a task's default view", () => {
     expect(waiting).not.toContain("<button")
   })
 
+  it("draws a task's own form inside the task, with no header, status or Submit", () => {
+    const shown = renderToStaticMarkup(
+      <FollowingContext
+        value={followingViews(
+          view("deploy", { _tag: "Idle" }, { actions: ["run"] }),
+          view(
+            "settings",
+            { _tag: "Done", outcome: "success" },
+            { class: "form", actions: ["setValues", "confirmValues"], fields: [REGION] },
+          ),
+        )}
+      >
+        <Markdown
+          document={{
+            tree: {
+              type: "root",
+              children: [
+                {
+                  type: "block",
+                  index: 0,
+                  children: [text("Deploys."), { type: "block", index: 1, children: [] }],
+                },
+              ],
+            },
+            blocks: [
+              placed({ id: "deploy" }),
+              placed({ index: 1, id: "settings", class: "form", step: false, nestedIn: 0 }),
+            ],
+          }}
+          runbook={RUNBOOK}
+          session={SESSION}
+        />
+      </FollowingContext>,
+    )
+    const task = shown.indexOf('id="runbook-block-deploy"')
+    const form = shown.indexOf('id="runbook-block-settings"')
+    expect([task < form, form < shown.indexOf('data-testid="field-region"')]).toEqual([true, true])
+    expect(shown.indexOf('data-testid="field-region"')).toBeLessThan(shown.indexOf(">Run</button>"))
+    expect(shown.match(/class="block-header"/g)).toHaveLength(1)
+    expect(shown.match(/class="block-status"/g)).toEqual(['class="block-status"'])
+    expect(shown).toContain('<p class="block-status">Ready</p>')
+    expect(shown).not.toContain(">Submit<")
+  })
+
   it("asks the engine for each action as the view asks for it", () => {
     expect(
       buttonsFor(["run", "cancel", "reset", "setValues", "confirmValues", "credential"]),

@@ -3,7 +3,9 @@
  * the block's class decides, and no block's view draws any of it:
  *
  * - the header: the progress step mark, the tag, the id and the title, and
- *   the description under it;
+ *   the description under it. A task's own form, written in its markdown
+ *   (`nestedIn`), draws inside the task with no header and no status: the
+ *   task's say what it waits for;
  * - the "Script changed" notice, while files the block names differ on disk
  *   from the text the session holds (`scriptChange.tsx`), whatever the
  *   block's class or configuration;
@@ -19,9 +21,10 @@
  *   (`@runbooks/blocks/views`), or its class's default. A task's default
  *   offers the actions the engine says it takes now (`BlockView.actions`)
  *   and shows its latest run's log and outputs, as text; a form's draws its
- *   fields (`formView.tsx`), then offers its actions, a run as Submit; a
- *   credential block's default is not written yet, and a display block
- *   always has a view;
+ *   fields (`formView.tsx`), then offers its actions, a run as Submit. A
+ *   task with its own form (`BlockView.fields`) draws its fields above its
+ *   actions, with the same view. A credential block's default is not
+ *   written yet, and a display block always has a view;
  * - under the body, a source view ("View Source Code") for each script file
  *   the block names (`DocumentBlock.scriptFiles`), closed at first
  *   (`sourceView.tsx`).
@@ -36,8 +39,9 @@
  * and its status: each text step as text, each command to select and copy,
  * each link as a link the walk would make. The frame then sends nothing a
  * view asks for but a form's values (`SetValues`), whatever its class. A
- * form still shows its fields, with no Submit or Reset: it is how the
- * person gives the values an instruction reads.
+ * form still shows its fields, with no Submit or Reset, and a task its own
+ * form's above its instruction: it is how the person gives the values an
+ * instruction reads.
  *
  * Classes, statuses, blockers and errors are closed sets: each switch over
  * one names every member, so a new one fails the build here.
@@ -159,6 +163,18 @@ export function BlockFrame({
   const act = (request: ViewRequest) => {
     Effect.runFork(ask(request))
   }
+  // A form's fields, or a task's own.
+  const fields =
+    view?.fields === undefined ? null : (
+      <FormView
+        fields={view.fields}
+        sections={view.sections ?? []}
+        enter={(values) => ask({ _tag: "SetValues", values })}
+        runbook={runbook}
+        session={session}
+      />
+    )
+  const nested = block._tag === "Configured" && block.nestedIn !== undefined
   const done = status?._tag === "Done"
   const folds =
     block._tag === "Configured" && block.autoCollapse === true && foldsWhenDone(block.class)
@@ -177,22 +193,24 @@ export function BlockFrame({
       id={block.id === undefined ? undefined : frameId(block.id)}
       data-folded={folded}
     >
-      <header className="block-header">
-        {block._tag === "Configured" && block.step ? <StepMark done={done} /> : null}
-        <code className="block-tag">{`<${block.tag}>`}</code>
-        {block.id === undefined ? null : <span className="block-id">{block.id}</span>}
-        {block.title === undefined ? null : <span className="block-title">{block.title}</span>}
-        {folds && done ? (
-          <button
-            type="button"
-            className="block-fold"
-            aria-expanded={!folded}
-            onClick={() => setOpened(folded)}
-          >
-            {folded ? "Open" : "Fold"}
-          </button>
-        ) : null}
-      </header>
+      {nested ? null : (
+        <header className="block-header">
+          {block._tag === "Configured" && block.step ? <StepMark done={done} /> : null}
+          <code className="block-tag">{`<${block.tag}>`}</code>
+          {block.id === undefined ? null : <span className="block-id">{block.id}</span>}
+          {block.title === undefined ? null : <span className="block-title">{block.title}</span>}
+          {folds && done ? (
+            <button
+              type="button"
+              className="block-fold"
+              aria-expanded={!folded}
+              onClick={() => setOpened(folded)}
+            >
+              {folded ? "Open" : "Fold"}
+            </button>
+          ) : null}
+        </header>
+      )}
       {folded ? null : (
         <>
           {block.description === undefined ? null : (
@@ -209,22 +227,22 @@ export function BlockFrame({
             </ul>
           ) : (
             <>
-              {status === undefined || instructed ? null : (
+              {status === undefined || instructed || nested ? null : (
                 <Status status={status} onPage={onPage} />
               )}
               {said === undefined ? null : <p className="block-said">{said}</p>}
               {instructed ? (
-                <InstructionBody instruction={view?.instruction}>{children}</InstructionBody>
+                <InstructionBody instruction={view?.instruction} fields={fields}>
+                  {children}
+                </InstructionBody>
               ) : (
                 <>
                   <Body
                     block={block}
                     view={view}
                     act={act}
-                    ask={ask}
+                    fields={fields}
                     offers={!instructionMode}
-                    runbook={runbook}
-                    session={session}
                   >
                     {children}
                   </Body>
@@ -431,20 +449,17 @@ function Body({
   block,
   view,
   act,
-  ask,
+  fields,
   offers,
-  runbook,
-  session,
   children,
 }: {
   readonly block: Configured
   readonly view: BlockView | undefined
   readonly act: (request: ViewRequest) => void
-  readonly ask: (request: ViewRequest) => Effect.Effect<void>
+  /** The block's fields, a form's or a task's own, drawn. */
+  readonly fields: ReactNode
   /** Whether the frame offers the block's actions: not in instruction mode, which runs nothing. */
   readonly offers: boolean
-  readonly runbook: string
-  readonly session: string
   readonly children: ReactNode
 }) {
   const Own = useContext(ViewsContext)[block.block]
@@ -461,6 +476,7 @@ function Body({
       return (
         <div className="block-body">
           {children}
+          {fields}
           <TaskView view={view} act={act} />
         </div>
       )
@@ -471,15 +487,7 @@ function Body({
       return (
         <div className="block-body">
           {children}
-          {view?.fields === undefined ? null : (
-            <FormView
-              fields={view.fields}
-              sections={view.sections ?? []}
-              enter={(values) => ask({ _tag: "SetValues", values })}
-              runbook={runbook}
-              session={session}
-            />
-          )}
+          {fields}
           {offers ? <Actions buttons={buttonsFor(view?.actions ?? [], "form")} act={act} /> : null}
         </div>
       )
@@ -630,17 +638,20 @@ function Log({ page }: { readonly page: LogPage }) {
   )
 }
 
-/** A block in instruction mode: its markdown, then its instruction, once the engine sent it. */
+/** A block in instruction mode: its markdown, its own form's fields, then its instruction, once the engine sent it. */
 function InstructionBody({
   instruction,
+  fields,
   children,
 }: {
   readonly instruction: Instruction | undefined
+  readonly fields: ReactNode
   readonly children: ReactNode
 }) {
   return (
     <div className="block-body">
       {children}
+      {fields}
       {instruction === undefined ? null : (
         <div className="block-instruction">
           {instruction.map((step, index) => (

@@ -20,23 +20,29 @@ const { FollowingContext } = await import("./following.ts")
 const { Markdown } = await import("./markdown.tsx")
 afterEach(cleanup)
 
-const FORM = Schema.decodeUnknownSync(DocumentBlock)({
-  _tag: "Configured",
-  index: 0,
-  id: "config",
-  tag: "Example",
-  block: "Example",
-  class: "form",
-  span: { start: { line: 3, column: 1 }, end: { line: 5, column: 3 } },
-  step: true,
-  effects: [],
-})
+const placed = (kind: "form" | "task") =>
+  Schema.decodeUnknownSync(DocumentBlock)({
+    _tag: "Configured",
+    index: 0,
+    id: "config",
+    tag: "Example",
+    block: "Example",
+    class: kind,
+    span: { start: { line: 3, column: 1 }, end: { line: 5, column: 3 } },
+    step: true,
+    effects: [],
+  })
 
-const viewOf = (status: Record<string, unknown>, actions: ReadonlyArray<string>) =>
+const viewOf = (
+  status: Record<string, unknown>,
+  actions: ReadonlyArray<string>,
+  rest: Record<string, unknown> = {},
+) =>
   Schema.decodeUnknownSync(BlockView)({
     block: "config",
     tag: "Example",
     class: "form",
+    ...rest,
     status,
     actions,
     outputs: {},
@@ -55,7 +61,7 @@ const viewOf = (status: Record<string, unknown>, actions: ReadonlyArray<string>)
     ],
   })
 
-/** The page with the form alone in it, the engine holding `view` of it; each request is kept, and answered at once. */
+/** The page with the block alone in it, the engine holding `view` of it; each request is kept, and answered at once. */
 function page(view: BlockView, instructionMode = false) {
   const asked: ViewRequest[] = []
   const live = makeLiveStore()
@@ -90,7 +96,7 @@ function page(view: BlockView, instructionMode = false) {
       <Markdown
         document={{
           tree: { type: "root", children: [{ type: "block", index: 0, children: [] }] },
-          blocks: [FORM],
+          blocks: [placed(view.class === "task" ? "task" : "form")],
         }}
         runbook="/work/runbook.mdx"
         session="s-1"
@@ -122,6 +128,35 @@ describe("a form block's frame", () => {
     expect(screen.getByText("Ready").className).toBe("block-status")
     await user.type(screen.getByRole("textbox", { name: "Region*" }), "e")
     expect(screen.queryAllByRole("button")).toEqual([])
+    expect(asked).toEqual([{ _tag: "SetValues", values: { region: "e" } }])
+  })
+})
+
+describe("a task's own form", () => {
+  it("draws the task's fields above Run, and sends their values and the run", async () => {
+    const user = userEvent.setup()
+    const asked = page(viewOf({ _tag: "Idle" }, ["run", "setValues"], { class: "task" }))
+    const region = screen.getByRole("textbox", { name: "Region*" })
+    const run = screen.getByRole("button", { name: "Run" })
+    expect(region.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull()
+    await user.type(region, "e")
+    await user.click(run)
+    expect(asked).toEqual([{ _tag: "SetValues", values: { region: "e" } }, { _tag: "RunBlock" }])
+  })
+
+  it("in instruction mode, draws the fields above the instruction and takes their values", async () => {
+    const user = userEvent.setup()
+    const instruction = [{ kind: "code", language: "bash", code: "deploy --region eu" }]
+    const asked = page(
+      viewOf({ _tag: "Idle" }, ["run", "setValues"], { class: "task", instruction }),
+      true,
+    )
+    const region = screen.getByRole("textbox", { name: "Region*" })
+    const command = screen.getByText("deploy --region eu")
+    expect(region.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryAllByRole("button")).toEqual([])
+    await user.type(region, "e")
     expect(asked).toEqual([{ _tag: "SetValues", values: { region: "e" } }])
   })
 })
