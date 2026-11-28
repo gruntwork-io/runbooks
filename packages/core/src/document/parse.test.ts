@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test"
 import { createHash } from "node:crypto"
 import { Schema } from "effect"
 import { BlockId, defineTask, RunbookPath } from "@runbooks/blocks-core/contract"
+import { MAX_VALUE_DEPTH } from "@runbooks/blocks-core/form"
 import { TOY_REGISTRY } from "../test-utils/toyRegistry.ts"
 import type { ConfigError, ConfigWarning } from "./configError.ts"
 import { configErrors, ContentHash, type RunbookDocument } from "./document.ts"
@@ -729,6 +730,37 @@ describe("parseRunbook", () => {
           "badChildren",
           4,
           "The YAML in <Form> isn't valid: An alias names a node that holds it, so the data would hold itself.",
+        ],
+      ])
+    })
+
+    it("refuses a field value nested deeper than a form's values may be, from YAML or a prop, and throws nothing", () => {
+      const deep = (depth: number) => `${"[".repeat(depth)}"fake-secret-d33p"${"]".repeat(depth)}`
+      const fenced = (depth: number) =>
+        `<Form id="config">\n\`\`\`yaml\n- name: a\n  type: list\n  default: ${deep(depth)}\n\`\`\`\n</Form>`
+      expect(configErrors(parse(fenced(MAX_VALUE_DEPTH)))).toEqual([])
+      const prop = (depth: number) =>
+        `<Form id="config" variables={[{ name: "a", type: "list", default: ${deep(depth)} }]} />`
+      expect(configErrors(parse(prop(MAX_VALUE_DEPTH)))).toEqual([])
+      // `variables` is the prop Form's YAML children fill, so either way it is a children error.
+      for (const source of [fenced(MAX_VALUE_DEPTH + 1), prop(MAX_VALUE_DEPTH + 1)]) {
+        const found = errors(source)
+        expect(brief(found)).toEqual([
+          [
+            "badChildren",
+            1,
+            `the \`variables\` prop of <Form>: Expected a value nested at most ${MAX_VALUE_DEPTH} levels deep (at 0.default)`,
+          ],
+        ])
+        expect(found[0]?.location.prop).toBe("variables")
+        expect(JSON.stringify(found)).not.toContain("fake-secret-d33p")
+      }
+      // Deeper than the yaml library can read: it stops, and says why in our words.
+      expect(brief(errors(fenced(8_000)))).toEqual([
+        [
+          "badChildren",
+          5,
+          "The YAML in <Form> isn't valid: its lists and maps are nested too deep to read.",
         ],
       ])
     })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { Result } from "effect"
 import YAML from "yaml"
-import { yamlData } from "./yamlData.ts"
+import { parseYaml, yamlData } from "./yamlData.ts"
 
 const read = (text: string) => yamlData(YAML.parseDocument(text))
 
@@ -54,5 +54,21 @@ describe("the data a YAML document holds", () => {
     const depth = 20_000
     const result = read(`${"[".repeat(depth)}${"]".repeat(depth)}`)
     expect(Result.isSuccess(result) || result.failure.offset === 0).toBe(true)
+  })
+})
+
+describe("YAML that does not parse", () => {
+  it("says its lists and maps nest too deep, at where the library stopped, for flow and block YAML", () => {
+    const depth = 8_000
+    const flow = `a: ${"[".repeat(depth)}x${"]".repeat(depth)}`
+    const block = Array.from({ length: depth }, (_, level) => `${"  ".repeat(level)}k:`).join("\n")
+    for (const text of [flow, `${block} x`]) {
+      const { problems } = parseYaml(text)
+      expect(problems.length).toBeGreaterThan(0)
+      expect(problems.map((problem) => problem.reason)).toEqual(
+        problems.map(() => "its lists and maps are nested too deep to read"),
+      )
+      expect(problems[0]?.line).toBeGreaterThan(0)
+    }
   })
 })
