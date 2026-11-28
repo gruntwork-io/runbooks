@@ -144,8 +144,11 @@ function takes(block: AnyBlock, key: SharedKey): boolean {
   switch (key) {
     case "title":
     case "description":
-    case "inputsId":
       return true
+    // The contract gives a display block no reads, so nothing would fill in
+    // its text with the values.
+    case "inputsId":
+      return block.class !== "display"
     case "autoCollapse":
       return block.class !== "display"
     case "dependsOn":
@@ -703,13 +706,22 @@ class Parse {
       block.class === "task" && block.scripts !== undefined && Result.isFailure(props) ? {} : input
     // The inputs its run is given, from its own props and the shared ones it doesn't only show.
     const inputs = new Set<string>()
+    // A display block may own a shared prop, so its text is read twice: it is warned of once.
+    const unfilled = new Set<string>()
     const readFrom = (
       values: Readonly<Record<string, unknown>>,
       given: (prop: string) => boolean,
     ) => {
       for (const [prop, value] of Object.entries(values)) {
         if (scriptProps.has(prop)) continue
-        const reads = this.templateReads(index, prop, value, written.get(prop)?.span ?? span)
+        const at = written.get(prop)?.span ?? span
+        // The contract gives a display block no reads, so nothing fills in its text.
+        if (block.class === "display") {
+          if (!unfilled.has(prop)) this.unfilledReads(where, prop, value, at)
+          unfilled.add(prop)
+          continue
+        }
+        const reads = this.templateReads(index, prop, value, at)
         if (given(prop)) for (const path of reads) inputs.add(path)
       }
     }
@@ -961,6 +973,35 @@ class Parse {
       }
     }
     return inputs
+  }
+
+  /**
+   * A warning for the `{{ .inputs }}` and `{{ .outputs }}` references in a
+   * display block's prop: nothing fills them in, so its text shows them as
+   * written, and none is a reference in the graph.
+   */
+  private unfilledReads(
+    where: { readonly tag: string; readonly id?: string },
+    prop: string,
+    value: unknown,
+    span: Span,
+  ): void {
+    const named = strings(value).flatMap((text) =>
+      templateReferences(text).map((reference) =>
+        reference._tag === "Input"
+          ? `{{ .inputs.${reference.path} }}`
+          : `{{ .outputs.${reference.blockAsWritten}.${reference.key} }}`,
+      ),
+    )
+    if (named.length === 0) return
+    const block = where.id === undefined ? `<${where.tag}>` : `<${where.tag} id="${where.id}">`
+    this.warn(
+      "unfilledReference",
+      `\`${prop}\` on ${block} reads ${named.join(", ")}, which nothing fills in: a display block's text shows as written.`,
+      span,
+      where,
+      prop,
+    )
   }
 
   /**

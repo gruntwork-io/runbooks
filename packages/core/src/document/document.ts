@@ -115,7 +115,7 @@ export const SharedProps = Schema.Struct({
   description: Schema.optionalKey(Schema.String),
   /** Fold the block to its header once it is done. */
   autoCollapse: Schema.optionalKey(Schema.Boolean),
-  /** Any block: the forms whose values it reads (capability `values`). A display block reads them into its text. */
+  /** Any block but a display block: the forms whose values it reads (capability `values`). */
   inputsId: Schema.optionalKey(OneOrMoreIds),
   /** Task: blocks that must be done first (capability `run`). */
   dependsOn: Schema.optionalKey(OneOrMoreIds),
@@ -146,7 +146,7 @@ export type EdgeSource = typeof EdgeSource.Type
 /**
  * One reference between two blocks, each named by its index in
  * `RunbookDocument.blocks`, as the tree's `block` nodes are. A display
- * block written without an id can still read forms through `inputsId`.
+ * block makes none: nothing fills in its text.
  */
 export const Edge = Schema.Struct({
   /** The block that reads. */
