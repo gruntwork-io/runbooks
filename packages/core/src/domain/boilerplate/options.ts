@@ -76,27 +76,40 @@ function optionItem(raw: unknown, scalars = false): OptionItem | undefined {
 }
 
 /**
- * The options in a list written in the YAML. An entry that isn't a string or
- * `{ value, label }` is left out, as an invalid entry elsewhere in the config
- * is, with a warning. An enum's `options` has always taken numbers and
- * booleans as their strings (`scalars`); a list's `x-options` hasn't.
+ * The options in a list written in the YAML, and the index of each entry
+ * that isn't a string or `{ value, label }`. An enum's `options` has always
+ * taken numbers and booleans as their strings (`scalars`); a list's
+ * `x-options` hasn't.
+ */
+export function optionItemsOf(
+  raw: readonly unknown[],
+  scalars: boolean,
+): { readonly items: ReadonlyArray<OptionItem>; readonly invalid: ReadonlyArray<number> } {
+  const items: OptionItem[] = []
+  const invalid: number[] = []
+  raw.forEach((entry, index) => {
+    const item = optionItem(entry, scalars)
+    if (item) items.push(item)
+    else invalid.push(index)
+  })
+  return { items, invalid }
+}
+
+/**
+ * The options in a list written in the YAML, for the old-shape reader
+ * (config.ts): an entry that isn't one is left out, with a warning.
  */
 export function staticOptionItems(
   raw: readonly unknown[],
   where: string,
   scalars: boolean,
 ): OptionItem[] {
-  const items: OptionItem[] = []
-  raw.forEach((entry, index) => {
-    const item = optionItem(entry, scalars)
-    if (item) items.push(item)
-    else {
-      console.warn(
-        `[boilerplate config] ${where}[${index}] must be a string or { value, label }; ignoring it.`,
-      )
-    }
-  })
-  return items
+  const { items, invalid } = optionItemsOf(raw, scalars)
+  for (const index of invalid)
+    console.warn(
+      `[boilerplate config] ${where}[${index}] must be a string or { value, label }; ignoring it.`,
+    )
+  return [...items]
 }
 
 /** The option fields for a list of options: their values, and their labels when any differs. */

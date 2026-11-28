@@ -134,14 +134,23 @@ describe("showWhenProblems", () => {
   it("reports a condition on a variable the form doesn't have", () => {
     const identity = { name: "Identity", type: "string", showWhen: { Layuot: ["caf"] } }
     expect(showWhenProblems([layout, identity])).toEqual([
-      "Identity: x-show-when names Layuot, which isn't a variable here.",
+      {
+        variable: "Identity",
+        condition: "Layuot",
+        message: 'the `x-show-when` of the field "Identity" names "Layuot", which is no field here',
+      },
     ])
   })
 
   it("reports a value that isn't one of the variable's options", () => {
     const identity = { name: "Identity", type: "string", showWhen: { Layout: ["caf", "CAF"] } }
     expect(showWhenProblems([layout, identity])).toEqual([
-      'Identity: x-show-when gives Layout the value "CAF", which isn\'t one of its options (single, caf).',
+      {
+        variable: "Identity",
+        condition: "Layout",
+        message:
+          'the `x-show-when` of the field "Identity" gives "Layout" the value "CAF", which is not one of its options (single, caf)',
+      },
     ])
   })
 
@@ -149,7 +158,11 @@ describe("showWhenProblems", () => {
     const a: ShowWhenVariable = { name: "A", type: "string", showWhen: { B: ["x"] } }
     const b: ShowWhenVariable = { name: "B", type: "string", showWhen: { A: ["x"] } }
     expect(showWhenProblems([a, b])).toEqual([
-      "x-show-when conditions depend on each other in a cycle: A → B → A.",
+      {
+        variable: "A",
+        message:
+          "the `x-show-when` conditions of these fields depend on each other in a cycle: A → B → A",
+      },
     ])
   })
 })
