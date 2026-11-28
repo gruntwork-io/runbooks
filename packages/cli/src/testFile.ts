@@ -130,30 +130,38 @@ export const FuzzType = Schema.Literals([
   "map",
 ])
 
+/**
+ * A key a file may leave empty: absent, or the key with nothing after it,
+ * as the generated `runbook_test.yml` writes `steps:` above its
+ * commented-out steps. Either way it is unset.
+ */
+const mayBeEmpty = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.NullOr(schema))
+
+/** How a fuzz input draws its value. A setting left empty (`max:`) is unset, as the docs say. */
 export const FuzzConfig = Schema.Struct({
   type: FuzzType,
-  length: Schema.optionalKey(Count),
-  minLength: Schema.optionalKey(Count),
-  maxLength: Schema.optionalKey(Count),
-  pattern: Schema.optionalKey(Schema.String),
-  prefix: Schema.optionalKey(Schema.String),
-  suffix: Schema.optionalKey(Schema.String),
-  includeSpaces: Schema.optionalKey(Schema.Boolean),
-  includeSpecialChars: Schema.optionalKey(Schema.Boolean),
-  min: Schema.optionalKey(Schema.Finite),
-  max: Schema.optionalKey(Schema.Finite),
-  options: Schema.optionalKey(Schema.Array(Schema.String)),
-  domain: Schema.optionalKey(Schema.String),
-  minDate: Schema.optionalKey(Schema.String),
-  maxDate: Schema.optionalKey(Schema.String),
-  format: Schema.optionalKey(Schema.String),
-  wordCount: Schema.optionalKey(Count),
-  minWordCount: Schema.optionalKey(Count),
-  maxWordCount: Schema.optionalKey(Count),
-  count: Schema.optionalKey(Count),
-  minCount: Schema.optionalKey(Count),
-  maxCount: Schema.optionalKey(Count),
-  schema: Schema.optionalKey(Schema.Array(Schema.String)),
+  length: mayBeEmpty(Count),
+  minLength: mayBeEmpty(Count),
+  maxLength: mayBeEmpty(Count),
+  pattern: mayBeEmpty(Schema.String),
+  prefix: mayBeEmpty(Schema.String),
+  suffix: mayBeEmpty(Schema.String),
+  includeSpaces: mayBeEmpty(Schema.Boolean),
+  includeSpecialChars: mayBeEmpty(Schema.Boolean),
+  min: mayBeEmpty(Schema.Finite),
+  max: mayBeEmpty(Schema.Finite),
+  options: mayBeEmpty(Schema.Array(Schema.String)),
+  domain: mayBeEmpty(Schema.String),
+  minDate: mayBeEmpty(Schema.String),
+  maxDate: mayBeEmpty(Schema.String),
+  format: mayBeEmpty(Schema.String),
+  wordCount: mayBeEmpty(Count),
+  minWordCount: mayBeEmpty(Count),
+  maxWordCount: mayBeEmpty(Count),
+  count: mayBeEmpty(Count),
+  minCount: mayBeEmpty(Count),
+  maxCount: mayBeEmpty(Count),
+  schema: mayBeEmpty(Schema.Array(Schema.String)),
 })
 
 /**
@@ -251,13 +259,6 @@ export const Cleanup = Schema.Union([
   Schema.Struct({ command: Text }),
   Schema.Struct({ path: Text }),
 ])
-
-/**
- * A list or map a test case may leave empty: absent, or a key with nothing
- * after it, as the generated `runbook_test.yml` writes `steps:` above its
- * commented-out steps.
- */
-const mayBeEmpty = <S extends Schema.Top>(schema: S) => Schema.optionalKey(Schema.NullOr(schema))
 
 export const TestCase = Schema.Struct({
   name: Text,

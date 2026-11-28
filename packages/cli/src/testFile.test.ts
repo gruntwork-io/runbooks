@@ -10,6 +10,7 @@ import { makeTestFileSystem } from "@runbooks/core/test-utils/TestFileSystem"
 import { TOY_REGISTRY } from "@runbooks/core/test-utils/toyRegistry"
 import {
   boundTestFile,
+  FuzzConfig,
   KIND_RULES,
   kindOf,
   MAX_TEST_FILE_BYTES,
@@ -87,6 +88,11 @@ tests:
       config.labels: { team: platform }
       config.name:
         fuzz: { type: string, minLength: 3, maxLength: 9 }
+      config.size:
+        fuzz:
+          type: int
+          min: 1
+          max:
     steps:
       - block: intro
       - block: config
@@ -176,6 +182,10 @@ describe("runbook_test.yml", () => {
     expect(file?.tests[0]?.steps).toHaveLength(8)
     expect(file?.tests[0]?.inputs?.["config.name"]).toEqual({
       fuzz: { type: "string", minLength: 3, maxLength: 9 },
+    })
+    // A fuzz setting left empty is unset, as the docs say.
+    expect(file?.tests[0]?.inputs?.["config.size"]).toEqual({
+      fuzz: { type: "int", min: 1, max: null },
     })
     expect(file?.tests[1]?.steps).toBeNull()
   })
@@ -297,6 +307,18 @@ describe("runbook_test.yml", () => {
     expect(decode(withSteps("- block: build_it\n  env_prefix: X")).message).toContain(
       'A step for <Run> "build_it" cannot have env_prefix',
     )
+  })
+
+  it("takes each fuzz setting left empty as unset", () => {
+    const settings = Object.keys(FuzzConfig.fields).filter((key) => key !== "type")
+    expect(settings).toHaveLength(22)
+    const { file, message } = decode(
+      `version: 1\ntests:\n  - name: a\n    inputs:\n      config.region:\n        fuzz:\n          type: string\n${settings.map((key) => `          ${key}:\n`).join("")}`,
+    )
+    expect(message).toBeUndefined()
+    expect(file?.tests[0]?.inputs?.["config.region"]).toEqual({
+      fuzz: { type: "string", ...Object.fromEntries(settings.map((key) => [key, null])) },
+    })
   })
 
   it("refuses a value of the wrong type with its line", () => {
