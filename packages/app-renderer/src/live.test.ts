@@ -332,21 +332,21 @@ describe("the window following a session", () => {
         offset,
         lines: [{ stream: "stdout", text: `line ${offset + 1}` }],
       })
-    const SENT = 2000
+    // Each chunk here is one event, and each place an event can wait takes all
+    // the one before it holds: the client's buffer (effect's default, 16), the
+    // piece taken from it, the window's queue, the piece the merge holds, and
+    // the batch being read.
+    const CLIENT_BUFFER = 16
+    const MOST_HELD = 2 * CLIENT_BUFFER + 3 * EVENTS_AHEAD
+    // Twice what the window can hold, so a window that holds more is seen.
+    const SENT = 2 * MOST_HELD
     await following(main, (next) =>
       Effect.gen(function* () {
         yield* next
         readsAnswer = false
         // The first chunk starts a round of reads that waits; the rest arrive meanwhile.
         for (let offset = 0; offset < SENT; offset++) main.stream("Events", [logLine(offset)])
-        // Each chunk here is one event, and each place an event can wait takes all
-        // the one before it holds: the client's buffer (effect's default, 16), the
-        // piece taken from it, the window's queue, the piece the merge holds, and
-        // the batch being read.
-        const CLIENT_BUFFER = 16
-        expect(yield* steady(() => main.acked("Events"))).toBeLessThanOrEqual(
-          2 * CLIENT_BUFFER + 3 * EVENTS_AHEAD,
-        )
+        expect(yield* steady(() => main.acked("Events"))).toBeLessThanOrEqual(MOST_HELD)
       }),
     )
   })
