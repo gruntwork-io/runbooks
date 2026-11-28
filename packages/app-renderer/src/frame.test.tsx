@@ -128,10 +128,39 @@ describe("a block's frame", () => {
     )
   })
 
-  it("draws a credential block with no view, its markdown, and a line that says so", () => {
-    const credential = framed(placed({ id: "cloud", class: "credential" }), text("Sign in first."))
-    expect(credential).toContain("Sign in first.")
-    expect(credential).toContain("The window can&#x27;t show this sign-in yet.")
+  it("draws a credential block with the common auth view under its markdown, and its outputs, with no status line", () => {
+    const shown = (fields: Record<string, unknown>) =>
+      renderToStaticMarkup(
+        <FollowingContext
+          value={followingViews(
+            view("cloud", { _tag: "Done", outcome: "success" }, { class: "credential", ...fields }),
+          )}
+        >
+          <Markdown
+            document={{
+              tree: {
+                type: "root",
+                children: [{ type: "block", index: 0, children: [text("Sign in first.")] }],
+              },
+              blocks: [placed({ id: "cloud", class: "credential" })],
+            }}
+            runbook={RUNBOOK}
+            session={SESSION}
+          />
+        </FollowingContext>,
+      )
+    const ready = shown({
+      credential: {
+        _tag: "Ready",
+        identity: { principal: "dev@example.com", kind: "user", method: "token", targets: {} },
+        source: "env",
+      },
+      outputs: { region: { _tag: "Shown", value: "eu-west-1" } },
+    })
+    expect(ready).toMatch(/Sign in first\..*Signed in\..*dev@example\.com.*eu-west-1/)
+    expect(ready).not.toContain('<p class="block-status">Done</p>')
+    // With no state yet, the frame says the status.
+    expect(shown({})).toContain('<p class="block-status">Done</p>')
   })
 
   it("draws a closed source view under a task's body for each script file it names, and none for a block that names none", () => {

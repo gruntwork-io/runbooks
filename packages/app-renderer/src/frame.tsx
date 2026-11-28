@@ -59,6 +59,7 @@ import type {
   LogPage,
   OutputView,
 } from "@runbooks/core/protocol"
+import { AuthView } from "./authView.tsx"
 import { BlockLink, frameId } from "./blockLink.tsx"
 import { FollowingContext, useBlockView, useHidden, useInstructionMode } from "./following.ts"
 import { FormView } from "./formView.tsx"
@@ -210,6 +211,9 @@ export function BlockFrame({
       />
     )
   const nested = block._tag === "Configured" && block.nestedIn !== undefined
+  // The auth view says a credential block's state in its own words.
+  const drawsState =
+    block._tag === "Configured" && block.class === "credential" && view?.credential !== undefined
   const bare = block._tag === "Configured" && drawsItself(block.class)
   const done = status?._tag === "Done"
   const folds =
@@ -263,7 +267,7 @@ export function BlockFrame({
             </ul>
           ) : (
             <>
-              {status === undefined || instructed || nested ? null : (
+              {status === undefined || instructed || nested || drawsState ? null : (
                 <Status status={status} onPage={onPage} />
               )}
               {said === undefined ? null : <p className="block-said">{said}</p>}
@@ -285,6 +289,7 @@ export function BlockFrame({
                     hidden={hidden}
                     fields={fields}
                     offers={!instructionMode}
+                    onPage={onPage}
                   >
                     {children}
                   </Body>
@@ -494,6 +499,7 @@ function Body({
   hidden,
   fields,
   offers,
+  onPage,
   children,
 }: {
   readonly block: Configured
@@ -505,6 +511,8 @@ function Body({
   readonly fields: ReactNode
   /** Whether the frame offers the block's actions: not in instruction mode, which runs nothing. */
   readonly offers: boolean
+  /** The ids of the blocks on the page, which a link to one scrolls to. */
+  readonly onPage: ReadonlySet<string>
   readonly children: ReactNode
 }) {
   const Own = useContext(ViewsContext)[block.block]
@@ -537,22 +545,18 @@ function Body({
         </div>
       )
     case "credential":
-      return <NoView line="The window can't show this sign-in yet.">{children}</NoView>
+      return (
+        <div className="block-body">
+          {children}
+          <AuthView state={view?.credential} act={act} block={block.id} onPage={onPage} />
+          {view === undefined ? null : <Outputs outputs={view.outputs} />}
+        </div>
+      )
     default: {
       const unhandled: never = block.class
       throw new Error(`The frame has no body for the class ${String(unhandled)}.`)
     }
   }
-}
-
-/** A block whose class has no default view yet: its markdown, and a line that says so. */
-function NoView({ line, children }: { readonly line: string; readonly children: ReactNode }) {
-  return (
-    <div className="block-body">
-      {children}
-      <p className="block-no-view">{line}</p>
-    </div>
-  )
 }
 
 interface Button {
