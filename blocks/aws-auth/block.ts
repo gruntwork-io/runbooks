@@ -9,9 +9,12 @@
  *   and Local Profile. `defaultTab` names the one it opens on; any other
  *   value, or none, opens Static Credentials, as today's block does.
  * - `detectCredentials` lists where to look for a login first: the
- *   environment (`"env"`), the environment under a prefix, and an earlier
- *   block's outputs (`{ block }`, at most one). `false` turns detection
- *   off. By default it looks in the environment.
+ *   environment (`"env"`), the environment under a prefix, and a block's
+ *   outputs (`{ block }`, at most one). `false` turns detection off. By
+ *   default it looks in the environment. A `{ block }` source is a
+ *   reference: an id no block has is a configuration error, and detection
+ *   waits there for that block to run unless a source before it has a
+ *   login.
  * - `ssoAccountId` with `ssoRoleName` pins the account and role: a login
  *   that cannot reach them is refused, and one that can needs no
  *   confirmation. `ssoAccountId` alone pins nothing, as today.
@@ -142,7 +145,18 @@ export const awsAuth = defineCredential({
   class: "credential",
   props: AwsAuthProps,
   children: { kind: "none" },
-  references: {},
+  references: {
+    // A source reads the block's outputs once it has run, as `{{ .outputs }}` does.
+    detectCredentials: {
+      capability: "run",
+      ids: (sources) =>
+        sources === false
+          ? []
+          : sources.flatMap((source) =>
+              source !== "env" && "block" in source ? [source.block] : [],
+            ),
+    },
+  },
   runbookFiles: () => [],
   provides: ["env"],
   effects: ["network", "browser"],

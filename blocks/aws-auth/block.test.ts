@@ -1,11 +1,12 @@
 import { describe, expect, it } from "bun:test"
 import { inspect } from "node:util"
 import { Effect, Layer, Option, Redacted, Schema, Stream } from "effect"
-import { BlockId } from "@runbooks/blocks-core/contract"
+import { BlockId, defineTask, endWithExitCode } from "@runbooks/blocks-core/contract"
+import type { BlockStatus } from "@runbooks/blocks-core/status"
 import { fakeCredentialProviders } from "@runbooks/core/credential/fake"
 import { serveEngine } from "@runbooks/core/handlers"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
-import type { BlockView, EngineClient, SessionId } from "@runbooks/core/protocol"
+import type { BlockView, DocumentView, EngineClient, SessionId } from "@runbooks/core/protocol"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
 import { testFileSystem } from "@runbooks/core/test-utils/TestFileSystem"
 import { testSessionStore } from "@runbooks/core/test-utils/TestSessionStore"
@@ -127,9 +128,38 @@ describe("AwsAuth's instruction", () => {
   })
 })
 
+/**
+ * A task that publishes the fake's secret key as AWS_SECRET_ACCESS_KEY, as
+ * a script that assumes a role does, or fails with `exitCode`.
+ */
+const assumeRole = defineTask({
+  name: "AssumeRole",
+  since: "0.1.0",
+  class: "task",
+  props: Schema.Struct({ exitCode: Schema.optionalKey(Schema.Int) }),
+  children: { kind: "none" },
+  references: {},
+  runbookFiles: () => [],
+  provides: ["run"],
+  effects: ["process"],
+  outputs: () => ({ AWS_SECRET_ACCESS_KEY: { sensitive: true } }),
+  run: (p) =>
+    p.exitCode === undefined
+      ? Stream.make({ _tag: "Output", key: "AWS_SECRET_ACCESS_KEY", value: SECRET } as const)
+      : endWithExitCode(p.exitCode),
+  instruction: () => [],
+  plugins: [],
+})
+
+const WAITING_FOR_ASSUME_ROLE: BlockStatus = {
+  _tag: "Blocked",
+  by: [{ _tag: "WaitingFor", block: blockId("assume_role"), capability: "run" }],
+}
+
 interface Opened {
   readonly client: EngineClient
   readonly session: SessionId
+  readonly document: () => Effect.Effect<DocumentView, unknown>
   readonly view: (block: string) => Effect.Effect<BlockView, unknown>
   /** Every event the session has sent since it was trusted, as it would cross to a window. */
   readonly sent: () => Effect.Effect<ReadonlyArray<unknown>>
@@ -154,6 +184,7 @@ const trusted = <A>(
         return yield* use({
           client,
           session,
+          document: () => client.GetDocument({ session }),
           view,
           // Each event since the trust, replayed from the session's log.
           sent: () =>
@@ -166,7 +197,7 @@ const trusted = <A>(
       }).pipe(
         Effect.provide(
           serveEngine({
-            registry: { ...TOY_REGISTRY, AwsAuth: awsAuth },
+            registry: { ...TOY_REGISTRY, AwsAuth: awsAuth, AssumeRole: assumeRole },
             appVersion: "0.31.0",
             workingFolders: "/work",
             stateFolders: "/state",
@@ -259,19 +290,12 @@ describe("AwsAuth against the fake", () => {
     expect(states.other.credential?._tag).not.toBe("Ready")
   })
 
-  it("waits for the block a source names, then reads its outputs once that block is done, with no Check again", async () => {
+  // testdata/feature-demos/aws-auth: "Wait for block first; fall back to env if block fails".
+  it("waits for the block a source lists first, and takes the login in its outputs over the environment's, with no Check again", async () => {
     const states = await trusted(
       [
-        [
-          '<Publisher id="keys" outputs={{ AWS_SECRET_ACCESS_KEY: "secret" }}>',
-          "```yaml",
-          "- name: secret",
-          "  type: string",
-          `  default: ${SECRET}`,
-          "```",
-          "</Publisher>",
-        ].join("\n"),
-        '<AwsAuth id="aws" detectCredentials={[{ block: "keys" }]} />',
+        '<AssumeRole id="assume_role" />',
+        '<AwsAuth id="aws" detectCredentials={[{ block: "assume_role" }, "env"]} />',
       ].join("\n\n"),
       (s) =>
         Effect.gen(function* () {
@@ -280,22 +304,132 @@ describe("AwsAuth against the fake", () => {
             block: blockId("aws"),
             timeoutMillis: 5_000,
           })
-          // A form's submit makes its outputs.
-          yield* s.client.RunBlock({ session: s.session, block: blockId("keys") })
+          yield* s.client.RunBlock({ session: s.session, block: blockId("assume_role") })
           const after = yield* once(s, "aws", "Found")
           return { before, after }
         }),
+      // The environment holds a login too, which the block's source comes before.
+      { AWS_SECRET_ACCESS_KEY: SECRET },
     )
-    expect(states.before.status).toEqual({
-      _tag: "Blocked",
-      by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
-    })
+    expect(states.before.status).toEqual(WAITING_FOR_ASSUME_ROLE)
     expect(states.before.credential).toBeUndefined()
     expect(states.after.credential).toMatchObject({
       _tag: "Found",
-      source: "keys",
+      source: "assume_role",
       identity: { principal: "arn:aws:iam::111111111111:user/fake-dev" },
     })
+  })
+
+  it("falls back to the environment when the block a source lists first fails, and takes no sign-in while it waits", async () => {
+    const states = await trusted(
+      [
+        '<AssumeRole id="assume_role" exitCode={1} />',
+        '<AwsAuth id="aws" detectCredentials={[{ block: "assume_role" }, "env"]} />',
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          const { block: before } = yield* s.client.WaitForBlock({
+            session: s.session,
+            block: blockId("aws"),
+            timeoutMillis: 5_000,
+          })
+          const signIn = yield* s.client.ActOnCredential({
+            session: s.session,
+            block: blockId("aws"),
+            action: {
+              _tag: "SignIn",
+              method: "credentials",
+              fields: {
+                accessKeyId: Redacted.make("AKIAFAKE0001"),
+                secretAccessKey: Redacted.make(SECRET),
+              },
+            },
+          })
+          const source = { session: s.session, block: blockId("assume_role") }
+          yield* s.client.RunBlock(source)
+          const { block: failed } = yield* s.client.WaitForBlock(source)
+          const after = yield* once(s, "aws", "Found")
+          return { before, signIn, failed, after }
+        }),
+      { AWS_SECRET_ACCESS_KEY: SECRET },
+    )
+    expect(states.before.status).toEqual(WAITING_FOR_ASSUME_ROLE)
+    expect(states.signIn).toEqual({ _tag: "NotAllowed", state: "Blocked" })
+    expect(states.failed.status?._tag).toBe("Failed")
+    expect(states.after.credential).toMatchObject({ _tag: "Found", source: "env" })
+  })
+
+  // testdata/feature-demos/aws-auth: "Check env first; wait for block only if env has no creds".
+  it("looks in the environment first, and waits for the block a source lists after it only if the environment has no login", async () => {
+    const runbook = [
+      '<AssumeRole id="assume_role" />',
+      '<AwsAuth id="aws" detectCredentials={["env", { block: "assume_role" }]} />',
+    ].join("\n\n")
+    const fromEnv = await trusted(
+      runbook,
+      (s) =>
+        Effect.gen(function* () {
+          const { block: aws } = yield* s.client.WaitForBlock({
+            session: s.session,
+            block: blockId("aws"),
+            timeoutMillis: 5_000,
+          })
+          return { aws, source: yield* s.view("assume_role") }
+        }),
+      { AWS_SECRET_ACCESS_KEY: SECRET },
+    )
+    expect(fromEnv.aws.credential).toMatchObject({ _tag: "Found", source: "env" })
+    expect(fromEnv.source.status).toEqual({ _tag: "Idle" })
+    const fromBlock = await trusted(runbook, (s) =>
+      Effect.gen(function* () {
+        const { block: before } = yield* s.client.WaitForBlock({
+          session: s.session,
+          block: blockId("aws"),
+          timeoutMillis: 5_000,
+        })
+        yield* s.client.RunBlock({ session: s.session, block: blockId("assume_role") })
+        const after = yield* once(s, "aws", "Found")
+        return { before, after }
+      }),
+    )
+    expect(fromBlock.before.status).toEqual(WAITING_FOR_ASSUME_ROLE)
+    expect(fromBlock.after.credential).toMatchObject({ _tag: "Found", source: "assume_role" })
+  })
+
+  it("refuses a source whose block id no block has, with the nearest id, or whose block doesn't run", async () => {
+    const { errors, status } = await trusted(
+      [
+        '<AssumeRole id="assume_role" />',
+        '<AwsAuth id="aws" detectCredentials={[{ block: "asume_role" }]} />',
+        '<Form id="config">\n```yaml\n- name: region\n  type: string\n```\n</Form>',
+        '<AwsAuth id="from_form" detectCredentials={[{ block: "config" }]} />',
+      ].join("\n\n"),
+      (s) =>
+        Effect.gen(function* () {
+          const { blocks } = yield* s.document()
+          return {
+            errors: blocks.flatMap((block) => (block._tag === "Misconfigured" ? block.errors : [])),
+            status: (yield* s.view("aws")).status,
+          }
+        }),
+    )
+    expect(errors).toMatchObject([
+      {
+        code: "missingReference",
+        message:
+          '`detectCredentials` on <AwsAuth id="aws"> names "asume_role", and no block has that id.',
+        suggestion: "assume_role",
+        location: { block: { tag: "AwsAuth", id: "aws" }, prop: "detectCredentials" },
+      },
+      {
+        code: "missingCapability",
+        message: expect.stringContaining(
+          '`detectCredentials` on <AwsAuth id="from_form"> names <Form id="config">, which doesn\'t run.',
+        ),
+        location: { block: { tag: "AwsAuth", id: "from_form" }, prop: "detectCredentials" },
+      },
+    ])
+    expect(status).toEqual({ _tag: "Misconfigured" })
   })
 
   it("selects the account and role it pins after an SSO sign-in, without asking", async () => {

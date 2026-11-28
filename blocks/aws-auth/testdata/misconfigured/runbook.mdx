@@ -6,6 +6,10 @@ Each of these is a configuration error, which shows in the block's place.
 
 <AwsAuth id="no_detection" detectCredentials={true} />
 
+`misspelled` names `asume_role`, and the block is `assume_role`.
+
+<AwsAuth id="misspelled" detectCredentials={[{ block: "asume_role" }]} />
+
 `off` turns detection off, so it waits for the person to sign in.
 
 <AwsAuth id="off" detectCredentials={false} defaultTab="sso" ssoStartUrl="https://example.awsapps.com/start" />
@@ -13,3 +17,5 @@ Each of these is a configuration error, which shows in the block's place.
 <Command id="keys" command="true" />
 
 <Command id="other_keys" command="true" />
+
+<Command id="assume_role" command="true" />
