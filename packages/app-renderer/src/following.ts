@@ -9,7 +9,7 @@
  * With none, as a page rendered on its own, no block has a view, no trust
  * or setting is read, and nothing is asked.
  */
-import { Cause, Effect } from "effect"
+import { Cause, Effect, Semaphore } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
 import type { ViewRequest } from "@runbooks/blocks/views"
 import type {
@@ -58,7 +58,12 @@ export interface Following {
   readonly reloading: ReloadingStore
   /** The script files of each block whose source view is open, which a view opens. */
   readonly scriptFiles: ScriptFilesStore
-  /** Asks the engine for `request` on `block`. It gives what to tell the person about the answer, if anything. */
+  /**
+   * Asks the engine for `request` on `block`. It gives what to tell the
+   * person about the answer, if anything. Requests go one at a time, in the
+   * order asked, each once the engine answered the one before: a Submit
+   * goes after the values typed before it, and values in the order typed.
+   */
   readonly act: (
     block: BlockView["block"],
     request: ViewRequest,
@@ -184,13 +189,15 @@ export function followingOf(
   const trusting = makeTrustingStore()
   const reloading = makeReloadingStore()
   const scriptFiles = makeScriptFilesStore(engine, session, live)
+  // A semaphore lets its waiters in in the order they came.
+  const inTurn = Semaphore.makeUnsafe(1)
   return {
     live,
     settings: settingsNow,
     trusting,
     reloading,
     scriptFiles,
-    act: (block, request) => ask(engine, session, block, request),
+    act: (block, request) => inTurn.withPermit(ask(engine, session, block, request)),
     trust: () => {
       const { document } = live.get()
       if (document === undefined) return Effect.void
@@ -316,12 +323,12 @@ function refused(reason: Refusal): string {
   }
 }
 
-/** What entering values says: each value not entered, and each field's error. */
+/** What entering values says: each value not entered. A field's error shows on the field. */
 function entered(result: SetValuesResult): string | undefined {
-  const problems = [...Object.entries(result.rejected), ...Object.entries(result.errors)]
-  return problems.length === 0
+  const rejected = Object.entries(result.rejected)
+  return rejected.length === 0
     ? undefined
-    : problems.map(([field, problem]) => `${field}: ${problem}`).join(" ")
+    : rejected.map(([field, why]) => `${field}: ${why}`).join(" ")
 }
 
 /** What a credential action's answer says, when it was not taken. */

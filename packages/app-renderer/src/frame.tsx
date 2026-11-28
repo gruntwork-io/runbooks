@@ -18,23 +18,26 @@
  * - the body: the block's own view, when the view map has a line for it
  *   (`@runbooks/blocks/views`), or its class's default. A task's default
  *   offers the actions the engine says it takes now (`BlockView.actions`)
- *   and shows its latest run's log and outputs, as text; a form's and a
- *   credential block's defaults are not written yet, and a display block
+ *   and shows its latest run's log and outputs, as text; a form's draws its
+ *   fields (`formView.tsx`), then offers its actions, a run as Submit; a
+ *   credential block's default is not written yet, and a display block
  *   always has a view;
  * - under the body, a source view ("View Source Code") for each script file
  *   the block names (`DocumentBlock.scriptFiles`), closed at first
  *   (`sourceView.tsx`).
  *
  * A view asks the engine through `act`, which the frame sends for its
- * session and block, and it shows what the engine answered.
+ * session and block, and it shows what the engine answered. The window
+ * sends one request at a time, in the order asked (`following.ts`), so a
+ * Submit goes after the values typed before it.
  *
  * In instruction mode (`Settings.instructionMode`) a task or credential
  * block shows its instruction (`BlockView.instruction`) in place of its view
  * and its status: each text step as text, each command to select and copy,
  * each link as a link the walk would make. The frame then sends nothing a
  * view asks for but a form's values (`SetValues`), whatever its class. A
- * form still shows its view: it is how the person gives the values an
- * instruction reads.
+ * form still shows its fields, with no Submit or Reset: it is how the
+ * person gives the values an instruction reads.
  *
  * Classes, statuses, blockers and errors are closed sets: each switch over
  * one names every member, so a new one fails the build here.
@@ -52,6 +55,7 @@ import type {
 } from "@runbooks/core/protocol"
 import { BlockLink, frameId } from "./blockLink.tsx"
 import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
+import { FormView } from "./formView.tsx"
 import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
 import { ScriptChange } from "./scriptChange.tsx"
@@ -127,12 +131,15 @@ function takenInInstructionMode(request: ViewRequest): boolean {
 export function BlockFrame({
   block,
   runbook,
+  session,
   onPage,
   children,
 }: {
   readonly block: DocumentBlock
   /** The runbook file, which the block's errors are located in. */
   readonly runbook: string
+  /** The id of the session that has it open, which a form's descriptions are walked with. */
+  readonly session: string
   /** The ids of the blocks the page draws a frame for, which a blocker's link may scroll to. */
   readonly onPage: ReadonlySet<string>
   /** The block's markdown children, rendered. */
@@ -144,11 +151,13 @@ export function BlockFrame({
   const instructionMode = useInstructionMode()
   const instructed = instructionMode && instructedIn(block.class)
   const [said, setSaid] = useState<string>()
+  // Ends once the engine answered, and the frame says what it answered.
+  const ask = (request: ViewRequest): Effect.Effect<void> =>
+    block.id === undefined || (instructionMode && !takenInInstructionMode(request))
+      ? Effect.void
+      : Effect.flatMap(following.act(block.id, request), (line) => Effect.sync(() => setSaid(line)))
   const act = (request: ViewRequest) => {
-    if (block.id === undefined || (instructionMode && !takenInInstructionMode(request))) return
-    Effect.runFork(
-      Effect.flatMap(following.act(block.id, request), (line) => Effect.sync(() => setSaid(line))),
-    )
+    Effect.runFork(ask(request))
   }
   const done = status?._tag === "Done"
   const folds =
@@ -208,7 +217,15 @@ export function BlockFrame({
                 <InstructionBody instruction={view?.instruction}>{children}</InstructionBody>
               ) : (
                 <>
-                  <Body block={block} view={view} act={act}>
+                  <Body
+                    block={block}
+                    view={view}
+                    act={act}
+                    ask={ask}
+                    offers={!instructionMode}
+                    runbook={runbook}
+                    session={session}
+                  >
                     {children}
                   </Body>
                   <SourceViews block={block} />
@@ -409,16 +426,25 @@ function SourceViews({ block }: { readonly block: Configured }) {
   return scriptFiles.map((path) => <SourceView key={path} block={id} path={path} />)
 }
 
-/** The block's own view, or its class's default. Form and credential blocks get theirs with their first blocks. */
+/** The block's own view, or its class's default. Credential blocks get theirs with their first blocks. */
 function Body({
   block,
   view,
   act,
+  ask,
+  offers,
+  runbook,
+  session,
   children,
 }: {
   readonly block: Configured
   readonly view: BlockView | undefined
   readonly act: (request: ViewRequest) => void
+  readonly ask: (request: ViewRequest) => Effect.Effect<void>
+  /** Whether the frame offers the block's actions: not in instruction mode, which runs nothing. */
+  readonly offers: boolean
+  readonly runbook: string
+  readonly session: string
   readonly children: ReactNode
 }) {
   const Own = useContext(ViewsContext)[block.block]
@@ -442,7 +468,21 @@ function Body({
     case "display":
       return <div className="block-body">{children}</div>
     case "form":
-      return <NoView line="The window can't show this form's fields yet.">{children}</NoView>
+      return (
+        <div className="block-body">
+          {children}
+          {view?.fields === undefined ? null : (
+            <FormView
+              fields={view.fields}
+              sections={view.sections ?? []}
+              enter={(values) => ask({ _tag: "SetValues", values })}
+              runbook={runbook}
+              session={session}
+            />
+          )}
+          {offers ? <Actions buttons={buttonsFor(view?.actions ?? [], "form")} act={act} /> : null}
+        </div>
+      )
     case "credential":
       return <NoView line="The window can't show this sign-in yet.">{children}</NoView>
     default: {
@@ -467,17 +507,30 @@ interface Button {
   readonly request: ViewRequest
 }
 
-/** The buttons a task's default view offers for `actions`, and what each asks the engine. */
-export function buttonsFor(actions: ReadonlyArray<BlockAction>): ReadonlyArray<Button> {
+/**
+ * What a run and a reset do, as a task's buttons and a form's say it: a
+ * form's reset undoes its submit and keeps its values (the engine's
+ * `resetBlock`), so it is not called Reset beside the fields' own Resets.
+ */
+const LABELS = {
+  task: { run: "Run", reset: "Reset" },
+  form: { run: "Submit", reset: "Undo Submit" },
+} as const
+
+/** The buttons a default view offers for `actions`, labelled for `kind`, and what each asks the engine. */
+export function buttonsFor(
+  actions: ReadonlyArray<BlockAction>,
+  kind: keyof typeof LABELS = "task",
+): ReadonlyArray<Button> {
   return actions.flatMap((action): ReadonlyArray<Button> => {
     switch (action) {
       case "run":
-        return [{ label: "Run", request: { _tag: "RunBlock" } }]
+        return [{ label: LABELS[kind].run, request: { _tag: "RunBlock" } }]
       case "cancel":
         return [{ label: "Cancel", request: { _tag: "CancelBlock" } }]
       case "reset":
-        return [{ label: "Reset", request: { _tag: "ResetBlock" } }]
-      // A task's own form (row 3k), an agent's review, and a credential block's actions.
+        return [{ label: LABELS[kind].reset, request: { _tag: "ResetBlock" } }]
+      // A form's values (its fields), an agent's review, and a credential block's actions.
       case "setValues":
       case "confirmValues":
       case "credential":
@@ -490,6 +543,26 @@ export function buttonsFor(actions: ReadonlyArray<BlockAction>): ReadonlyArray<B
   })
 }
 
+/** A row of buttons, each asking the engine for its request. */
+function Actions({
+  buttons,
+  act,
+}: {
+  readonly buttons: ReadonlyArray<Button>
+  readonly act: (request: ViewRequest) => void
+}) {
+  if (buttons.length === 0) return null
+  return (
+    <div className="block-actions">
+      {buttons.map(({ label, request }) => (
+        <button key={label} type="button" onClick={() => act(request)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** A task's default view: the actions it takes now, and its latest run's log and outputs. */
 function TaskView({
   view,
@@ -498,18 +571,9 @@ function TaskView({
   readonly view: BlockView | undefined
   readonly act: (request: ViewRequest) => void
 }) {
-  const buttons = buttonsFor(view?.actions ?? [])
   return (
     <>
-      {buttons.length === 0 ? null : (
-        <div className="block-actions">
-          {buttons.map(({ label, request }) => (
-            <button key={label} type="button" onClick={() => act(request)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
+      <Actions buttons={buttonsFor(view?.actions ?? [])} act={act} />
       {view?.log === undefined ? null : <Log page={view.log} />}
       {view === undefined ? null : <Outputs outputs={view.outputs} />}
     </>

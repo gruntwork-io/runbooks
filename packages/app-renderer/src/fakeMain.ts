@@ -55,7 +55,8 @@ export interface FakeMain {
 /**
  * A main whose `answer` gives each command's encoded success value, or
  * `fails(error)`. A command in `streams` is answered with chunks
- * (`stream`), and one `answer` gives `undefined` for is not answered.
+ * (`stream`), and one `answer` gives `undefined` for is not answered, or a
+ * promise for, once it settles to an answer.
  */
 export function fakeMain(
   answer: (tag: string, payload: unknown) => unknown,
@@ -70,6 +71,17 @@ export function fakeMain(
     setTimeout(() => {
       for (const listener of listeners) listener(text)
     }, 0)
+  }
+  const exit = (requestId: string, value: unknown) => {
+    const failure = failureOf(value)
+    reply({
+      _tag: "Exit",
+      requestId,
+      exit:
+        failure === undefined
+          ? { _tag: "Success", value }
+          : { _tag: "Failure", cause: failure.cause },
+    })
   }
   return {
     asked,
@@ -95,16 +107,9 @@ export function fakeMain(
           return
         }
         const value = answer(sent.tag, sent.payload)
-        if (value === undefined) return
-        const failure = failureOf(value)
-        reply({
-          _tag: "Exit",
-          requestId: sent.id,
-          exit:
-            failure === undefined
-              ? { _tag: "Success", value }
-              : { _tag: "Failure", cause: failure.cause },
-        })
+        const { id } = sent
+        if (value instanceof Promise) void value.then((later) => exit(id, later))
+        else if (value !== undefined) exit(id, value)
       },
       onMessage: (listener) => {
         listeners.add(listener)

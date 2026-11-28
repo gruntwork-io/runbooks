@@ -12,11 +12,16 @@
  * the cursor. A sensitive field's value never comes back (`Hidden`), so its
  * box holds only what the person typed in it.
  *
+ * Fields are drawn in runs of one section each, as the engine orders them
+ * (`BlockView.sections`): a section that starts folded (`collapsed`) has a
+ * heading that opens and closes it. A field the person can change back to
+ * its default has a Reset that sends the default.
+ *
  * Field types are a closed set: the switch over them names every one.
  */
 import { Effect, Equal } from "effect"
-import { useId, useState } from "react"
-import type { FieldView } from "@runbooks/core/protocol"
+import { type ReactNode, useId, useState } from "react"
+import type { BlockView, FieldView } from "@runbooks/core/protocol"
 import { fieldLabel } from "./label.ts"
 import { Markdown } from "./markdown.tsx"
 
@@ -101,13 +106,40 @@ function settled(entry: Entry, fields: ReadonlyArray<FieldView>): Entry {
   return drafts.size === entry.drafts.size ? entry : { ...entry, drafts }
 }
 
+type Section = NonNullable<BlockView["sections"]>[number]
+
+/** `fields` in runs of one section each, in the order given: a field in no section is in none. */
+function runsOf(
+  fields: ReadonlyArray<FieldView>,
+): ReadonlyArray<{ readonly section: string | undefined; readonly fields: FieldView[] }> {
+  const runs: Array<{ readonly section: string | undefined; readonly fields: FieldView[] }> = []
+  for (const field of fields) {
+    const last = runs.at(-1)
+    if (last !== undefined && last.section === field.section) last.fields.push(field)
+    else runs.push({ section: field.section, fields: [field] })
+  }
+  return runs
+}
+
+/** Whether `field` holds other than its default, so a Reset can put the default back. */
+const resettable = (
+  field: FieldView,
+  value: FieldValue | undefined,
+): field is FieldView & { readonly default: FieldValue } =>
+  field.default !== undefined &&
+  !field.readOnly &&
+  !field.sensitive &&
+  !Equal.equals(value ?? blankOf(field.type), field.default)
+
 export function FormView({
   fields,
+  sections,
   enter,
   runbook,
   session,
 }: {
   readonly fields: ReadonlyArray<FieldView>
+  readonly sections: ReadonlyArray<Section>
   /** Sends values the person entered, as `SetValues` takes them. It ends once the engine answered. */
   readonly enter: (values: Readonly<Record<string, FieldValue>>) => Effect.Effect<void>
   /** The runbook file and the session that has it open, which a description is walked with. */
@@ -127,18 +159,72 @@ export function FormView({
     )
     Effect.runFork(Effect.ensuring(enter({ [name]: value }), answered))
   }
+  const drawn = (field: FieldView) => {
+    const value = current.drafts.has(field.name) ? current.drafts.get(field.name) : shownBy(field)
+    return (
+      <FormField
+        key={field.name}
+        field={field}
+        value={value}
+        onChange={(next) => change(field.name, next)}
+        onReset={resettable(field, value) ? () => change(field.name, field.default) : undefined}
+        runbook={runbook}
+        session={session}
+      />
+    )
+  }
   return (
     <div className="form">
-      {fields.map((field) => (
-        <FormField
-          key={field.name}
-          field={field}
-          value={current.drafts.has(field.name) ? current.drafts.get(field.name) : shownBy(field)}
-          onChange={(value) => change(field.name, value)}
-          runbook={runbook}
-          session={session}
-        />
-      ))}
+      {runsOf(fields).map(({ section, fields: inRun }, index) =>
+        section === undefined ? (
+          inRun.map(drawn)
+        ) : (
+          <FormSection
+            key={`${index}-${section}`}
+            name={section}
+            folds={sections.find(({ name }) => name === section)?.collapsed === true}
+            erred={inRun.some((field) => field.error !== undefined)}
+          >
+            {inRun.map(drawn)}
+          </FormSection>
+        ),
+      )}
+    </div>
+  )
+}
+
+/**
+ * A section's heading, then its fields. One that starts folded opens and
+ * closes from its heading, and says, while folded, when a field in it has
+ * an error.
+ */
+function FormSection({
+  name,
+  folds,
+  erred,
+  children,
+}: {
+  readonly name: string
+  readonly folds: boolean
+  readonly erred: boolean
+  readonly children: ReactNode
+}) {
+  const [open, setOpen] = useState(!folds)
+  return (
+    <div className="form-section">
+      <h3 className="form-section-name">
+        {folds ? (
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {name}
+          </button>
+        ) : (
+          name
+        )}
+        {folds && !open && erred ? (
+          <span className="form-section-error"> A field in it has an error.</span>
+        ) : null}
+      </h3>
+      {open ? children : null}
     </div>
   )
 }
@@ -152,14 +238,20 @@ interface ControlProps {
   readonly onChange: (value: FieldValue) => void
 }
 
-/** One field: its label, then its control (a box's after it), its description and its error. */
+/** One field: its label, then its control (a box's after it), its Reset, its description and its error. */
 function FormField({
   field,
   value,
   onChange,
+  onReset,
   runbook,
   session,
-}: Omit<ControlProps, "id" | "labelId"> & { readonly runbook: string; readonly session: string }) {
+}: Omit<ControlProps, "id" | "labelId"> & {
+  /** Puts the field's default back, when it holds another value the person can change. */
+  readonly onReset: (() => void) | undefined
+  readonly runbook: string
+  readonly session: string
+}) {
   const id = useId()
   const labelId = `${id}-label`
   const label = (
@@ -190,6 +282,16 @@ function FormField({
           {label}
           {control}
         </>
+      )}
+      {onReset === undefined ? null : (
+        <button
+          type="button"
+          className="form-reset"
+          aria-label={`Reset ${fieldLabel(field.name)} to its default`}
+          onClick={onReset}
+        >
+          Reset
+        </button>
       )}
       {(field.description.children ?? []).length === 0 ? null : (
         <div className="form-description">

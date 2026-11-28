@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from "bun:test"
 import { Effect } from "effect"
 import { useSyncExternalStore } from "react"
-import type { FieldView } from "@runbooks/core/protocol"
+import type { BlockView, FieldView } from "@runbooks/core/protocol"
 import type { FieldValue } from "./formView.tsx"
 import { installDom } from "./testDom.ts"
 
@@ -16,6 +16,7 @@ const { FormView } = await import("./formView.tsx")
 afterEach(cleanup)
 
 type TreeNode = FieldView["description"]
+type Section = NonNullable<BlockView["sections"]>[number]
 const NO_DESCRIPTION: TreeNode = { type: "root", children: [] }
 const described = (text: string): TreeNode => ({
   type: "root",
@@ -45,7 +46,7 @@ const shown = (value: FieldValue) => ({ _tag: "Shown" as const, value })
  * until the test answers it, and the form shows the fields the test last
  * published, as the window's store does.
  */
-function lateEngine(first: ReadonlyArray<FieldView>) {
+function lateEngine(first: ReadonlyArray<FieldView>, sections: ReadonlyArray<Section> = []) {
   let fields = first
   const listeners = new Set<() => void>()
   const sent: Array<Readonly<Record<string, FieldValue>>> = []
@@ -61,7 +62,15 @@ function lateEngine(first: ReadonlyArray<FieldView>) {
     })
   function Page() {
     const now = useSyncExternalStore(subscribe, () => fields)
-    return <FormView fields={now} enter={enter} runbook="/work/runbook.mdx" session="s-1" />
+    return (
+      <FormView
+        fields={now}
+        sections={sections}
+        enter={enter}
+        runbook="/work/runbook.mdx"
+        session="s-1"
+      />
+    )
   }
   const settle = () =>
     new Promise((done) => {
@@ -528,5 +537,68 @@ describe("FormView's lists and maps", () => {
     expect(entries("AWSAccounts")).toEqual(["prod: email: ops@example.com"])
     expect(screen.queryAllByRole("button")).toEqual([])
     expect(screen.queryAllByRole("textbox")).toEqual([])
+  })
+})
+
+describe("FormView's sections and resets", () => {
+  it("draws each section under its heading, one that starts folded opening and closing from it", async () => {
+    const user = userEvent.setup()
+    lateEngine(
+      [
+        field("Name", "string"),
+        field("Port", "int", { section: "Network" }),
+        field("Retries", "int", { section: "Advanced", error: "Retries must be at least 1." }),
+        field("Timeout", "int", { section: "Advanced" }),
+      ],
+      [
+        { name: "Network", collapsed: false },
+        { name: "Advanced", collapsed: true },
+      ],
+    ).page()
+    expect(screen.getAllByRole("heading").map((heading) => heading.textContent)).toEqual([
+      "Network",
+      "Advanced A field in it has an error.",
+    ])
+    expect(screen.queryByRole("button", { name: "Network" })).toBeNull()
+    expect(screen.getByRole("spinbutton", { name: "Port" })).toBeTruthy()
+    const advanced = screen.getByRole("button", { name: "Advanced" })
+    expect(advanced.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByRole("spinbutton", { name: "Retries" })).toBeNull()
+    await user.click(advanced)
+    expect(advanced.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByTestId("field-Retries").textContent).toContain("Retries must be at least 1.")
+    expect(screen.getByRole("spinbutton", { name: "Timeout" })).toBeTruthy()
+    expect(screen.getAllByRole("heading")[1]?.textContent).toBe("Advanced")
+    await user.click(advanced)
+    expect(screen.queryByRole("spinbutton", { name: "Timeout" })).toBeNull()
+  })
+
+  it("offers a Reset that sends a field's default while the field holds another value", async () => {
+    const user = userEvent.setup()
+    const engine = lateEngine([
+      field("BucketName", "string", { default: "logs", value: shown("logs") }),
+      field("Replicas", "int", { default: 2 }),
+      field("Region", "string", {
+        default: "us-east-1",
+        readOnly: true,
+        value: shown("eu-west-1"),
+      }),
+      field("Owner", "string", { value: shown("me") }),
+    ])
+    engine.page()
+    const reset = (label: string) =>
+      screen.queryByRole("button", { name: `Reset ${label} to its default` })
+    // An emptied field holds no value, which is not its default.
+    expect([reset("Bucket Name"), reset("Region"), reset("Owner")]).toEqual([null, null, null])
+    expect(reset("Replicas")).not.toBeNull()
+    await user.type(box("Bucket Name"), "-old")
+    await user.click(reset("Bucket Name") as HTMLElement)
+    expect(box("Bucket Name").value).toBe("logs")
+    expect(reset("Bucket Name")).toBeNull()
+    await user.click(reset("Replicas") as HTMLElement)
+    expect((screen.getByRole("spinbutton", { name: "Replicas" }) as HTMLInputElement).value).toBe(
+      "2",
+    )
+    expect(engine.sent.slice(-2)).toEqual([{ BucketName: "logs" }, { Replicas: 2 }])
   })
 })

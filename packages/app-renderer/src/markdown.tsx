@@ -378,6 +378,7 @@ function render(tree: TreeNode, key: number, walk: Walk): ReactNode {
           key={walk.frameKeys.get(part.index) ?? key}
           block={block}
           runbook={walk.runbook}
+          session={walk.session}
           onPage={walk.framed}
         >
           {children(tree, walk)}
