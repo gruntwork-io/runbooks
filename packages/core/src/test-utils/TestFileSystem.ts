@@ -1,7 +1,12 @@
-import { Effect, Layer, Option, Stream } from "effect"
+import { Effect, Layer, Option, Queue, Stream } from "effect"
 import { FileSystem } from "../services/FileSystem.ts"
-import type { FileSystemShape, WalkEntry } from "../services/FileSystem.ts"
-import { FileNotFoundError, FileReadError, FileWriteError } from "../errors/index.ts"
+import type { FileChangeEvent, FileSystemShape, WalkEntry } from "../services/FileSystem.ts"
+import {
+  FileNotFoundError,
+  FileReadError,
+  FileWatchError,
+  FileWriteError,
+} from "../errors/index.ts"
 import { isContainedIn } from "../path-validation.ts"
 
 /** A file's content: text, or the bytes written. */
@@ -19,6 +24,12 @@ const MAX_LINKS_FOLLOWED = 40
  * last part of a path, not as a folder in one, and is neither a file nor a
  * folder in a listing. A file or folder created with a mode that lacks the
  * owner's read bit can't be read, as for any user but root.
+ *
+ * A watch reports each file written, appended to, copied to or removed
+ * after it starts, as chokidar does with `ignoreInitial`: a watched file,
+ * or a file in a watched folder no more than `depth` folders below it (0:
+ * directly in it; unset: at any depth). Folders themselves are not
+ * reported, as chokidar's `addDir` and `unlinkDir` are not.
  */
 export const testFileSystem = (
   files: Record<string, Content> = {},
@@ -48,6 +59,24 @@ export const testFileSystem = (
     if (content === undefined) return Effect.fail(new FileNotFoundError({ path }))
     if (unreadable(at)) return Effect.fail(new FileReadError({ path, cause: "permission denied" }))
     return Effect.succeed(content)
+  }
+
+  /** Each watch running, with what it watches and how to tell it of a change. */
+  const watches = new Set<{
+    readonly paths: ReadonlyArray<string>
+    readonly depth: number | undefined
+    readonly report: (event: FileChangeEvent) => void
+  }>()
+  const report = (type: FileChangeEvent["type"], path: string) => {
+    for (const watch of watches) {
+      const seen = watch.paths.some((watched) => {
+        if (path === watched) return true
+        if (!path.startsWith(`${watched}/`)) return false
+        const below = path.slice(watched.length + 1).split("/").length - 1
+        return watch.depth === undefined || below <= watch.depth
+      })
+      if (seen) watch.report({ type, path })
+    }
   }
 
   const listing = (path: string): Effect.Effect<string[], FileReadError> =>
@@ -80,13 +109,17 @@ export const testFileSystem = (
 
     writeFile: (path, content, options) =>
       Effect.sync(() => {
+        const type = path in files ? "change" : "add"
         if (!(path in files) && options?.mode !== undefined) modes.set(path, options.mode)
         files[path] = typeof content === "string" ? content : Uint8Array.from(content)
+        report(type, path)
       }),
 
     appendFile: (path, content) =>
       Effect.sync(() => {
+        const type = path in files ? "change" : "add"
         files[path] = textOf(files[path] ?? "") + content
+        report(type, path)
       }),
 
     readdir: listing,
@@ -140,22 +173,23 @@ export const testFileSystem = (
 
     rm: (path, _options?) =>
       Effect.sync(() => {
-        delete files[path]
+        const removed = Object.keys(files).filter(
+          (key) => key === path || key.startsWith(path + "/"),
+        )
         dirs.delete(path)
         modes.delete(path)
         // Also remove any descendant paths.
-        for (const key of Object.keys(files)) {
-          if (key.startsWith(path + "/")) {
-            delete files[key]
-          }
-        }
+        for (const key of removed) delete files[key]
+        for (const key of removed) report("unlink", key)
       }),
 
     copyFile: (src, dest) => {
       const content = files[src]
       return content !== undefined
         ? Effect.sync(() => {
+            const type = dest in files ? "change" : "add"
             files[dest] = content
+            report(type, dest)
           })
         : Effect.fail(new FileWriteError({ path: dest, cause: `source ${src} not found` }))
     },
@@ -203,7 +237,23 @@ export const testFileSystem = (
       return Stream.fromIterable(entries)
     },
 
-    watch: (_paths) => Stream.empty,
+    watch: (paths, options) =>
+      Stream.callback<FileChangeEvent, FileWatchError>((queue) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const watch = {
+              paths: [...paths],
+              depth: options?.depth,
+              report: (event: FileChangeEvent) => {
+                Queue.offerUnsafe(queue, event)
+              },
+            }
+            watches.add(watch)
+            return watch
+          }),
+          (watch) => Effect.sync(() => watches.delete(watch)),
+        ),
+      ),
   }
 }
 

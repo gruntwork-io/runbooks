@@ -195,10 +195,26 @@ const opened = Effect.gen(function* () {
     document: engine.getDocument({ session }),
     /** Saves `text` at `file`, as an editor would. */
     write: (file: string, text: string) => files.writeFile(file, text),
-    /** Saves `text` as the runbook, then reloads the session as its watcher would. */
+    /** Saves `text` as the runbook, then reloads the session as its watcher would, reading each file again. */
     save: (text: string) =>
-      Effect.andThen(files.writeFile(RUNBOOK, text), engine.reloadRunbook(session)),
-    reload: engine.reloadRunbook(session),
+      Effect.andThen(files.writeFile(RUNBOOK, text), engine.reloadRunbook(session, "read")),
+    /** As `save`, with each file the session holds kept at the text it holds (`runbook` watch mode). */
+    saveHeld: (text: string) =>
+      Effect.andThen(files.writeFile(RUNBOOK, text), engine.reloadRunbook(session, "held")),
+    reload: engine.reloadRunbook(session, "read"),
+    /** Removes `file`, as an editor or a person would. */
+    remove: (file: string) => files.rm(file),
+    /** The first `tag` event logged after `sequence`, waiting for it. */
+    next: (tag: EventEnvelope["event"]["_tag"], sequence: number | undefined) =>
+      Effect.map(
+        Stream.runHead(
+          Stream.filter(
+            engine.events({ session, ...(sequence === undefined ? {} : { after: sequence }) }),
+            (envelope) => envelope.event._tag === tag,
+          ),
+        ),
+        Option.getOrThrow,
+      ),
     /** What the session's watcher does when files the runbook names change on disk. */
     seen: (...paths: ReadonlyArray<string>) =>
       engine.filesChanged(
@@ -398,7 +414,7 @@ describe("reloading a session's runbook", () => {
       }),
     ))
 
-  it("reloads nothing while a block runs, and names the blocks running", () => {
+  it("holds a reload back while a block runs, naming it, and takes it once the run ends, without another save", () => {
     const gate = makeGate()
     return withEngine(
       BEFORE,
@@ -407,16 +423,111 @@ describe("reloading a session's runbook", () => {
         yield* rb.trust
         yield* rb.start("kept")
         yield* Deferred.await(gate.taken)
+        const { sequence } = yield* rb.session
         expect(yield* rb.save(AFTER)).toEqual({ _tag: "Running", blocks: [blockId("kept")] })
         expect((yield* rb.document).hash).toBe(rb.view.trust.hash)
         expect((yield* rb.session).blocks.map(({ block }) => block)).not.toContain("added")
+        const held = { _tag: "Running", blocks: [blockId("kept")] } as const
+        expect((yield* rb.session).reloadHeld).toEqual(held)
+        expect((yield* rb.next("ReloadHeldChanged", sequence)).event).toEqual({
+          _tag: "ReloadHeldChanged",
+          held,
+        })
         yield* Deferred.succeed(gate.open, undefined)
-        yield* rb.wait("kept")
-        expect(yield* rb.reload).toEqual({ _tag: "Reloaded" })
+        const taken = yield* rb.next("DocumentChanged", sequence)
+        expect((yield* rb.session).reloadHeld).toBeUndefined()
+        expect((yield* rb.session).blocks.map(({ block }) => block)).toContain(blockId("added"))
+        expect((yield* rb.next("ReloadHeldChanged", taken.sequence)).event).toEqual({
+          _tag: "ReloadHeldChanged",
+        })
+        expect(yield* rb.reload).toEqual({ _tag: "Unchanged" })
       }),
       { scripts: { ...SCRIPTS, kept: gated(gate) } },
     )
   })
+
+  it("names the blocks still running as each ends", () => {
+    const first = makeGate()
+    const second = makeGate()
+    return withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("kept")
+        yield* rb.start("changed")
+        yield* Deferred.await(first.taken)
+        yield* Deferred.await(second.taken)
+        expect(yield* rb.save(AFTER)).toEqual({
+          _tag: "Running",
+          blocks: [blockId("kept"), blockId("changed")],
+        })
+        yield* Deferred.succeed(first.open, undefined)
+        yield* rb.wait("kept")
+        expect((yield* rb.session).reloadHeld).toEqual({
+          _tag: "Running",
+          blocks: [blockId("changed")],
+        })
+        const { sequence } = yield* rb.session
+        yield* Deferred.succeed(second.open, undefined)
+        yield* rb.next("DocumentChanged", sequence)
+        expect((yield* rb.session).reloadHeld).toBeUndefined()
+      }),
+      { scripts: { ...SCRIPTS, kept: gated(first), changed: gated(second) } },
+    )
+  })
+
+  it("lets a held reload go once the runbook on disk is the one the session holds again", () => {
+    const gate = makeGate()
+    return withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("kept")
+        yield* Deferred.await(gate.taken)
+        expect(yield* rb.save(AFTER)).toMatchObject({ _tag: "Running" })
+        expect(yield* rb.save(BEFORE)).toEqual({ _tag: "Unchanged" })
+        expect((yield* rb.session).reloadHeld).toBeUndefined()
+        yield* Deferred.succeed(gate.open, undefined)
+      }),
+      { scripts: { ...SCRIPTS, kept: gated(gate) } },
+    )
+  })
+
+  it("holds a runbook that is refused, saying why, until the runbook on disk is the one it holds again", () =>
+    withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        const { sequence } = yield* rb.session
+        const refused = yield* rb.save(`${BEFORE}\n\n<Run id="broken"`)
+        expect(refused).toMatchObject({ _tag: "Invalid", errors: [{ code: "syntax" }] })
+        if (refused._tag !== "Invalid") throw new Error("the runbook was not refused")
+        expect((yield* rb.session).reloadHeld).toEqual(refused)
+        expect((yield* rb.next("ReloadHeldChanged", sequence)).event).toEqual({
+          _tag: "ReloadHeldChanged",
+          held: refused,
+        })
+        expect((yield* rb.document).hash).toBe(rb.view.trust.hash)
+        expect(yield* rb.save(BEFORE)).toEqual({ _tag: "Unchanged" })
+        expect((yield* rb.session).reloadHeld).toBeUndefined()
+      }),
+    ))
+
+  it("holds a runbook it cannot read, saying why, until it takes one", () =>
+    withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.remove(RUNBOOK)
+        const unread = { _tag: "Unreadable", message: `There is no file at ${RUNBOOK}.` } as const
+        expect(yield* rb.reload).toEqual(unread)
+        expect((yield* rb.session).reloadHeld).toEqual(unread)
+        expect(yield* rb.save(AFTER)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.session).reloadHeld).toBeUndefined()
+      }),
+    ))
 
   it("changes nothing when the runbook on disk is the one the session holds", () =>
     withEngine(
@@ -990,4 +1101,97 @@ describe("a block's files on disk", () => {
       }),
       { scripts: FILE_SCRIPTS, files: FILES },
     ))
+
+  it("reloads keeping each file the session holds at its text, and shows how each differs on disk", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.write("/rb/new.sh", "echo new\n")
+        const saved = runbookOf(
+          FILES_RUNBOOK,
+          '<Run id="new" command="new" path="new.sh" outputs={["out"]} />',
+        )
+        expect(yield* rb.saveHeld(saved)).toEqual({ _tag: "Reloaded" })
+        expect(ranWith((yield* rb.run("deploy")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo deploy\n",
+        })
+        expect((yield* rb.block("deploy")).filesOnDisk?.files).toMatchObject([
+          { path: "deploy.sh", change: "modified" },
+        ])
+        // A file the session held none of is read with the runbook.
+        expect(ranWith((yield* rb.run("new")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo new\n",
+        })
+        expect((yield* rb.block("new")).filesOnDisk).toBeUndefined()
+      }),
+      { scripts: { ...FILE_SCRIPTS, new: printsFile("new.sh") }, files: FILES },
+    ))
+
+  it("counts the files a reload reads as read from disk: what was read before them shows no more", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        yield* rb.write("/rb/deploy.sh", "echo deploy v3\n")
+        expect(yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        yield* rb.write("/rb/check.sh", "echo check v2\n")
+        yield* rb.seen("check.sh")
+        yield* rb.write("/rb/check.sh", FILES["/rb/check.sh"])
+        expect(yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)).toEqual({ _tag: "Unchanged" })
+        expect((yield* rb.block("check")).filesOnDisk).toBeUndefined()
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("shows the files a reload it holds back read", () => {
+    const gate = makeGate()
+    return withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("check")
+        yield* Deferred.await(gate.taken)
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        expect(yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)).toMatchObject({ _tag: "Running" })
+        expect((yield* rb.block("deploy")).filesOnDisk?.files).toMatchObject([
+          { path: "deploy.sh", change: "modified" },
+        ])
+        yield* Deferred.succeed(gate.open, undefined)
+      }),
+      { scripts: { ...FILE_SCRIPTS, check: gated(gate) }, files: FILES },
+    )
+  })
+
+  it("keeps what the watcher read after a reload it held back read, once it takes the reload", () => {
+    const gate = makeGate()
+    return withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("check")
+        yield* Deferred.await(gate.taken)
+        expect(yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)).toMatchObject({ _tag: "Running" })
+        // Saved after the reload read it, and read by the watcher.
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const { sequence } = yield* rb.session
+        yield* Deferred.succeed(gate.open, undefined)
+        yield* rb.next("DocumentChanged", sequence)
+        expect((yield* rb.block("deploy")).filesOnDisk?.files).toMatchObject([
+          { path: "deploy.sh", change: "modified" },
+        ])
+      }),
+      { scripts: { ...FILE_SCRIPTS, check: gated(gate) }, files: FILES },
+    )
+  })
 })

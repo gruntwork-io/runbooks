@@ -37,7 +37,6 @@ import {
   type ListSessions,
   type OpenSession,
   type ReloadFiles,
-  type ReloadHeld,
   type ResetBlock,
   type ResolveApproval,
   type RunBlock,
@@ -49,6 +48,7 @@ import {
   UnknownSequence,
   UnknownSession,
   type WaitForBlock,
+  type WatchMode,
 } from "./protocol.ts"
 import { baseEnvironment, providerEnvironment } from "./env.ts"
 import { resolvePaths, sessionRoots } from "./roots.ts"
@@ -56,12 +56,14 @@ import { copyGenerated, makeRunFiles, readRunFiles } from "./runFiles.ts"
 import {
   makeSession,
   type ParsedRunbook,
-  type ReloadResult,
+  type ReloadFilesFrom,
   type Runner,
+  type RunbookReload,
   type Session,
 } from "./session.ts"
 import { resumeOf, type SavedSession, SessionStore } from "./sessionStore.ts"
 import { SettingsStore } from "./settings.ts"
+import { watchSession } from "./watcher.ts"
 
 /** Serves one protocol command, with the command's own payload, success and error types. */
 type Command<R extends Rpc.Any, Requires = never> = (
@@ -106,9 +108,13 @@ export interface EngineShape {
    * Not a protocol command, and no client reaches it (`serveEngine`): what
    * a session's watcher does once its runbook is saved, in a watch mode the
    * person chose at open. Reads the runbook and the files its blocks name
-   * from disk again, and reloads the session with them (`Session.reload`).
+   * from disk again, and reloads the session with them (`Session.reload`),
+   * each file at the text the session holds when `from` is `held`.
    */
-  readonly reloadRunbook: (session: SessionId) => Effect.Effect<RunbookReload, UnknownSession>
+  readonly reloadRunbook: (
+    session: SessionId,
+    from: ReloadFilesFrom,
+  ) => Effect.Effect<RunbookReload, UnknownSession>
   /**
    * Not a protocol command, and no client reaches it (`serveEngine`): what
    * a session's watcher does when files its runbook names change on disk.
@@ -120,9 +126,6 @@ export interface EngineShape {
     paths: ReadonlyArray<RunbookPath>,
   ) => Effect.Effect<void, UnknownSession>
 }
-
-/** What reloading a session's runbook from disk did, or why the session holds the runbook it had. */
-export type RunbookReload = ReloadResult | Exclude<ReloadHeld, { readonly _tag: "Running" }>
 
 export interface EngineOptions<R extends Registry> {
   readonly registry: R
@@ -286,12 +289,55 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             }),
           )
 
+        /** Reads the session's runbook from disk, and reloads the session with it. */
+        const reloadOf = (session: Session, from: ReloadFilesFrom) =>
+          Effect.flatMap(
+            load(session.summary().path).pipe(
+              Effect.catchTag("RunbookUnreadable", ({ message }) =>
+                Effect.succeed({ _tag: "Unreadable", message } as const),
+              ),
+            ),
+            (read) => session.reload(read, from),
+          )
+
+        /** Reads `paths` from disk, and gives the session what it read. */
+        const filesChangedOf = Effect.fnUntraced(function* (
+          session: Session,
+          paths: ReadonlyArray<RunbookPath>,
+        ) {
+          const folder = path.dirname(session.summary().path)
+          const facts = new Map<RunbookPath, FileFact>()
+          for (const named of paths)
+            facts.set(
+              named,
+              yield* readRunbookFile(folder, named).pipe(Effect.provideContext(fileSystem)),
+            )
+          yield* session.filesChanged(facts)
+        })
+
+        /** What a session opened in `mode` runs to watch its runbook, if anything. */
+        const watcherOf = (file: string, mode: WatchMode) =>
+          mode === "off"
+            ? {}
+            : {
+                watch: (session: Session, held: () => ReadonlyMap<RunbookPath, FileFact>) =>
+                  watchSession(mode, {
+                    runbook: file,
+                    files: held,
+                    sequence: () => session.view().sequence,
+                    events: session.events,
+                    filesChanged: (paths) => filesChangedOf(session, paths),
+                    reload: (from) => reloadOf(session, from),
+                  }).pipe(Effect.provideContext(fileSystem)),
+              }
+
         /** Opens a session of the loaded runbook as `id`, resuming `saved` when there is one. */
         const opened = Effect.fnUntraced(function* (
           file: string,
           loaded: ParsedRunbook,
           saved: Option.Option<SavedSession>,
           id: SessionId,
+          watch: WatchMode,
         ) {
           const { document } = loaded
           const firstSequence = Option.match(saved, {
@@ -323,6 +369,9 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             resume: Option.map(saved, (found) => resumeOf(document, registry, found)),
             saver,
             firstSequence,
+            // For the session's lifetime. Opening its runbook again opens another
+            // session, in its own mode, and changes nothing of this one's.
+            ...watcherOf(file, watch),
           })
           sessions.set(session.id, session)
           // Trust comes back only for the content it was given for: `trust` refuses another hash.
@@ -363,7 +412,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               onSome: (found) => found.id,
             })
             return yield* Effect.ensuring(
-              opened(file, result, saved, id),
+              opened(file, result, saved, id, watch ?? "off"),
               Effect.sync(() => resuming.delete(id)),
             )
           }),
@@ -470,37 +519,12 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
             return yield* new UnknownApproval({ approval })
           }),
 
-          reloadRunbook: Effect.fn("Engine.reloadRunbook")(function* (session) {
-            const found = yield* lookup(session)
-            const loaded = yield* load(found.summary().path).pipe(
-              Effect.catchTag("RunbookUnreadable", ({ message }) =>
-                Effect.succeed({ _tag: "Unreadable", message } as const),
-              ),
-            )
-            switch (loaded._tag) {
-              case "Unreadable":
-                return loaded
-              case "Invalid":
-                return {
-                  _tag: "Invalid",
-                  errors: loaded.errors,
-                  warnings: loaded.warnings,
-                } as const
-              case "Parsed":
-                return yield* found.reload(loaded)
-            }
+          reloadRunbook: Effect.fn("Engine.reloadRunbook")(function* (session, from) {
+            return yield* reloadOf(yield* lookup(session), from)
           }),
 
           filesChanged: Effect.fn("Engine.filesChanged")(function* (session, paths) {
-            const found = yield* lookup(session)
-            const folder = path.dirname(found.summary().path)
-            const facts = new Map<RunbookPath, FileFact>()
-            for (const named of paths)
-              facts.set(
-                named,
-                yield* readRunbookFile(folder, named).pipe(Effect.provideContext(fileSystem)),
-              )
-            yield* found.filesChanged(facts)
+            yield* filesChangedOf(yield* lookup(session), paths)
           }),
         })
       }),
