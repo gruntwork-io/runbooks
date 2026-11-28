@@ -37,11 +37,13 @@ const runbooksTest = (runbook: string) => {
 }
 
 describe("runbooks test, on Inputs' testdata", () => {
-  it("finds the three runbooks", () => {
-    expect(nodeFs.readdirSync(TESTDATA).sort()).toEqual(["end-to-end", "path", "prefilled"])
+  const RUNBOOKS = ["all-types", "embedded", "end-to-end", "merge", "path", "prefilled"]
+
+  it("finds the six runbooks", () => {
+    expect(nodeFs.readdirSync(TESTDATA).sort()).toEqual(RUNBOOKS)
   })
 
-  for (const name of ["end-to-end", "path", "prefilled"])
+  for (const name of RUNBOOKS)
     it(`passes ${name}`, () => {
       const { code, out } = runbooksTest(nodePath.join(TESTDATA, name))
       expect(out).toContain("Results: 1 passed, 0 failed, 0 skipped")

@@ -1,0 +1,68 @@
+# Forms inside Commands
+
+Each Command here has a form of its own, inside it, with no Submit.
+
+`create_repo` needs an organization, which has no default, so it waits for one.
+
+<Command
+  id="create_repo"
+  env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+  outputs={["repo"]}
+  command={`echo "repo=$ORG/$REPO" >> "$RUNBOOK_OUTPUT"`}
+>
+<Inputs id="repo_inputs">
+```yaml
+variables:
+  - name: GithubOrgName
+    type: string
+    description: GitHub organization or username
+    validations:
+      - required
+  - name: RepoName
+    type: string
+    description: Repository name
+    default: my-next-app
+    validations:
+      - required
+```
+</Inputs>
+</Command>
+
+`scaffold` runs with its choices' defaults.
+
+<Command
+  id="scaffold"
+  env={{
+    LANGUAGE: "{{ .inputs.Language }}",
+    TAILWIND: "{{ .inputs.UseTailwind }}",
+    BUNDLER: "{{ .inputs.Bundler }}",
+    ALIAS: "{{ .inputs.ImportAlias }}",
+  }}
+  outputs={["options"]}
+  command={`echo "options=$LANGUAGE $TAILWIND $BUNDLER $ALIAS" >> "$RUNBOOK_OUTPUT"`}
+>
+<Inputs id="scaffold_options">
+```yaml
+variables:
+  - name: Language
+    type: enum
+    description: Programming language
+    options: [TypeScript, JavaScript]
+    default: TypeScript
+  - name: UseTailwind
+    type: enum
+    description: Include Tailwind CSS for styling
+    options: ["Yes", "No"]
+    default: "Yes"
+  - name: Bundler
+    type: enum
+    description: Development bundler
+    options: [Turbopack, Webpack]
+    default: Turbopack
+  - name: ImportAlias
+    type: string
+    description: Import alias for the project
+    default: "@/*"
+```
+</Inputs>
+</Command>

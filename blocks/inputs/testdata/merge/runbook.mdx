@@ -1,0 +1,35 @@
+# Merging forms
+
+`merged` reads two forms that both have `size`. The later form in its `inputsId` wins.
+
+<Inputs id="defaults">
+```yaml
+variables:
+  - name: color
+    type: string
+    description: Favorite color
+    default: blue
+  - name: size
+    type: string
+    description: T-shirt size
+    default: medium
+```
+</Inputs>
+
+<Inputs id="overrides">
+```yaml
+variables:
+  - name: size
+    type: string
+    description: T-shirt size, which wins
+    default: large
+```
+</Inputs>
+
+<Command
+  id="merged"
+  inputsId={["defaults", "overrides"]}
+  env={{ COLOR: "{{ .inputs.color }}", SIZE: "{{ .inputs.size }}" }}
+  outputs={["picked"]}
+  command={`echo "picked=$COLOR/$SIZE" >> "$RUNBOOK_OUTPUT"`}
+/>

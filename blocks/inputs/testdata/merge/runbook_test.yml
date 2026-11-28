@@ -1,0 +1,20 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: merge
+    inputs:
+      defaults.size: small
+    steps:
+      - block: defaults
+        expect: success
+      - block: overrides
+        expect: success
+      - block: merged
+        expect: success
+        assertions:
+          - type: output_equals
+            block: merged
+            output: picked
+            value: blue/large
