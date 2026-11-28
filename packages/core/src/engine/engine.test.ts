@@ -2548,6 +2548,7 @@ describe("a form's readers", () => {
         expect(view.instruction?.[0]).toEqual({
           kind: "text",
           markdown: "region=us-east-1 count=3",
+          tree: expect.anything(),
         })
       }),
     )
@@ -2568,7 +2569,8 @@ describe("a form's readers", () => {
         yield* rb.trust
         const shown = Effect.map(rb.block("show"), (view) => view.instruction?.[0])
         const deploy = Effect.andThen(rb.run("deploy"), rb.wait("deploy"))
-        const says = (markdown: string) => ({ kind: "text", markdown }) as const
+        const says = (markdown: string) =>
+          ({ kind: "text", markdown, tree: expect.anything() }) as const
 
         yield* rb.set("config", { region: "eu-west-1" })
         expect(yield* shown).toEqual(says("region=us-east-1 count=3"))
