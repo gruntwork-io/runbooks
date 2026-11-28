@@ -54,6 +54,7 @@ function installApi(handlers: Handlers = {}) {
     "google:check-project": () => ({ enabled: true }),
     "google:credential-committed": () => ({ ok: true }),
     "google:oauth-cancel": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "native:open-external": () => ({ ok: true }),
     ...handlers,
   })
@@ -101,8 +102,8 @@ function outputs(over: Partial<Record<string, string>> = {}): Record<string, str
  * credential file WITHDRAWS the previous outputs up front (see
  * `invalidateBlockOutputs`), so `registerOutputs` legitimately fires before the
  * flow resolves. What must never happen is a `__AUTHENTICATED: 'true'` while the
- * credential is unresolved — that is what leaves a `<Command googleAuthId>`
- * injecting a path MAIN has already superseded.
+ * credential is unresolved — that is what leaves the outputs naming a path
+ * MAIN has already superseded.
  */
 function expectNoAuthenticatedPublish(spy: ReturnType<typeof vi.fn>) {
   for (const [, values] of spy.mock.calls) {
@@ -305,8 +306,8 @@ describe("useGoogleAuth — detection", () => {
         GOOGLE_AUTH_TYPE: "authorized_user",
       }),
     )
-    // MAIN owns every credential write; the renderer never touches session env.
-    expect(invoke).not.toHaveBeenCalledWith("session:set-env", expect.anything())
+    // MAIN owns every credential write; the renderer never sends an export.
+    expect(invoke).not.toHaveBeenCalledWith("session:set-env-export", expect.anything())
   })
 
   it("confirming a gcloud detection publishes the region/zone MAIN took from the configuration", async () => {
@@ -623,7 +624,7 @@ describe("useGoogleAuth — service account tab", () => {
       blockId: "gcp",
       projectId: "proj-x",
     })
-    expect(invoke).not.toHaveBeenCalledWith("session:set-env", expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith("session:set-env-export", expect.anything())
   })
 
   /**
@@ -683,8 +684,8 @@ describe("useGoogleAuth — service account tab", () => {
       projectId: "user-proj",
       registerSession: true,
     })
-    // The outputs (what a `googleAuthId` step injects) name the same project as
-    // the session env MAIN wrote (what a bare step inherits).
+    // The outputs name the same project as the export MAIN recorded (what a
+    // script that names the block in envFrom runs with).
     expect(registerOutputs).toHaveBeenCalledWith("gcp", saOutputs(projectOutputs("user-proj")))
     expect(result.current.accountInfo?.projectId).toBe("user-proj")
     expect(invoke).toHaveBeenCalledWith("google:check-project", {
@@ -2185,7 +2186,7 @@ describe("useGoogleAuth — post-authentication", () => {
     act(() => result.current.handleCancelProjectSelect())
 
     // Backing out of the picker is not a re-authentication: the credential and
-    // the outputs a `<Command googleAuthId>` injects are exactly as they were.
+    // the block's outputs are exactly as they were.
     expect(result.current.authStatus).toBe("authenticated")
     expect(result.current.accountInfo).toEqual(accountBefore)
     expect(result.current.errorMessage).toBeNull()
@@ -2326,7 +2327,7 @@ describe("useGoogleAuth — post-authentication", () => {
 
   it("re-authenticating WITHDRAWS the published credential path, not just the card", async () => {
     // The regression. The card going blue used to leave the block's outputs
-    // standing, so a `<Command googleAuthId>` kept injecting
+    // standing, so a step kept getting
     // GOOGLE_APPLICATION_CREDENTIALS for a file MAIN released the moment the
     // next sign-in materialised its replacement — and because the Run button
     // reads `__AUTHENTICATED`, it stayed enabled the whole time. gcloud then
@@ -2364,6 +2365,8 @@ describe("useGoogleAuth — post-authentication", () => {
     // The path is gone from the outputs, and the marker that gates the Run
     // button went with it.
     expect(registerOutputs).toHaveBeenLastCalledWith("gcp", { __AUTHENTICATED: "false" })
+    // So is the export, which scripts that name the block in envFrom run with
+    expect(callsTo("session:clear-env-export")).toContainEqual({ componentId: "gcp" })
   })
 
   it("tells MAIN which credential it committed, so the superseded file can be zeroed", async () => {

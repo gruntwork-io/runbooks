@@ -33,7 +33,6 @@ const SOURCE_LABELS: Record<GitHostEntry["sources"][number], string> = {
   gh: "gh",
   glab: "glab",
   env: "env",
-  session: "session",
   recent: "recent",
 }
 

@@ -16,6 +16,9 @@ const defaultScriptExecution = {
   envTemplates: {} as Record<string, string>,
   envVars: [] as Array<{ name: string; value: string }>,
   envError: null as string | null,
+  envFrom: [] as readonly string[],
+  envFromError: null as string | null,
+  unsignedEnvFrom: [] as string[],
   workingDirTemplate: "",
   workingDirError: null as string | null,
   interpreter: "",
@@ -30,14 +33,6 @@ const defaultScriptExecution = {
   unmetOutputDependencies: [],
   hasAllOutputDependencies: true,
   templateContext: { inputs: {}, outputs: {} },
-  unmetAwsAuthDependency: null as { blockId: string } | null,
-  hasAwsAuthDependency: true,
-  unmetGitHubAuthDependency: null as { blockId: string } | null,
-  hasGitHubAuthDependency: true,
-  unmetGoogleAuthDependency: null as { blockId: string } | null,
-  hasGoogleAuthDependency: true,
-  unmetAzureAuthDependency: null as { blockId: string } | null,
-  hasAzureAuthDependency: true,
   isRendering: false,
   renderError: null as { message: string; details?: string } | null,
   status: "pending" as string,
@@ -415,14 +410,9 @@ describe("Command", () => {
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
   })
 
-  // An auth block supplies credentials, never `.inputs` values, so referencing
-  // one doesn't stand in for an Inputs configuration.
-  it.each([
-    ["awsAuthId", { awsAuthId: "aws-auth" }],
-    ["githubAuthId", { githubAuthId: "gh-auth" }],
-    ["gitAuthId", { gitAuthId: "git-auth" }],
-    ["googleAuthId", { googleAuthId: "gcp-auth" }],
-  ])("shows Configuration Required for input references with only %s", (_prop, authProps) => {
+  // An auth block supplies credentials, never `.inputs` values, so naming one
+  // in envFrom doesn't stand in for an Inputs configuration.
+  it("shows Configuration Required for input references with only an envFrom", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
       inputDependencies: ["region"],
@@ -430,7 +420,7 @@ describe("Command", () => {
       execute: vi.fn(),
       cancel: vi.fn(),
     }
-    renderCommand(authProps)
+    renderCommand({ envFrom: ["aws-auth"] })
     expect(screen.getByText(/Configuration Required/)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
   })
@@ -446,55 +436,57 @@ describe("Command", () => {
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
   })
 
-  it("disables Run when AWS auth dependency is unmet", () => {
+  it("disables Run and names the envFrom blocks that haven't signed in", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
-      hasAwsAuthDependency: false,
-      unmetAwsAuthDependency: { blockId: "aws-auth" },
+      envFrom: ["aws-auth", "gh-auth"],
+      unsignedEnvFrom: ["aws-auth", "gh-auth"],
       execute: vi.fn(),
       cancel: vi.fn(),
     }
-    renderCommand({ awsAuthId: "aws-auth" })
+    renderCommand({ envFrom: ["aws-auth", "gh-auth"] })
     expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
+    const warning = screen.getByText(/Waiting for/).closest("div")!
+    expect(warning).toHaveTextContent("Waiting for aws-auth, gh-auth to sign in.")
   })
 
-  it("disables Run when GitHub auth dependency is unmet", () => {
+  it("enables Run once every envFrom block has signed in, and lists them", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
-      hasGitHubAuthDependency: false,
-      unmetGitHubAuthDependency: { blockId: "gh-auth" },
+      envFrom: ["aws-auth", "gh-auth"],
       execute: vi.fn(),
       cancel: vi.fn(),
     }
-    renderCommand({ githubAuthId: "gh-auth" })
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
+    renderCommand({ envFrom: ["aws-auth", "gh-auth"] })
+    expect(screen.getByRole("button", { name: "Run" })).toBeEnabled()
+    expect(screen.queryByText(/Waiting for/)).toBeNull()
+    expect(screen.getByTestId("test-cmd-env-from")).toHaveTextContent("aws-auth, gh-auth")
   })
 
-  it("disables Run and warns when the Google Cloud auth dependency is unmet", () => {
+  it("shows why an envFrom prop isn't valid, with no Run button", () => {
     mockScriptExecution = {
       ...defaultScriptExecution,
-      hasGoogleAuthDependency: false,
-      unmetGoogleAuthDependency: { blockId: "gcp-auth" },
+      envFromError: 'envFrom names "aws" more than once.',
       execute: vi.fn(),
       cancel: vi.fn(),
     }
-    renderCommand({ googleAuthId: "gcp-auth" })
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
-    expect(screen.getByText(/Waiting for Google Cloud authentication/)).toBeInTheDocument()
+    renderCommand()
+    expect(screen.getByText(/envFrom names "aws" more than once\./)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
   })
 
-  it("disables Run and warns when the Azure auth dependency is unmet", () => {
-    mockScriptExecution = {
-      ...defaultScriptExecution,
-      hasAzureAuthDependency: false,
-      unmetAzureAuthDependency: { blockId: "azure-auth" },
-      execute: vi.fn(),
-      cancel: vi.fn(),
-    }
-    renderCommand({ azureAuthId: "azure-auth" })
-    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled()
-    expect(screen.getByText(/Waiting for Azure authentication/)).toBeInTheDocument()
-  })
+  it.each(["awsAuthId", "githubAuthId", "gitAuthId", "googleAuthId", "azureAuthId"])(
+    "shows that %s isn't supported and names the envFrom to use, with no Run button",
+    (prop) => {
+      renderCommand({ [prop]: "cloud-auth" } as Partial<React.ComponentProps<typeof Command>>)
+      expect(
+        screen.getByText(
+          `Runbooks doesn't support the ${prop} prop. Name the block in envFrom instead: envFrom={["cloud-auth"]}.`,
+        ),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Run" })).toBeNull()
+    },
+  )
 
   // --- Script metadata ---
 

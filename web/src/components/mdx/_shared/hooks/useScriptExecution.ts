@@ -24,12 +24,7 @@ import {
   type BlockOutput,
   type TemplateContext,
 } from "@/lib/templateUtils"
-import {
-  revealOutput,
-  revealOutputs,
-  type OutputValue,
-  type OutputValues,
-} from "@/lib/outputValues"
+import type { OutputValue, OutputValues } from "@/lib/outputValues"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { AppError } from "@/types/error"
 import { createAppError } from "@/types/error"
@@ -46,15 +41,8 @@ import {
 } from "../lib/outputOverrides"
 import type { ScriptFileChange } from "../../../../../../electron/shared/channels.ts"
 import {
-  AWS_AUTH_ENV_VARS,
-  GIT_AUTH_ENV_VARS,
-  GITHUB_AUTH_ENV_VARS,
-  GOOGLE_AUTH_ENV_VARS,
-  AZURE_AUTH_ENV_VARS,
-} from "../../../../../../src/domain/exec/authEnv.ts"
-import { AZURE_CREDENTIAL_ENV_VARS } from "../../../../../../src/domain/azure/env.ts"
-import {
   parseBlockEnv,
+  parseBlockEnvFrom,
   parseBlockInterpreter,
   parseBlockWorkingDir,
   sameBlockEnv,
@@ -67,16 +55,6 @@ interface UseScriptExecutionProps {
   command?: string | undefined
   /** Reference to one or more Inputs by ID. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). */
   inputsId?: string | string[] | undefined
-  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables for this execution only. */
-  awsAuthId?: string | undefined
-  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables for this execution only. */
-  githubAuthId?: string | undefined
-  /** Reference to a GitAuth block by ID (GitHub or GitLab). Whichever token/user vars the referenced block emitted (GITHUB_* or GITLAB_*) are passed as environment variables for this execution only. */
-  gitAuthId?: string | undefined
-  /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credential path and project/region/zone vars are passed as environment variables for this execution only. */
-  googleAuthId?: string | undefined
-  /** Reference to an AzureAuth block by ID. The block's AZURE_CONFIG_DIR, tenant, subscription and service principal vars are passed as environment variables for this execution only. */
-  azureAuthId?: string | undefined
   children?: ReactNode
   componentType: ComponentType
   /** Whether to use PTY (pseudo-terminal) for script execution. Defaults to true. Set to false to use pipes instead, which may be needed for scripts that don't work well with PTY. */
@@ -85,6 +63,8 @@ interface UseScriptExecutionProps {
   timeoutMs?: number | undefined
   /** The block's `env` prop, as the runbook gives it: checked here (see blockEnv.ts). */
   env?: unknown
+  /** The block's `envFrom` prop, as the runbook gives it: checked here (see blockEnv.ts). */
+  envFrom?: unknown
   /** The block's `workingDir` prop, as the runbook gives it: checked here (see blockEnv.ts). */
   workingDir?: unknown
   /** The block's `interpreter` prop, as the runbook gives it: checked here against the script (see blockEnv.ts). */
@@ -92,102 +72,7 @@ interface UseScriptExecutionProps {
 }
 
 const NO_ENV: BlockEnv = {}
-
-/** Information about an unmet auth dependency (AWS or GitHub) */
-export interface UnmetAuthDependency {
-  blockId: string
-}
-
-/**
- * Pure function: checks whether an auth dependency is satisfied.
- * Returns null if met (no authId, has env vars, or has __AUTHENTICATED marker),
- * or { blockId } if unmet.
- */
-export function checkAuthDependency(
-  authId: string | undefined,
-  envVars: Record<string, string> | undefined,
-  allOutputs: Record<string, { values: OutputValues }>,
-  /**
-   * Skip the `envVars`-non-empty short-circuit and let ONLY the
-   * `__AUTHENTICATED` marker satisfy the dependency.
-   *
-   * Google needs this. `buildGoogleAuthEnvVars` force-emits
-   * `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` even when blank (see its comment),
-   * so `envVars` is NEVER empty for a `googleAuthId` — the short-circuit below
-   * fires unconditionally and the marker is never read. That made the gate
-   * one-way: once a block had authenticated, no later state could re-close it,
-   * including a re-authentication that replaced the credential file the
-   * previously published outputs still named.
-   */
-  markerOnly = false,
-): UnmetAuthDependency | null {
-  if (!authId) return null
-  if (!markerOnly && envVars && Object.keys(envVars).length > 0) return null
-
-  const normalizedId = normalizeBlockId(authId)
-  const blockOutputs = allOutputs[normalizedId]
-  if (blockOutputs?.values?.__AUTHENTICATED === "true") return null
-
-  return { blockId: authId }
-}
-
-/**
- * Pure helper: collect the given env-var keys from an auth block's outputs.
- * Returns undefined when no block is referenced, the block has no outputs, or
- * none of the requested keys have a non-empty value.
- */
-export function buildAuthEnvVars(
-  blockId: string | undefined,
-  allOutputs: Record<string, { values: OutputValues }>,
-  keys: readonly string[],
-): Record<string, string> | undefined {
-  if (!blockId) return undefined
-  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
-  if (!blockOutputs?.values) return undefined
-  // The env vars are the credentials themselves, so sensitive outputs pass their real values
-  const values: Partial<Record<string, string>> = revealOutputs(blockOutputs.values)
-  const envVars: Record<string, string> = {}
-  for (const key of keys) {
-    const value = values[key]
-    if (value && value !== "") {
-      envVars[key] = value
-    }
-  }
-  return Object.keys(envVars).length > 0 ? envVars : undefined
-}
-
-/**
- * Google's analogue of AWS's AWS_SESSION_TOKEN handling: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE
- * bridges GOOGLE_APPLICATION_CREDENTIALS to the gcloud CLI's own credential store, and must be
- * re-emitted even blank rather than dropped by the generic buildAuthEnvVars. A bare access-token
- * credential has no file to bridge with, so its own outputs carry this key blank — but omitting it
- * here would fall through to whatever value a DIFFERENT GoogleAuth block left in the shared session
- * env, silently routing a bare `gcloud` call through a credential this block never authenticated.
- */
-export function buildGoogleAuthEnvVars(
-  blockId: string | undefined,
-  allOutputs: Record<string, { values: OutputValues }>,
-): Record<string, string> | undefined {
-  if (!blockId) return undefined
-  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
-  if (!blockOutputs?.values) return undefined
-  const envVars = buildAuthEnvVars(blockId, allOutputs, GOOGLE_AUTH_ENV_VARS) ?? {}
-  envVars.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE =
-    revealOutput(blockOutputs.values.CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE) || ""
-  return envVars
-}
-
-export function buildAzureAuthEnvVars(
-  blockId: string | undefined,
-  allOutputs: Record<string, { values: OutputValues }>,
-): Record<string, string> | undefined {
-  if (!blockId) return undefined
-  const blockOutputs = allOutputs[normalizeBlockId(blockId)]
-  if (!blockOutputs?.values) return undefined
-  const envVars = buildAuthEnvVars(blockId, allOutputs, AZURE_AUTH_ENV_VARS) ?? {}
-  for (const name of AZURE_CREDENTIAL_ENV_VARS) envVars[name] ??= ""
-  return envVars
-}
+const NO_ENV_FROM: readonly string[] = []
 
 /**
  * The details under an env render error when the env uses a sensitive
@@ -222,6 +107,12 @@ interface UseScriptExecutionReturn {
   envVars: EnvVar[]
   /** Why the env prop isn't valid, or null when it is. */
   envError: string | null
+  /** The auth blocks the envFrom prop names, in order; none when unset or not valid. */
+  envFrom: readonly string[]
+  /** Why the envFrom prop isn't valid, or null when it is. */
+  envFromError: string | null
+  /** The envFrom blocks that haven't signed in, in envFrom's order. Run waits for them. */
+  unsignedEnvFrom: string[]
   /** The block's workingDir prop as written, templates included; "" when unset or not valid. */
   workingDirTemplate: string
   /** Why the workingDir prop isn't valid, or null when it is. */
@@ -251,21 +142,6 @@ interface UseScriptExecutionReturn {
 
   // Template context for prop resolution by callers
   templateContext: TemplateContext
-
-  // AWS Auth dependency
-  unmetAwsAuthDependency: UnmetAuthDependency | null
-  hasAwsAuthDependency: boolean
-
-  // GitHub Auth dependency
-  unmetGitHubAuthDependency: UnmetAuthDependency | null
-  hasGitHubAuthDependency: boolean
-
-  // Google Cloud Auth dependency
-  unmetGoogleAuthDependency: UnmetAuthDependency | null
-  hasGoogleAuthDependency: boolean
-
-  unmetAzureAuthDependency: UnmetAuthDependency | null
-  hasAzureAuthDependency: boolean
 
   // Rendering
   isRendering: boolean
@@ -307,16 +183,12 @@ export function useScriptExecution({
   path,
   command,
   inputsId,
-  awsAuthId,
-  githubAuthId,
-  gitAuthId,
-  googleAuthId,
-  azureAuthId,
   children,
   componentType,
   usePty,
   timeoutMs,
   env,
+  envFrom: envFromProp,
   workingDir,
   interpreter: interpreterProp,
 }: UseScriptExecutionProps): UseScriptExecutionReturn {
@@ -422,6 +294,15 @@ export function useScriptExecution({
   const envTemplates = parsedEnv.ok ? parsedEnv.env : NO_ENV
   const envError = parsedEnv.ok ? null : parsedEnv.error
 
+  // Keyed by its JSON, like env
+  const envFromKey = envFromProp === undefined ? "" : JSON.stringify(envFromProp)
+  const parsedEnvFrom = useMemo(
+    () => parseBlockEnvFrom(envFromKey === "" ? undefined : JSON.parse(envFromKey)),
+    [envFromKey],
+  )
+  const envFrom = parsedEnvFrom.ok ? parsedEnvFrom.envFrom : NO_ENV_FROM
+  const envFromError = parsedEnvFrom.ok ? null : parsedEnvFrom.error
+
   const parsedWorkingDir = parseBlockWorkingDir(workingDir)
   const workingDirTemplate = parsedWorkingDir.ok ? parsedWorkingDir.workingDir : ""
   const workingDirError = parsedWorkingDir.ok ? null : parsedWorkingDir.error
@@ -482,8 +363,9 @@ export function useScriptExecution({
     const executable = getExecutableByComponentId(componentId)
     if (!executable?.contentHash) return false
 
-    // Run uses the registry's env, workingDir and interpreter, so a changed prop has drifted too
+    // Run uses the registry's env, envFrom, workingDir and interpreter, so a changed prop has drifted too
     if (!sameBlockEnv(executable.env ?? NO_ENV, envTemplates)) return true
+    if (!sameIds(executable.envFrom ?? NO_ENV_FROM, envFrom)) return true
     if (executable.workingDir !== workingDirTemplate) return true
     if (executable.interpreter !== interpreter) return true
 
@@ -507,6 +389,7 @@ export function useScriptExecution({
     componentId,
     getExecutableByComponentId,
     envTemplates,
+    envFrom,
     workingDirTemplate,
     interpreter,
   ])
@@ -578,97 +461,15 @@ export function useScriptExecution({
   const hasAllInputDependencies = unmetInputDependencies.length === 0
   const hasAllOutputDependencies = unmetOutputDependencies.length === 0
 
-  // Get all block outputs from context for auth credentials and sensitive outputs
+  // Get all block outputs from context for envFrom sign-ins and sensitive outputs
   const allOutputs = useAllOutputs()
 
-  // Get AWS auth credentials from outputs if awsAuthId is specified
-  // These will be passed as per-execution env vars (overriding session env)
-  const awsAuthEnvVars = useMemo((): Record<string, string> | undefined => {
-    if (!awsAuthId) return undefined
-
-    const normalizedId = normalizeBlockId(awsAuthId)
-    const blockOutputs = allOutputs[normalizedId]
-
-    if (!blockOutputs?.values) return undefined
-
-    // The env vars are the credentials themselves, so sensitive outputs pass their real values
-    const values: Partial<Record<string, string>> = revealOutputs(blockOutputs.values)
-
-    // Check if we have the minimum required credentials (access key + secret)
-    const accessKeyId = values.AWS_ACCESS_KEY_ID
-    const secretAccessKey = values.AWS_SECRET_ACCESS_KEY
-    if (!accessKeyId || !secretAccessKey) return undefined
-
-    // Return credentials as env vars
-    // IMPORTANT: We include AWS_SESSION_TOKEN even if empty to explicitly clear any
-    // session token that might be in the session environment from a different auth block.
-    // Without this, using IAM user credentials (no session token) after SSO credentials
-    // (which have a session token) would result in InvalidToken errors.
-    const envVars = {
-      AWS_ACCESS_KEY_ID: accessKeyId,
-      AWS_SECRET_ACCESS_KEY: secretAccessKey,
-      AWS_REGION: values.AWS_REGION || "",
-      AWS_SESSION_TOKEN: values.AWS_SESSION_TOKEN || "",
-    } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
-
-    return envVars
-  }, [awsAuthId, allOutputs])
-
-  const unmetAwsAuthDependency = useMemo(
-    () => checkAuthDependency(awsAuthId, awsAuthEnvVars, allOutputs),
-    [awsAuthId, awsAuthEnvVars, allOutputs],
-  )
-  const hasAwsAuthDependency = unmetAwsAuthDependency === null
-
-  // Get GitHub auth credentials from outputs if githubAuthId is specified
-  // These will be passed as per-execution env vars (overriding session env)
-  const githubAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(githubAuthId, allOutputs, GITHUB_AUTH_ENV_VARS),
-    [githubAuthId, allOutputs],
-  )
-
-  // Get git auth credentials from outputs if gitAuthId is specified. Unlike
-  // githubAuthId (GitHub only), this is provider-agnostic: it passes through
-  // whichever token/user vars the referenced GitAuth block emitted, so a GitLab
-  // block's GITLAB_TOKEN/GITLAB_USER reach the spawned process under the right
-  // names.
-  const gitAuthEnvVars = useMemo(
-    () => buildAuthEnvVars(gitAuthId, allOutputs, GIT_AUTH_ENV_VARS),
-    [gitAuthId, allOutputs],
-  )
-
-  // A block referencing either a GitHubAuth (githubAuthId) or a GitAuth
-  // (gitAuthId) block is gated until that reference is satisfied. The combined
-  // result drives the existing UnmetGitHubAuthDependency UI.
-  const unmetGitHubAuthDependency = useMemo(
+  // An auth block marks its outputs `__AUTHENTICATED` while it's signed in
+  const unsignedEnvFrom = useMemo(
     () =>
-      checkAuthDependency(githubAuthId, githubAuthEnvVars, allOutputs) ??
-      checkAuthDependency(gitAuthId, gitAuthEnvVars, allOutputs),
-    [githubAuthId, githubAuthEnvVars, gitAuthId, gitAuthEnvVars, allOutputs],
+      envFrom.filter((id) => allOutputs[normalizeBlockId(id)]?.values?.__AUTHENTICATED !== "true"),
+    [envFrom, allOutputs],
   )
-  const hasGitHubAuthDependency = unmetGitHubAuthDependency === null
-
-  // Get Google Cloud credentials from outputs if googleAuthId is specified.
-  const googleAuthEnvVars = useMemo(
-    () => buildGoogleAuthEnvVars(googleAuthId, allOutputs),
-    [googleAuthId, allOutputs],
-  )
-
-  const unmetGoogleAuthDependency = useMemo(
-    () => checkAuthDependency(googleAuthId, googleAuthEnvVars, allOutputs, true),
-    [googleAuthId, googleAuthEnvVars, allOutputs],
-  )
-  const hasGoogleAuthDependency = unmetGoogleAuthDependency === null
-
-  const azureAuthEnvVars = useMemo(
-    () => buildAzureAuthEnvVars(azureAuthId, allOutputs),
-    [azureAuthId, allOutputs],
-  )
-  const unmetAzureAuthDependency = useMemo(
-    () => checkAuthDependency(azureAuthId, azureAuthEnvVars, allOutputs, true),
-    [azureAuthId, azureAuthEnvVars, allOutputs],
-  )
-  const hasAzureAuthDependency = unmetAzureAuthDependency === null
 
   // Whether the env's render shows a sensitive output as <redacted> (see the
   // render effect below)
@@ -959,16 +760,6 @@ export function useScriptExecution({
       outputs: revealTemplateOutputs(applyOverrides(ctx.outputs, outputOverrides)),
     }
 
-    // Merge AWS, GitHub, generic Git, Google Cloud and Azure auth env vars
-    const authEnvVars = {
-      ...awsAuthEnvVars,
-      ...githubAuthEnvVars,
-      ...gitAuthEnvVars,
-      ...googleAuthEnvVars,
-      ...azureAuthEnvVars,
-    }
-    const mergedAuthEnvVars = Object.keys(authEnvVars).length > 0 ? authEnvVars : undefined
-
     // Look up the executable in the registry and run it by executable ID
     const executable = getExecutableByComponentId(componentId)
 
@@ -986,7 +777,7 @@ export function useScriptExecution({
       return
     }
 
-    executeScript(executable.id, processedVariables, mergedAuthEnvVars, usePty, timeoutMs)
+    executeScript(executable.id, processedVariables, usePty, timeoutMs)
   }, [
     executeScript,
     componentId,
@@ -994,11 +785,6 @@ export function useScriptExecution({
     allInputsIds,
     getTemplateContext,
     outputOverrides,
-    awsAuthEnvVars,
-    githubAuthEnvVars,
-    gitAuthEnvVars,
-    googleAuthEnvVars,
-    azureAuthEnvVars,
     usePty,
     timeoutMs,
   ])
@@ -1029,6 +815,9 @@ export function useScriptExecution({
     envTemplates,
     envVars,
     envError,
+    envFrom,
+    envFromError,
+    unsignedEnvFrom,
     workingDirTemplate,
     workingDirError,
     interpreter,
@@ -1049,20 +838,6 @@ export function useScriptExecution({
 
     // Template context for prop resolution
     templateContext,
-
-    // AWS Auth dependency
-    unmetAwsAuthDependency,
-    hasAwsAuthDependency,
-
-    // GitHub Auth dependency
-    unmetGitHubAuthDependency,
-    hasGitHubAuthDependency,
-
-    // Google Cloud Auth dependency
-    unmetGoogleAuthDependency,
-    hasGoogleAuthDependency,
-    unmetAzureAuthDependency,
-    hasAzureAuthDependency,
 
     // Rendering
     isRendering,
@@ -1102,4 +877,9 @@ function getRenderMode(
 /** Reports whether the mode shows the env as written and drops any rendered one. */
 function discardsRender(mode: RenderMode): boolean {
   return mode === "raw" || mode === "awaiting-outputs"
+}
+
+/** Whether two lists name the same ids in the same order. */
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => b[i] === id)
 }

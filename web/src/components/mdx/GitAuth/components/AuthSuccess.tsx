@@ -13,15 +13,12 @@ interface AuthSuccessProps {
   detectedTokenType?: GitTokenType | null | undefined
   /** The token lacks the provider's required scope (copy from provider.success). */
   missingScope?: boolean | undefined
-  sessionEnvWarning?: string | null | undefined
   /** The host authenticated against; shown so multi-host users see which instance. */
   host?: string | undefined
   /** Provenance for the source line + transport line. */
   successMeta?: GitSuccessMeta | null | undefined
   /** both-set-and-differ env hint, rendered verbatim. */
   divergenceHint?: string | null | undefined
-  /** another block replaced this provider's session credential. */
-  sessionStale?: boolean | undefined
   /** Windows git TLS backend (vcs:cli-status; win32 only) — drives the schannel suggestion. */
   gitSslBackend?: string | undefined
   /** Explicit, consented one-click `git config --global http.sslBackend schannel`. */
@@ -61,11 +58,9 @@ export function AuthSuccess({
   detectedScopes,
   detectedTokenType,
   missingScope,
-  sessionEnvWarning,
   host,
   successMeta,
   divergenceHint,
-  sessionStale,
   gitSslBackend,
   onApplySchannel,
   onReAuthenticate,
@@ -131,12 +126,6 @@ export function AuthSuccess({
             GitHub Apps use installation-level permission grants instead of OAuth scopes. Access is
             scoped to the repositories the app is installed on.
           </div>
-          {sessionEnvWarning && (
-            <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
-              <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
-              <div className="min-w-0">{sessionEnvWarning}</div>
-            </div>
-          )}
         </div>
         {onReAuthenticate && (
           <div className="mt-3">
@@ -189,22 +178,6 @@ export function AuthSuccess({
           </span>
         )}
       </div>
-
-      {/* the session holds ONE credential per provider — when a
-          later block authenticated a different host, this card must not imply
-          its credential is still active. */}
-      {sessionStale && (
-        <div
-          data-testid="stale-session-warning"
-          className="mb-2 bg-warning-muted border border-warning/30 rounded p-2 text-xs text-warning-foreground flex items-start gap-2"
-        >
-          <AlertTriangle className="size-3.5 mt-0.5 flex-shrink-0" />
-          <span>
-            Another {provider.label} block authenticated a different host afterwards, replacing this
-            session credential. Re-authenticate to use {host ?? provider.label} again.
-          </span>
-        </div>
-      )}
 
       {transportLine && (
         <div
@@ -353,12 +326,6 @@ export function AuthSuccess({
                 </>
               )}
             </div>
-          </div>
-        )}
-        {sessionEnvWarning && (
-          <div className="mt-3 pt-3 border-t border-success/30 flex items-start gap-2 text-warning text-xs">
-            <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" />
-            <div className="min-w-0">{sessionEnvWarning}</div>
           </div>
         )}
       </div>

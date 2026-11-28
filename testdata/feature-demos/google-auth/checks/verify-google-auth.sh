@@ -5,7 +5,7 @@
 #   exit 0  credentials are present AND verified against Google
 #   exit 2  credentials are present and well-formed, but could not be verified
 #           (no network, no curl/jq/openssl, no gcloud)
-#   exit 1  no usable credentials in the session environment
+#   exit 1  no usable credentials in the environment
 #
 set -euo pipefail
 
@@ -20,7 +20,7 @@ project="${CLOUDSDK_CORE_PROJECT:-${GOOGLE_CLOUD_PROJECT:-${GOOGLE_PROJECT:-}}}"
 # --- 1. Is there a credential at all? ----------------------------------------
 
 if [ -z "$creds" ] && [ -z "$token" ]; then
-  echo "No Google Cloud credentials found in the session environment."
+  echo "No Google Cloud credentials found in the environment."
   echo "Expected GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_OAUTH_ACCESS_TOKEN, or"
   echo "CLOUDSDK_AUTH_ACCESS_TOKEN. Authenticate with the <GoogleAuth> block first."
   exit 1

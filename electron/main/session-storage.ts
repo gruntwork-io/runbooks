@@ -14,7 +14,7 @@ import { Effect } from "effect"
 import { SessionPersistence, type SessionCipher } from "../../src/domain/session/persistence.ts"
 import { SessionStore } from "../../src/domain/session/store.ts"
 import { sessionManager } from "./ipc/runtime.ts"
-import { GOOGLE_CREDENTIAL_FILE_ENV_VARS } from "./ipc/google-session-env.ts"
+import { GOOGLE_CREDENTIAL_FILE_ENV_VARS } from "./ipc/google-env-export.ts"
 import { openSqliteDatabase } from "../../src/layers/NodeSqlite.ts"
 import { makeLogger } from "./logger.ts"
 

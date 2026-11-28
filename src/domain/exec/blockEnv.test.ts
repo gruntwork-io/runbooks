@@ -4,8 +4,10 @@ import {
   exportLines,
   isStartupEnvVar,
   parseBlockEnv,
+  parseBlockEnvFrom,
   parseBlockInterpreter,
   parseBlockWorkingDir,
+  replacedAuthPropError,
   sameBlockEnv,
   shellQuote,
 } from "./blockEnv.ts"
@@ -138,6 +140,40 @@ describe("parseBlockWorkingDir", () => {
 
   it.each([3, "", null])("refuses %j", (value) => {
     expect(parseBlockWorkingDir(value).ok).toBe(false)
+  })
+})
+
+describe("parseBlockEnvFrom", () => {
+  it("takes the block ids in order, or none", () => {
+    expect(parseBlockEnvFrom(undefined)).toEqual({ ok: true, envFrom: [] })
+    expect(parseBlockEnvFrom(["gh", "aws_prod"])).toEqual({ ok: true, envFrom: ["gh", "aws_prod"] })
+  })
+
+  it.each(["aws_prod", { aws: true }, [1], [""], ["  "], null])("refuses %j", (value) => {
+    expect(parseBlockEnvFrom(value)).toEqual({
+      ok: false,
+      error: 'The envFrom prop must be a list of block ids, such as envFrom={["aws_prod"]}.',
+    })
+  })
+
+  it("refuses an id named twice", () => {
+    expect(parseBlockEnvFrom(["aws", "gh", "aws"])).toEqual({
+      ok: false,
+      error: 'envFrom names "aws" more than once.',
+    })
+  })
+})
+
+describe("replacedAuthPropError", () => {
+  it("names envFrom with the block the prop named", () => {
+    expect(replacedAuthPropError({ command: "aws s3 ls", awsAuthId: "aws_prod" })).toBe(
+      'Runbooks doesn\'t support the awsAuthId prop. Name the block in envFrom instead: envFrom={["aws_prod"]}.',
+    )
+    expect(replacedAuthPropError({ githubAuthId: 3 })).toContain('envFrom={["<block id>"]}')
+  })
+
+  it("has nothing to say about a block without one", () => {
+    expect(replacedAuthPropError({ command: "ls", envFrom: ["aws"] })).toBeNull()
   })
 })
 

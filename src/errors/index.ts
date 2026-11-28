@@ -183,10 +183,8 @@ export class SessionStoreError extends Data.TaggedError("SessionStoreError")<{
   readonly cause?: unknown
 }> {}
 
-/** The session has no credential it may send to the requested host. */
-export class MissingSessionCredentialError extends Data.TaggedError(
-  "MissingSessionCredentialError",
-)<{
+/** No auth block a block's envFrom names has a credential it may send to the requested host. */
+export class MissingCredentialError extends Data.TaggedError("MissingCredentialError")<{
   readonly message: string
 }> {}
 
@@ -200,12 +198,6 @@ export class SystemCaReadError extends Data.TaggedError("SystemCaReadError")<{
 // Execution
 export class ExecTimeoutError extends Data.TaggedError("ExecTimeoutError")<{
   readonly timeoutMs: number
-}> {}
-
-/** A run's env overrides named vars no auth block passes (see domain/exec/authEnv.ts). */
-export class ExecEnvOverrideError extends Data.TaggedError("ExecEnvOverrideError")<{
-  readonly names: readonly string[]
-  readonly message: string
 }> {}
 
 /** PATH couldn't be read again from where the app first got it. `message` says why, in words fit to show the user. */

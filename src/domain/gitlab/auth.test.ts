@@ -15,7 +15,6 @@ import {
   readGlabHostMeta,
   enumerateGlabHosts,
   envTokenHost,
-  gitlabSessionTokenHost,
   mayAutoSendEnvToken,
   mayAutoSendGlabToken,
 } from "./auth.ts"
@@ -258,33 +257,6 @@ describe("envTokenHost — the binding rule", () => {
     expect(mayAutoSendEnvToken("http://git.corp.example", env, "CI_")).toBe(false)
     expect(mayAutoSendEnvToken("https://git.corp.example", env)).toBe(true)
     expect(mayAutoSendEnvToken("git.corp.example", env, "CI_")).toBe(true)
-  })
-})
-
-describe("gitlabSessionTokenHost", () => {
-  const CORP = "git.corp.example"
-
-  it("with an auth host: bound to it while GITLAB_HOST still names it, bare or as a URL", () => {
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: CORP }, CORP)).toBe(CORP)
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}/` }, CORP)).toBe(CORP)
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.com" }, "gitlab.com")).toBe("gitlab.com")
-  })
-
-  it("with an auth host: a changed, removed or unparseable GITLAB_HOST binds nowhere", () => {
-    expect(
-      gitlabSessionTokenHost({ GITLAB_HOST: "gitlab.attacker.example" }, "gitlab.com"),
-    ).toBeUndefined()
-    expect(gitlabSessionTokenHost({}, "gitlab.com")).toBeUndefined()
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` }, CORP)).toBeUndefined()
-    // GITLAB_HOST wins in glab's precedence, so the other vars never rebind it.
-    expect(gitlabSessionTokenHost({ GL_HOST: CORP, GITLAB_URI: CORP }, CORP)).toBeUndefined()
-  })
-
-  it("without an auth host: glab's env binding (envTokenHost)", () => {
-    expect(gitlabSessionTokenHost({})).toBe("gitlab.com")
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: `https://${CORP}` })).toBe(CORP)
-    expect(gitlabSessionTokenHost({ GL_HOST: CORP })).toBe(CORP)
-    expect(gitlabSessionTokenHost({ GITLAB_HOST: `${CORP}:badport` })).toBeUndefined()
   })
 })
 

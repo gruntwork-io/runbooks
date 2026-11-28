@@ -7,7 +7,8 @@ import { Aside, FileTree } from '@astrojs/starlight/components';
 Runbooks keeps a session for every runbook you open. A session is what the runbook's blocks build up as you run them:
 
 - A directory of its own. Scripts start there, [\<GitClone\>](/authoring/blocks/gitclone/) blocks clone into it, and [generated files](/intro/files_workspace/#generated-files) are written to it.
-- The environment variables that scripts wrote to [`$RUNBOOK_ENV`](/security/shell-execution-context/#setting-variables-for-later-blocks) and auth blocks set.
+- The environment variables that scripts wrote to [`$RUNBOOK_ENV`](/security/shell-execution-context/#setting-variables-for-later-blocks).
+- Each auth block's sign-in, which blocks that name it in [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) run with.
 - The repositories its \<GitClone\> blocks cloned or opened.
 - Its history: what you did in its blocks. The values you typed into forms, every script run with its status, logs and outputs, the repositories you cloned or selected, the pull requests you opened, and the accounts you signed in to.
 
@@ -42,7 +43,7 @@ Renaming changes only what the session is called. Its directory, files and envir
 
 ## Resuming a session
 
-Opening a runbook resumes its most recent session, unless you [finished the runbook](#finishing-a-session) in it. Scripts run with the environment variables the earlier run left, and the session's files are where they were. That holds for a runbook you close and open again without quitting the app, too.
+Opening a runbook resumes its most recent session, unless you [finished the runbook](#finishing-a-session) in it. Scripts run with the environment variables the earlier run left and the auth blocks' sign-ins, and the session's files are where they were. That holds for a runbook you close and open again without quitting the app, too.
 
 A notice at the top of the runbook names the session it resumed and says when you last used it. Click **Start new session** in it to [reset the session](#resetting-a-session) instead. A session with nothing in its history gets no notice: there is nothing of it to come back.
 
@@ -60,7 +61,7 @@ The blocks come back as you left them, and so does the runbook's [progress](/aut
 | [\<GitPullRequest\>](/authoring/blocks/gitpullrequest/), [\<GitHubPullRequest\>](/authoring/blocks/githubpullrequest/) and [\<GitLabMergeRequest\>](/authoring/blocks/gitlabmergerequest/) | The pull or merge request you opened, with its outputs, and the form fields you edited. | |
 | [\<Iframe\>](/authoring/blocks/iframe/) | Not the outputs its page set. Blocks that read them wait until the page sets them again. | |
 | [\<AwsAuth\>](/authoring/blocks/awsauth/) | The account you signed in to. | That its credentials still work. Temporary ones expire. |
-| [\<GitAuth\>](/authoring/blocks/gitauth/), [\<GitHubAuth\>](/authoring/blocks/githubauth/) and [\<GitLabAuth\>](/authoring/blocks/gitlabauth/) | The account you signed in to. The session's token is still sent only to the host you signed in to. | That the token still works for that host, and still belongs to that account. |
+| [\<GitAuth\>](/authoring/blocks/gitauth/), [\<GitHubAuth\>](/authoring/blocks/githubauth/) and [\<GitLabAuth\>](/authoring/blocks/gitlabauth/) | The account you signed in to. The block's token is still sent only to the host you signed in to. | That the token still works for that host, and still belongs to that account. |
 | [\<GoogleAuth\>](/authoring/blocks/googleauth/) | The account you signed in to, when the sign-in can be done again. | That the credential still signs in as that account. Runbooks then signs in again the same way. |
 
 A check that can't reach AWS, GitHub or GitLab, because you are offline for example, leaves the sign-in as it is.
@@ -97,7 +98,7 @@ If one of a resumed session's cloned repositories has been deleted, the session 
 
 ## Resetting a session
 
-Choose **File > Reset Session**, or **Reset Session** in the app's menu, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with.
+Choose **File > Reset Session**, or **Reset Session** in the app's menu, to start the open runbook over. Its blocks go back to their initial state, and scripts run in an empty directory with the environment Runbooks was launched with. Every auth block is signed out.
 
 A reset replaces the session with a new one, so the name in the title bar changes. The runbook resumes the new session from then on.
 
@@ -168,7 +169,7 @@ Sessions live in the `v0/sessions` folder of the app's data directory:
 
 Every \<Command\> and \<Check\> run, and every final check of a \<Finish\> block, writes its full log to `.runbooks/logs` in the session's directory, in a directory named after the block's `id`. **Copy log file path** on a block copies the path of its last run's log, in a resumed session too. Runbooks keeps the logs as long as the session.
 
-The database records each session's name, its runbook, its directory, its cloned repositories, the directory it was last launched from, the host each of its git tokens belongs to, when you finished its runbook, its environment, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
+The database records each session's name, its runbook, its directory, its cloned repositories, the directory it was last launched from, when you finished its runbook, its environment, its auth blocks' sign-ins, and its history. A session's directory is named after its id, a UUID that never changes, not after its name. To get the directory of the open session, click the folder button next to its name in the title bar. For any other session, look its name up:
 
 ```bash
 sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-elephant'"
@@ -176,14 +177,14 @@ sqlite3 sessions/db/sessions.db "SELECT dir FROM sessions WHERE name = 'elegant-
 
 ## What is encrypted
 
-The environment can hold credentials: cloud keys an auth block exported, or a token a script set. So can the history: a password typed into a form, a script's sensitive output, a secret a script printed to its log, or the keys and token an auth block signed in with. Runbooks encrypts the environment and the content of every history entry with the operating system's credential store before writing them to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
+The environment can hold credentials, such as a token a script set, and so do the auth blocks' sign-ins. So can the history: a password typed into a form, a script's sensitive output, a secret a script printed to its log, or the keys and token an auth block signed in with. Runbooks encrypts the environment, the sign-ins and the content of every history entry with the operating system's credential store before writing them to the database: Keychain on macOS, DPAPI on Windows, and a secret service such as GNOME Keyring or KWallet on Linux.
 
-On Linux without a secret service, Runbooks saves neither. A resumed session there starts from the environment Runbooks was launched with and with its blocks as new, and keeps its directory and files.
+On Linux without a secret service, Runbooks saves neither. A resumed session there starts from the environment Runbooks was launched with, with no auth block signed in and its blocks as new, and keeps its directory and files.
 
 The rest of the database is not encrypted, including which block each history entry belongs to and when it was added. Neither are the files in a session's directory. Those include the full log of every script run, with anything the script printed.
 
 <Aside type="note">
-[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits, and the history keeps no Google credential. A resumed session drops the variables that point to that file. The block signs in again where it can, as [Resuming a session](#resuming-a-session) describes.
+[\<GoogleAuth\>](/authoring/blocks/googleauth/) writes credentials to a temporary file that is deleted when Runbooks quits, and the history keeps no Google credential. A resumed session drops a sign-in whose file is gone, as it does an \<AzureAuth\> sign-in whose configuration directory is gone. The block signs in again where it can, as [Resuming a session](#resuming-a-session) describes.
 </Aside>
 
 ## Deleting sessions

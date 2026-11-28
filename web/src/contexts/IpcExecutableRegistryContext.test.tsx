@@ -17,6 +17,7 @@ function executable(id: string, componentId: string): RegisteredExecutable {
     componentType: "command",
     contentHash: `hash-${id}`,
     env: {},
+    envFrom: [],
     workingDir: "",
     interpreter: "",
   }

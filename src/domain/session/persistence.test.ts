@@ -232,7 +232,12 @@ describe("SessionPersistence", () => {
     await new Promise((resolve) => {
       setTimeout(resolve, 5)
     })
-    await run(first.manager.appendToEnv({ EXPORTED: "1" }))
+    await run(
+      first.manager.applyScriptEnv({
+        env: { EXPORTED: "1" },
+        generation: first.manager.getGeneration(),
+      }),
+    )
     const saved = (await run(first.store.get(session.id)))!
     first.quit()
 
@@ -271,62 +276,16 @@ describe("SessionPersistence", () => {
     expect(saveErrors).toEqual([])
   })
 
-  describe("saveVcsBindings", () => {
-    it("binds a resumed session's git credentials to the hosts they were bound to", async () => {
-      const first = startApp()
-      await first.open()
-      first.persistence.saveVcsBindings({ github: { host: "ghe.example.com", source: "oauth" } })
-      expect(first.persistence.currentSession()?.vcsBindings).toEqual({
-        github: { host: "ghe.example.com", source: "oauth" },
-      })
-      first.quit()
-
-      const second = startApp()
-      const resumed = await second.open()
-
-      expect(resumed.vcsBindings).toEqual({ github: { host: "ghe.example.com", source: "oauth" } })
-      expect(saveErrors).toEqual([])
-    })
-
-    it("starts a new session without bindings", async () => {
-      const app = startApp()
-      await app.open()
-      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
-
-      const fresh = await app.open({ startNew: true })
-
-      expect(fresh.vcsBindings).toEqual({})
-    })
-
-    it("saves nothing before a session is open", () => {
-      const app = startApp()
-
-      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
-
-      expect(app.persistence.currentSession()).toBeUndefined()
-      expect(saveErrors).toEqual([])
-    })
-
-    it("reports a failed save and keeps the bindings for the open session", async () => {
-      const app = startApp()
-      await app.open()
-      app.quit()
-
-      app.persistence.saveVcsBindings({ gitlab: { host: "gitlab.com" } })
-
-      expect(saveErrors).toHaveLength(1)
-      expect(String(saveErrors[0])).toContain("save a session's git host bindings")
-      expect(app.persistence.currentSession()?.vcsBindings).toEqual({
-        gitlab: { host: "gitlab.com" },
-      })
-    })
-  })
-
   it("stores the env encrypted", async () => {
     const app = startApp()
     const session = await app.open()
 
-    await run(app.manager.appendToEnv({ GITHUB_TOKEN: "ghp_secret" }))
+    await run(
+      app.manager.applyScriptEnv({
+        env: { GITHUB_TOKEN: "ghp_secret" },
+        generation: app.manager.getGeneration(),
+      }),
+    )
 
     const stored = Effect.runSync(app.store.get(session.id))?.env
     const text = new TextDecoder().decode(stored)
@@ -338,7 +297,12 @@ describe("SessionPersistence", () => {
     const noEncryption: SessionCipher = { encrypt: () => undefined, decrypt: () => undefined }
     const first = startApp(noEncryption)
     const session = await first.open()
-    await run(first.manager.appendToEnv({ GITHUB_TOKEN: "ghp_secret" }))
+    await run(
+      first.manager.applyScriptEnv({
+        env: { GITHUB_TOKEN: "ghp_secret" },
+        generation: first.manager.getGeneration(),
+      }),
+    )
     expect(Effect.runSync(first.store.get(session.id))?.env).toBeUndefined()
     first.quit()
 
@@ -351,7 +315,12 @@ describe("SessionPersistence", () => {
   it("resumes without the env when the saved one can't be decrypted or parsed", async () => {
     const first = startApp()
     await first.open()
-    await run(first.manager.appendToEnv({ GITHUB_TOKEN: "ghp_secret" }))
+    await run(
+      first.manager.applyScriptEnv({
+        env: { GITHUB_TOKEN: "ghp_secret" },
+        generation: first.manager.getGeneration(),
+      }),
+    )
     first.quit()
 
     const notEnvChanges = [
@@ -383,7 +352,7 @@ describe("SessionPersistence", () => {
   it("resumes a saved env that unsets a variable the app was launched with", async () => {
     const first = startApp()
     await first.open()
-    await run(first.manager.removeFromEnv(["HOME"]))
+    await run(first.manager.applyScriptEnv({ env: {}, generation: first.manager.getGeneration() }))
     first.quit()
 
     const app = startApp({
@@ -395,31 +364,82 @@ describe("SessionPersistence", () => {
     expect((await run(app.manager.getExecContext())).env).toEqual({ A: "1" })
   })
 
-  it("drops an env var naming a credentials file that was deleted since", async () => {
-    const first = startApp()
-    const session = await first.open()
-    const kept = path.join(session.dir, "kept.json")
-    fs.writeFileSync(kept, "{}")
-    await run(
-      first.manager.appendToEnv({
-        CREDENTIALS_FILE: path.join(root, "deleted-at-quit.json"),
-        OTHER_FILE: path.join(root, "also-missing.json"),
-      }),
-    )
-    first.quit()
+  describe("auth blocks' exports", () => {
+    const aws = { env: { AWS_ACCESS_KEY_ID: "AKIA_SECRET" }, clears: ["AWS_SESSION_TOKEN"] }
 
-    const second = startApp()
-    await second.open()
-    const { env } = await run(second.manager.getExecContext())
-    expect(env.CREDENTIALS_FILE).toBeUndefined()
-    // Only the listed vars are checked.
-    expect(env.OTHER_FILE).toBe(path.join(root, "also-missing.json"))
+    it("resumes each block's sign-in, stored encrypted", async () => {
+      const first = startApp()
+      const session = await first.open()
+      await run(first.manager.setEnvExport("aws", aws, first.manager.getGeneration()))
+      const stored = Effect.runSync(first.store.get(session.id))?.env
+      expect(new TextDecoder().decode(stored)).not.toContain("AKIA_SECRET")
+      first.quit()
 
-    await run(second.manager.appendToEnv({ CREDENTIALS_FILE: kept }))
-    second.quit()
-    const third = startApp()
-    await third.open()
-    expect((await run(third.manager.getExecContext())).env.CREDENTIALS_FILE).toBe(kept)
+      const second = startApp()
+      await second.open()
+
+      expect(second.manager.getEnvExport("aws")).toEqual(aws)
+      expect((await run(second.manager.getExecContext())).env).toEqual({ HOME: "/home/me" })
+    })
+
+    it("ends a sign-in whose credentials file was deleted since", async () => {
+      const first = startApp()
+      const session = await first.open()
+      const kept = path.join(session.dir, "kept.json")
+      fs.writeFileSync(kept, "{}")
+      const gen = first.manager.getGeneration()
+      await run(
+        first.manager.setEnvExport(
+          "gone",
+          { env: { CREDENTIALS_FILE: path.join(root, "deleted-at-quit.json") }, clears: [] },
+          gen,
+        ),
+      )
+      await run(
+        first.manager.setEnvExport("kept", { env: { CREDENTIALS_FILE: kept }, clears: [] }, gen),
+      )
+      // Only the listed vars are checked.
+      await run(
+        first.manager.setEnvExport(
+          "other",
+          { env: { OTHER_FILE: path.join(root, "also-missing.json") }, clears: [] },
+          gen,
+        ),
+      )
+      first.quit()
+
+      const second = startApp()
+      await second.open()
+
+      expect(second.manager.getEnvExport("gone")).toBeUndefined()
+      expect(second.manager.getEnvExport("kept")?.env).toEqual({ CREDENTIALS_FILE: kept })
+      expect(second.manager.getEnvExport("other")).toBeDefined()
+    })
+
+    it("drops the auth blocks' credentials from an env saved before blocks had exports", async () => {
+      const first = startApp()
+      await first.open()
+      await run(
+        first.manager.applyScriptEnv({ env: {}, generation: first.manager.getGeneration() }),
+      )
+      first.quit()
+
+      const app = startApp({
+        ...reversingCipher,
+        decrypt: () =>
+          JSON.stringify({
+            set: { AWS_ACCESS_KEY_ID: "AKIA_OLD", GITHUB_TOKEN: "ghp_old", EXPORTED: "1" },
+            unset: [],
+          }),
+      })
+      await app.open()
+
+      expect((await run(app.manager.getExecContext())).env).toEqual({
+        HOME: "/home/me",
+        EXPORTED: "1",
+      })
+      expect(app.manager.getEnvExports(["aws"])).toEqual({ ok: false, missing: "aws" })
+    })
   })
 
   it("drops worktrees that were deleted since", async () => {
@@ -463,7 +483,6 @@ describe("SessionPersistence", () => {
       createdAt: saved.createdAt,
       lastLaunchedAt: saved.createdAt,
       lastActivityAt: saved.createdAt,
-      vcsBindings: {},
       finishedAt: undefined,
     })
     expect(Date.parse(saved.createdAt)).not.toBeNaN()
@@ -494,7 +513,9 @@ describe("SessionPersistence", () => {
   it("gives each runbook its own session", async () => {
     const app = startApp()
     const a = await app.open()
-    await run(app.manager.appendToEnv({ FROM_A: "1" }))
+    await run(
+      app.manager.applyScriptEnv({ env: { FROM_A: "1" }, generation: app.manager.getGeneration() }),
+    )
 
     const b = await app.open({ runbook: { path: "/other/runbook.mdx", remoteSource: undefined } })
 
@@ -527,7 +548,12 @@ describe("SessionPersistence", () => {
     it("starts an empty session and leaves the previous one on disk", async () => {
       const app = startApp()
       const previous = await app.open({ launchDir: "/home/me/project" })
-      await run(app.manager.appendToEnv({ FROM_PREVIOUS: "1" }))
+      await run(
+        app.manager.applyScriptEnv({
+          env: { FROM_PREVIOUS: "1" },
+          generation: app.manager.getGeneration(),
+        }),
+      )
 
       const fresh = await app.open({ startNew: true })
 
@@ -868,7 +894,9 @@ describe("SessionPersistence", () => {
     })
     await app.open()
 
-    await run(app.manager.appendToEnv({ TOKEN: "t" }))
+    await run(
+      app.manager.applyScriptEnv({ env: { TOKEN: "t" }, generation: app.manager.getGeneration() }),
+    )
 
     expect(saveErrors).toHaveLength(1)
     expect(String(saveErrors[0])).toContain("keychain access denied")
@@ -880,7 +908,12 @@ describe("SessionPersistence", () => {
     await app.open()
     app.quit()
 
-    await run(app.manager.appendToEnv({ AFTER_CLOSE: "1" }))
+    await run(
+      app.manager.applyScriptEnv({
+        env: { AFTER_CLOSE: "1" },
+        generation: app.manager.getGeneration(),
+      }),
+    )
 
     expect(saveErrors).toHaveLength(1)
     expect((await run(app.manager.getExecContext())).env.AFTER_CLOSE).toBe("1")
@@ -892,7 +925,7 @@ describe("SessionPersistence", () => {
     const generationA = app.manager.getGeneration()
     const b = await app.open({ runbook: { path: "/other/runbook.mdx", remoteSource: undefined } })
 
-    await run(app.manager.appendToEnv({ LATE: "1" }, generationA))
+    await run(app.manager.applyScriptEnv({ env: { LATE: "1" }, generation: generationA }))
 
     expect(Effect.runSync(app.store.get(a.id))?.env).toBeUndefined()
     expect(Effect.runSync(app.store.get(b.id))?.env).toBeUndefined()

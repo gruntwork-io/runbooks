@@ -7,18 +7,18 @@
  * on server-cert/network). Every handler targets one GitHub HOST — the
  * optional `host` param (github.com, a GHES host, or a `<sub>.ghe.com`
  * tenant), defaulting to github.com — and every token it reads, validates or
- * writes stays with that host. `github:enumerate-hosts` lists the hosts gh is
- * logged into (plus GH_HOST, the session host and recents) to drive the
- * GitAuth host picker, mirroring gitlab:enumerate-hosts.
+ * writes stays with that host. A sign-in made for a block (`componentId`) is
+ * saved as that block's export, which a block that names it in envFrom gets.
+ * `github:enumerate-hosts` lists the hosts gh is logged into (plus GH_HOST and
+ * recents) to drive the GitAuth host picker, mirroring gitlab:enumerate-hosts.
  */
 import { Effect } from "effect"
 import { ipcMain } from "electron"
 import {
   runtime,
   sessionManager,
-  vcsSessionMeta,
-  getGitHubSessionCredential,
-  noSessionCredential,
+  exportedVcsCredential,
+  getExportedVcsCredential,
 } from "./runtime.ts"
 import { Environment } from "../../../src/services/Environment.ts"
 import {
@@ -47,7 +47,7 @@ import {
   withVcs,
   toDetectionIpcResult,
   toValidationIpcResult,
-  appendSessionEnvAndRecord,
+  saveVcsExport,
 } from "./vcs-tristate.ts"
 import { registerSecret } from "../../../src/domain/vcs/redact.ts"
 import {
@@ -56,9 +56,9 @@ import {
   setLastSelectedGitHubHost,
 } from "../recent-hosts.ts"
 import { errorMessage } from "../../../src/errors/message.ts"
-import { MissingSessionCredentialError } from "../../../src/errors/index.ts"
+import { MissingCredentialError } from "../../../src/errors/index.ts"
 
-type HostSource = "gh" | "env" | "session" | "recent"
+type HostSource = "gh" | "env" | "recent"
 
 /**
  * Resolve a renderer-supplied GitHub host (a bare host or URL) with the
@@ -74,20 +74,22 @@ const invalidHostError = (raw?: string | null) =>
   `Invalid GitHub host: ${JSON.stringify(raw ?? "")}`
 
 /**
- * The session's GitHub credential for `host` (undefined = the session's
- * GitHub host), failing with a MissingSessionCredentialError whose message
- * these handlers surface. The session env is populated by the github:* detection/validation
- * handlers and is the single source of truth for "which token do API calls
- * use" — the renderer never sees the token directly.
+ * The GitHub credential `envFrom` gives for `host` (undefined = the host of
+ * the GitHub Auth block it names), failing with a
+ * MissingCredentialError whose message these handlers surface. The
+ * token stays in the main process: the renderer sends block ids, never a
+ * token.
  */
-const getSessionCredential = (host?: string) =>
-  getGitHubSessionCredential(
+const getBlockCredential = (envFrom: readonly string[] | undefined, host?: string) =>
+  getExportedVcsCredential(
+    "github",
+    envFrom ?? [],
     host,
     () =>
-      new MissingSessionCredentialError({
+      new MissingCredentialError({
         message: host
-          ? `No GitHub token for ${tryNormalizeGitHubHost(host) ?? host} available in session`
-          : "No GitHub token available in session",
+          ? `No GitHub sign-in for ${tryNormalizeGitHubHost(host) ?? host}. Name a GitHub Auth block for that host in envFrom.`
+          : "No GitHub sign-in. Name a GitHub Auth block in envFrom.",
       }),
   )
 
@@ -102,28 +104,25 @@ function rememberGitHubHost(host: string): void {
 }
 
 /**
- * Write a validated GitHub credential to the session env (githubSessionEnv:
- * token, user, and the host it belongs to) and record the host binding.
- * `generation` is the session generation captured when the request arrived.
+ * Save a validated GitHub credential as block `componentId`'s export
+ * (githubSessionEnv: token, user, and the host it belongs to). Nothing is
+ * saved for a request that names no block. `generation` is the session
+ * generation captured when the request arrived.
  */
-const writeGitHubSession = (
+const saveGitHubExport = (
+  componentId: string | undefined,
   generation: number,
   host: string,
-  source: string | undefined,
   token: string,
   login?: string,
-): Promise<string | undefined> =>
-  appendSessionEnvAndRecord(
-    "github",
-    host,
-    source,
-    githubSessionEnv(host, token, login),
-    generation,
-  )
+): Promise<void> =>
+  componentId === undefined
+    ? Promise.resolve()
+    : saveVcsExport("github", componentId, githubSessionEnv(host, token, login), generation)
 
 /**
  * Build the merged host union for the picker: gh's hosts.yml hosts, GH_HOST,
- * the session host, persisted recents, and always github.com — deduped by
+ * persisted recents, and always github.com — deduped by
  * normalized host, each annotated with provenance and an OFFLINE-ONLY
  * hasCredential check (an env token bound to the host, or a hosts.yml entry
  * for it — a token on disk or the keyring marker; no network, no gh spawn).
@@ -136,7 +135,6 @@ export async function buildMergedGitHubHosts(): Promise<{
     withVcs((vcs) => vcs.enumerateGitHubHosts()),
     runtime.runPromise(Effect.flatMap(Environment, (environment) => environment.getAll())),
   ])
-  const sessionHost = vcsSessionMeta.get("github")?.host
   const store = readVcsAuthStore()
 
   const union = new Map<string, Set<HostSource>>()
@@ -150,7 +148,6 @@ export async function buildMergedGitHubHosts(): Promise<{
   add(DEFAULT_GITHUB_HOST)
   for (const host of configHosts) add(host, "gh")
   if (envHost) add(envHost, "env")
-  if (sessionHost) add(sessionHost, "session")
   for (const host of store.recentGitHubHosts) add(host, "recent")
 
   const hasCredentialFor = async (host: string): Promise<boolean> => {
@@ -200,8 +197,9 @@ export function registerGitHubHandlers(): void {
       params: {
         token?: string
         host?: string
+        componentId?: string
         registerSession?: boolean
-        useSessionToken?: boolean
+        fromBlock?: string
       },
     ) => {
       const generation = sessionManager.getGeneration()
@@ -209,22 +207,19 @@ export function registerGitHubHandlers(): void {
       if (!host) {
         return { valid: false, outcome: "invalid" as const, error: invalidHostError(params.host) }
       }
-      // Session mode validates the session credential FOR THIS HOST only.
-      const token = params.useSessionToken
-        ? await runtime.runPromise(
-            getGitHubSessionCredential(host, noSessionCredential).pipe(
-              Effect.map((credential) => credential.token),
-              Effect.orElseSucceed(() => undefined),
-            ),
-          )
-        : params.token
+      // A block's sign-in is validated for THIS HOST only.
+      const token =
+        params.fromBlock !== undefined
+          ? exportedVcsCredential("github", [params.fromBlock], host)?.token
+          : params.token
       if (!token) {
         return {
           valid: false,
           outcome: "invalid" as const,
-          error: params.useSessionToken
-            ? "No GitHub session credential available"
-            : "No token provided",
+          error:
+            params.fromBlock !== undefined
+              ? `${params.fromBlock} has no GitHub sign-in for ${host}`
+              : "No token provided",
         }
       }
       registerSecret(token)
@@ -236,15 +231,8 @@ export function registerGitHubHandlers(): void {
         probeSource: "manual",
       })
       if (result.outcome === "valid") {
-        let sessionEnvWarning: string | undefined
-        if (params.registerSession && !params.useSessionToken && result.user) {
-          sessionEnvWarning = await writeGitHubSession(
-            generation,
-            host,
-            "manual",
-            token,
-            result.user.login,
-          )
+        if (params.registerSession && result.user) {
+          await saveGitHubExport(params.componentId, generation, host, token, result.user.login)
         }
         rememberGitHubHost(host)
         return {
@@ -256,7 +244,6 @@ export function registerGitHubHandlers(): void {
           tokenType,
           outcome: "valid" as const,
           ...(result.validatedVia ? { validatedVia: result.validatedVia } : {}),
-          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       }
       return { ...toValidationIpcResult(result, host), valid: false, tokenType }
@@ -280,7 +267,10 @@ export function registerGitHubHandlers(): void {
 
   ipcMain.handle(
     "github:oauth-poll",
-    async (_event, params: { clientId?: string; deviceCode: string; host?: string }) => {
+    async (
+      _event,
+      params: { clientId?: string; deviceCode: string; host?: string; componentId?: string },
+    ) => {
       const generation = sessionManager.getGeneration()
       const host = resolveRequestedGitHubHost(params.host)
       if (!host) return { status: "failed" as const, error: invalidHostError(params.host) }
@@ -306,24 +296,17 @@ export function registerGitHubHandlers(): void {
           validateToken(result.token, host),
         )
 
-        const sessionEnvWarning = await writeGitHubSession(
-          generation,
-          host,
-          "oauth",
-          result.token,
-          user.login,
-        )
+        await saveGitHubExport(params.componentId, generation, host, result.token, user.login)
         rememberGitHubHost(host)
 
-        // the completion result is METADATA-ONLY — the session env above
-        // is the single source of truth; the token never crosses IPC.
+        // The completion result is metadata only: the token stays in the
+        // block's export and never crosses IPC.
         return {
           status: "complete" as const,
           user,
           scopes,
           ...(expiresAt ? { expiresAt } : {}),
           tokenType,
-          ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
         }
       } catch (err) {
         const message = errorMessage(err)
@@ -340,7 +323,7 @@ export function registerGitHubHandlers(): void {
 
   ipcMain.handle(
     "github:env-credentials",
-    async (_event, params: { prefix?: string; host?: string } = {}) => {
+    async (_event, params: { prefix?: string; host?: string; componentId?: string } = {}) => {
       const generation = sessionManager.getGeneration()
       // The {env:{prefix}} variant: the renderer-supplied prefix is
       // untrusted input — allowlist-validated IN MAIN, rejected otherwise.
@@ -369,12 +352,11 @@ export function registerGitHubHandlers(): void {
         detect: () => withVcs((vcs) => vcs.detectGitHubEnv(host, prefix)),
       })
 
-      let sessionEnvWarning: string | undefined
       if (result.outcome === "valid" && result.token) {
-        sessionEnvWarning = await writeGitHubSession(
+        await saveGitHubExport(
+          params.componentId,
           generation,
           host,
-          result.source,
           result.token,
           result.user?.login,
         )
@@ -384,65 +366,71 @@ export function registerGitHubHandlers(): void {
       return {
         ...toDetectionIpcResult(result, host),
         ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
-        ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
       }
     },
   )
 
-  ipcMain.handle("github:cli-credentials", async (_event, params: { host?: string } = {}) => {
-    const generation = sessionManager.getGeneration()
-    const host = resolveRequestedGitHubHost(params?.host)
-    if (!host) {
-      return {
-        found: false as const,
-        outcome: "absent" as const,
-        error: invalidHostError(params?.host),
+  ipcMain.handle(
+    "github:cli-credentials",
+    async (_event, params: { host?: string; componentId?: string } = {}) => {
+      const generation = sessionManager.getGeneration()
+      const host = resolveRequestedGitHubHost(params?.host)
+      if (!host) {
+        return {
+          found: false as const,
+          outcome: "absent" as const,
+          error: invalidHostError(params?.host),
+        }
       }
-    }
-    const result = await withTlsOrchestration({
-      provider: "github",
-      host,
-      detect: () => withVcs((vcs) => vcs.detectGitHubCli(host)),
-    })
-
-    let sessionEnvWarning: string | undefined
-    if (result.outcome === "valid" && result.token) {
-      sessionEnvWarning = await writeGitHubSession(
-        generation,
+      const result = await withTlsOrchestration({
+        provider: "github",
         host,
-        result.source,
-        result.token,
-        result.user?.login,
+        detect: () => withVcs((vcs) => vcs.detectGitHubCli(host)),
+      })
+
+      if (result.outcome === "valid" && result.token) {
+        await saveGitHubExport(
+          params.componentId,
+          generation,
+          host,
+          result.token,
+          result.user?.login,
+        )
+        rememberGitHubHost(host)
+      }
+
+      return {
+        ...toDetectionIpcResult(result, host),
+        ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
+      }
+    },
+  )
+
+  // API queries run with the GitHub credential of the auth blocks `envFrom`
+  // names. `host` selects which host's; omitted, it is that block's host.
+  // The token is released only for the host it belongs to, and the request
+  // goes to that host's API.
+  ipcMain.handle(
+    "github:orgs",
+    async (_event, params?: { host?: string; envFrom?: readonly string[] }) => {
+      return runtime.runPromise(
+        Effect.gen(function* () {
+          const { token, host } = yield* getBlockCredential(params?.envFrom, params?.host)
+          return yield* listOrgs(token, host)
+        }),
       )
-      rememberGitHubHost(host)
-    }
-
-    return {
-      ...toDetectionIpcResult(result, host),
-      ...(result.token ? { tokenType: detectTokenType(result.token) } : {}),
-      ...(sessionEnvWarning ? { sessionEnvWarning } : {}),
-    }
-  })
-
-  // API queries run against the session's GitHub credential. `host` (the
-  // linked auth block's host) selects which one; omitted, it is the session's
-  // GitHub host. The token is released only for the host it belongs to, and
-  // the request goes to that host's API.
-  ipcMain.handle("github:orgs", async (_event, params?: { host?: string }) => {
-    return runtime.runPromise(
-      Effect.gen(function* () {
-        const { token, host } = yield* getSessionCredential(params?.host)
-        return yield* listOrgs(token, host)
-      }),
-    )
-  })
+    },
+  )
 
   ipcMain.handle(
     "github:repos",
-    async (_event, params: { org: string; query?: string; host?: string }) => {
+    async (
+      _event,
+      params: { org: string; query?: string; host?: string; envFrom?: readonly string[] },
+    ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const { token, host } = yield* getSessionCredential(params.host)
+          const { token, host } = yield* getBlockCredential(params.envFrom, params.host)
           return yield* listRepos(token, params.org, params.query, host)
         }),
       )
@@ -451,10 +439,19 @@ export function registerGitHubHandlers(): void {
 
   ipcMain.handle(
     "github:refs",
-    async (_event, params: { owner: string; repo: string; query?: string; host?: string }) => {
+    async (
+      _event,
+      params: {
+        owner: string
+        repo: string
+        query?: string
+        host?: string
+        envFrom?: readonly string[]
+      },
+    ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const { token, host } = yield* getSessionCredential(params.host)
+          const { token, host } = yield* getBlockCredential(params.envFrom, params.host)
           return yield* listRefs(token, params.owner, params.repo, params.query, host)
         }),
       )
@@ -463,10 +460,13 @@ export function registerGitHubHandlers(): void {
 
   ipcMain.handle(
     "github:labels",
-    async (_event, params: { owner: string; repo: string; host?: string }) => {
+    async (
+      _event,
+      params: { owner: string; repo: string; host?: string; envFrom?: readonly string[] },
+    ) => {
       return runtime.runPromise(
         Effect.gen(function* () {
-          const { token, host } = yield* getSessionCredential(params.host)
+          const { token, host } = yield* getBlockCredential(params.envFrom, params.host)
           const labels = yield* listLabels(token, params.owner, params.repo, host)
           return { labels }
         }),

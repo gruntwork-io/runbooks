@@ -23,15 +23,13 @@ export interface GitPullRequestProps {
   /** Reference to one or more Inputs by ID for template expressions in props */
   inputsId?: string | string[]
   /**
-   * Reference to a legacy GitHubAuth block for credentials. GitHub-specific;
-   * kept for back-compat. Prefer `gitAuthId`.
+   * The auth blocks (GitHubAuth, GitLabAuth or GitAuth) whose sign-in pushes
+   * the branch and opens the request, in the order they apply (a later one
+   * wins). The block derives the connected instance's provider from their
+   * GIT_PROVIDER output. Their token is sent only to the host they signed in
+   * to.
    */
-  githubAuthId?: string
-  /**
-   * Reference to a Git Auth block (GitHub or GitLab) by ID. The block derives
-   * the connected instance's provider from this block's GIT_PROVIDER output.
-   */
-  gitAuthId?: string
+  envFrom?: readonly string[]
   /**
    * Locked provider. The provider-locked wrappers (GitHubPullRequest,
    * GitLabMergeRequest) set this; left undefined the block derives the provider

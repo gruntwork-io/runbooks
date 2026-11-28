@@ -1,26 +1,18 @@
-import type { AZURE_AUTH_ENV_VARS } from "../exec/authEnv.ts"
+import { authEnvExport, type AZURE_AUTH_ENV_VARS, type EnvExport } from "../exec/authEnv.ts"
 import type { AzurePrincipal } from "./claims.ts"
 
 export type AzureAuthType = "cli" | "device_code" | "service_principal"
 
 type AzureEnvVar = (typeof AZURE_AUTH_ENV_VARS)[number]
 
-export const AZURE_CREDENTIAL_ENV_VARS = [
-  "ARM_TENANT_ID",
-  "AZURE_SUBSCRIPTION_ID",
-  "ARM_SUBSCRIPTION_ID",
-  "ARM_USE_CLI",
-  "ARM_CLIENT_ID",
-  "ARM_CLIENT_SECRET",
-  "ARM_CLIENT_CERTIFICATE_PATH",
-  "AZURE_CLIENT_ID",
-  "AZURE_CLIENT_SECRET",
-  "AZURE_CLIENT_CERTIFICATE_PATH",
-] as const satisfies readonly AzureEnvVar[]
-
 export const AZURE_SECRET_ENV_VARS = ["ARM_CLIENT_SECRET", "AZURE_CLIENT_SECRET"] as const
 
-export function azureSessionEnv(input: {
+/**
+ * An AzureAuth sign-in's variables, and the block's export of them, which
+ * clears every other Azure variable for a script that names the block in
+ * envFrom.
+ */
+export function azureEnv(input: {
   readonly authType: AzureAuthType
   readonly configDir: string
   readonly extensionDir?: string | undefined
@@ -30,7 +22,7 @@ export function azureSessionEnv(input: {
   readonly clientId?: string | undefined
   readonly clientSecret?: string | undefined
   readonly certificatePath?: string | undefined
-}): { set: Partial<Record<AzureEnvVar, string>>; clear: AzureEnvVar[] } {
+}): { set: Partial<Record<AzureEnvVar, string>>; envExport: EnvExport } {
   const set: Partial<Record<AzureEnvVar, string>> = {
     AZURE_CONFIG_DIR: input.configDir,
     AZURE_EXTENSION_DIR: input.extensionDir ?? `${input.configDir}/cliextensions`,
@@ -59,6 +51,7 @@ export function azureSessionEnv(input: {
     set.ARM_USE_CLI = "true"
     if (input.certificatePath) set.AZURE_CLIENT_CERTIFICATE_PATH = input.certificatePath
   }
-  const clear = AZURE_CREDENTIAL_ENV_VARS.filter((name) => set[name] === undefined)
-  return { set, clear }
+  const envExport = authEnvExport("azure", set as Record<string, string>)
+  if (!envExport.ok) throw new Error(`azureEnv set a variable outside Azure's: ${envExport.error}`)
+  return { set, envExport: envExport.export }
 }

@@ -93,22 +93,15 @@ afterAll(() => {
 })
 
 describe("runbook:get session env", () => {
-  it("strips inherited AWS credentials for a runbook with <AwsAuth>, and only for it", async () => {
-    const withAwsAuth = writeRunbook(
-      "with-aws-auth",
-      '# Deploy\n\n<AwsAuth id="aws-auth" />\n\n<Command id="deploy" command="aws sts get-caller-identity" />\n',
-    )
-    const withoutAwsAuth = writeRunbook(
-      "without-aws-auth",
-      '# Hello\n\n<Command id="hello" command="aws sts get-caller-identity" />\n',
+  it("starts from the app's environment, AWS credentials included, in a runbook with <AwsAuth>", async () => {
+    const ctx = await openRunbook(
+      writeRunbook(
+        "with-aws-auth",
+        '# Deploy\n\n<AwsAuth id="aws-auth" />\n\n<Command id="deploy" command="aws sts get-caller-identity" />\n',
+      ),
     )
 
-    const protectedCtx = await openRunbook(withAwsAuth)
-    expect(Object.keys(awsKeysOf(protectedCtx.env))).toEqual([])
-
-    // Opening a runbook without <AwsAuth> next must not inherit the stripping.
-    const plainCtx = await openRunbook(withoutAwsAuth)
-    expect(awsKeysOf(plainCtx.env)).toEqual(AWS_ENV)
+    expect(awsKeysOf(ctx.env)).toEqual(AWS_ENV)
   })
 })
 
@@ -157,24 +150,22 @@ describe("exec:run session env", () => {
     }
   }
 
-  it("keeps session env an auth block wrote while the script ran", async () => {
+  it("keeps what another script and a sign-in set while the script ran", async () => {
     const runbook = await openBlockingRunbook("mid-run-auth")
-    await runtime.runPromise(sessionManager.appendToEnv({ PRE_EXISTING: "stale" }))
 
     const run = await runbook.start()
-    // What GitAuth / AwsAuth / GoogleAuth do while a long Command is running.
-    await runtime.runPromise(
-      sessionManager.appendToEnv({ GITHUB_TOKEN: "ghp_mid_run", PRE_EXISTING: "fresh" }),
-    )
-    await runtime.runPromise(sessionManager.removeFromEnv(["AWS_SESSION_TOKEN"]))
+    // Another script finishes, and an auth block signs in, while this one runs.
+    const generation = sessionManager.getGeneration()
+    await runtime.runPromise(sessionManager.applyScriptEnv({ env: { OTHER: "1" }, generation }))
+    const gh = { env: { GITHUB_TOKEN: "ghp_mid_run" }, clears: [] }
+    await runtime.runPromise(sessionManager.setEnvExport("gh", gh, generation))
     runbook.release()
 
     expect((await run.finished).status?.status).toBe("success")
     const ctx = await runtime.runPromise(sessionManager.getExecContext())
-    expect(ctx.env.FROM_SCRIPT).toBe("1")
-    expect(ctx.env.GITHUB_TOKEN).toBe("ghp_mid_run")
-    expect(ctx.env.PRE_EXISTING).toBe("fresh")
-    expect(ctx.env.AWS_SESSION_TOKEN).toBeUndefined()
+    expect(ctx.env).toMatchObject({ FROM_SCRIPT: "1", OTHER: "1" })
+    expect(ctx.env.GITHUB_TOKEN).toBeUndefined()
+    expect(sessionManager.getEnvExport("gh")).toEqual(gh)
   }, 30000)
 
   it("keeps what a script exports and where it cd's to inside the script", async () => {
@@ -214,15 +205,8 @@ describe("exec:run session env", () => {
     )
   }, 30000)
 
-  /**
-   * Open a runbook with one inline Command and run it to completion with
-   * `envVarsOverride`.
-   */
-  async function runCommand(
-    name: string,
-    command: string,
-    opts: { envVarsOverride?: Record<string, string> } = {},
-  ) {
+  /** Open a runbook with one inline Command and run it to completion. */
+  async function runCommand(name: string, command: string) {
     await openRunbook(writeRunbook(name, `<Command id="cmd" command="${command}" />\n`))
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
@@ -232,41 +216,57 @@ describe("exec:run session env", () => {
     )!
     const result = (await handlers.get("exec:run")!(
       { sender: { send: () => {} } },
-      { executableId, executionId: name, envVarsOverride: opts.envVarsOverride },
+      { executableId, executionId: name },
     )) as { status: { status: string } | null }
     expect(result.status?.status).toBe("success")
     return runtime.runPromise(sessionManager.getExecContext())
   }
 
-  it("does not write a run's block-scoped env overrides into the session", async () => {
-    // What a Command with awsAuthId / googleAuthId passes for just this run.
-    const ctx = await runCommand("block-scoped", "true", {
-      envVarsOverride: { AWS_ACCESS_KEY_ID: "AKIA_BLOCK_SCOPED", AWS_SESSION_TOKEN: "" },
-    })
-    expect(awsKeysOf(ctx.env)).toEqual(AWS_ENV)
-  }, 30000)
-
-  it("refuses an override that isn't an auth block's, and runs nothing", async () => {
-    // bash sources BASH_ENV before a non-interactive script, so this override
-    // alone would run the file's command.
-    const marker = nodePath.join(tmpDir, "bash-env-ran")
-    const hook = nodePath.join(tmpDir, "bash-env.sh")
-    fs.writeFileSync(hook, `touch '${marker}'\n`)
-    await openRunbook(writeRunbook("bash-env", `<Command id="cmd" command="true" />\n`))
+  /** Open a runbook with an <AwsAuth> block and a Command that names it in envFrom. */
+  async function openEnvFromRunbook(name: string, out: string) {
+    await openRunbook(
+      writeRunbook(
+        name,
+        `<AwsAuth id="aws" />\n\n<Command id="cmd" envFrom={["aws"]} command="printenv AWS_ACCESS_KEY_ID AWS_SESSION_TOKEN > '${out}' || true" />\n`,
+      ),
+    )
     const { executables } = (await handlers.get("runbook:executables")!({})) as {
       executables: Record<string, { componentId: string }>
     }
     const executableId = Object.keys(executables).find(
       (id) => executables[id]!.componentId === "cmd",
     )!
+    return () =>
+      handlers.get("exec:run")!(
+        { sender: { send: () => {} } },
+        { executableId, executionId: name },
+      ) as Promise<{ status: { status: string } | null }>
+  }
 
-    const run = handlers.get("exec:run")!(
-      { sender: { send: () => {} } },
-      { executableId, executionId: "bash-env", envVarsOverride: { BASH_ENV: hook } },
+  it("runs a block with the sign-in its envFrom names, and keeps it out of the session", async () => {
+    const out = nodePath.join(tmpDir, "env-from.out")
+    const run = await openEnvFromRunbook("env-from", out)
+    await runtime.runPromise(
+      sessionManager.setEnvExport(
+        "aws",
+        { env: { AWS_ACCESS_KEY_ID: "AKIA_BLOCK" }, clears: ["AWS_SESSION_TOKEN"] },
+        sessionManager.getGeneration(),
+      ),
     )
 
-    await expect(run).rejects.toThrow("BASH_ENV")
-    expect(fs.existsSync(marker)).toBe(false)
+    expect((await run()).status?.status).toBe("success")
+    // The block's key, and no session token from the app's environment
+    expect(fs.readFileSync(out, "utf8")).toBe("AKIA_BLOCK\n")
+    const ctx = await runtime.runPromise(sessionManager.getExecContext())
+    expect(awsKeysOf(ctx.env)).toEqual(AWS_ENV)
+  }, 30000)
+
+  it("fails a block whose envFrom names a block that isn't signed in, running nothing", async () => {
+    const out = nodePath.join(tmpDir, "env-from-missing.out")
+    const run = await openEnvFromRunbook("env-from-missing", out)
+
+    await expect(run()).rejects.toThrow("aws isn't signed in")
+    expect(fs.existsSync(out)).toBe(false)
   }, 30000)
 
   it("gives a script its block's env as data, and keeps the variables out of the session", async () => {

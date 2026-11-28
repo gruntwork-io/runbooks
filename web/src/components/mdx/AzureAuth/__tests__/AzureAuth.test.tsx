@@ -327,10 +327,11 @@ describe("AzureAuth — device code", () => {
 })
 
 describe("AzureAuth — re-authenticate", () => {
-  it("withdraws the outputs so azureAuthId steps wait again", async () => {
+  it("withdraws the outputs and the export, so scripts that name it in envFrom wait again", async () => {
     installApi((channel) => {
       if (channel === "azure:detect") return { found: true, source: "cli", principalName: "me" }
       if (channel === "azure:confirm-detected") return AUTHENTICATED
+      if (channel === "session:clear-env-export") return { ok: true }
       throw new Error(`unexpected ${channel}`)
     })
     renderBlock(<AzureAuth id="azure" detectCredentials={["cli"]} />)
@@ -338,5 +339,6 @@ describe("AzureAuth — re-authenticate", () => {
     await screen.findByText("✓ Signed in to Azure")
     fireEvent.click(screen.getByRole("button", { name: "Re-authenticate" }))
     await waitFor(() => expect(outputsOf()).toEqual({ __AUTHENTICATED: "false" }))
+    expect(invoke).toHaveBeenCalledWith("session:clear-env-export", { componentId: "azure" })
   })
 })

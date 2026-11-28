@@ -33,8 +33,7 @@ tests:
         env_prefix: RUNBOOKS_TEST_
         expect: success
 
-      # After AwsAuth succeeds, credentials should be injected into the session
-      # and this Check block should be able to use them
+      # After AwsAuth succeeds, this Check gets its credentials through envFrom
       - block: verify-identity
         expect: success
 
@@ -67,13 +66,13 @@ tests:
       - block: list-buckets-secondary
         expect: success
 
-  # Test 4: Multiple auth blocks with awsAuthId targeting
-  # This test authenticates both auth blocks and verifies that commands
-  # can target specific auth contexts via awsAuthId.
+  # Test 4: Multiple auth blocks, each named by the envFrom of its own steps
+  # This test authenticates both auth blocks and verifies that each command
+  # gets the auth block its envFrom names.
   # Note: In CI with a single account, both auth blocks use the same credentials.
-  # This still validates that awsAuthId routing works correctly.
+  # This still checks that each step gets the block its envFrom names.
   - name: test-aws-auth-id-targeting
-    description: Test that awsAuthId correctly routes commands to specific auth contexts
+    description: Test that envFrom gives each command the auth block it names
 
     steps:
       # Authenticate the primary auth block (uses RUNBOOKS_TEST_* prefix)
@@ -85,10 +84,10 @@ tests:
       - block: aws-auth-secondary
         expect: success
 
-      # This Check has awsAuthId="aws-auth" - should use PRIMARY auth context
+      # This Check has envFrom={["aws-auth"]} - should use PRIMARY auth context
       - block: list-buckets-primary
         expect: success
 
-      # This Check has awsAuthId="aws-auth-secondary" - should use SECONDARY auth context
+      # This Check has envFrom={["aws-auth-secondary"]} - should use SECONDARY auth context
       - block: list-buckets-secondary
         expect: success

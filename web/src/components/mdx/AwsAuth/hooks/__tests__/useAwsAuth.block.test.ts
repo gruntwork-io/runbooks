@@ -56,7 +56,8 @@ function installApi(handlers: Handlers = {}) {
         : { valid: false, error: "The security token included in the request is expired" }
     },
     "aws:env-credentials": () => ({ found: false }),
-    "session:set-env": () => ({ ok: true }),
+    "session:set-env-export": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     ...handlers,
   })
@@ -225,8 +226,9 @@ describe("useAwsAuth — confirming { block } credentials", () => {
       AWS_SESSION_TOKEN: sensitiveOutput("token-a"),
     })
     expect(JSON.stringify(published)).not.toMatch(/secret-a|token-a/)
-    // The session env is what scripts run with, so it gets the real values
-    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env", {
+    // The export is what scripts run with, so it gets the real values
+    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env-export", {
+      componentId: "aws",
       env: {
         AWS_ACCESS_KEY_ID: "ASIA_A",
         AWS_SECRET_ACCESS_KEY: "secret-a",
@@ -247,7 +249,7 @@ describe("useAwsAuth — confirming { block } credentials", () => {
     await act(() => result.current.handleConfirmDetected())
 
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(channelsCalled()).not.toContain("session:set-env")
+    expect(channelsCalled()).not.toContain("session:set-env-export")
     expect(result.current.authStatus).toBe("pending")
     expect(result.current.accountInfo).toBeNull()
     expect(result.current.detectionStatus).toBe("detected")
@@ -313,6 +315,6 @@ describe("useAwsAuth — confirming { block } credentials", () => {
     )
     expect(result.current.accountInfo).toBeNull()
     expect(registerOutputs).not.toHaveBeenCalled()
-    expect(channelsCalled()).not.toContain("session:set-env")
+    expect(channelsCalled()).not.toContain("session:set-env-export")
   })
 })

@@ -11,7 +11,7 @@ import {
   useScriptExecution,
   InlineMarkdown,
   UnmetDependenciesWarning,
-  UnmetAuthDependencyWarning,
+  UnmetSignInWarning,
   RunBlockedWarning,
   BlockIdLabel,
   Instruction,
@@ -34,6 +34,7 @@ import { resolveTemplateReferences } from "@/lib/templateUtils"
 import type { AppError } from "@/types/error"
 import type { ComponentType, ExecutionStatus } from "../types"
 import type { StatusStyles } from "../lib/statusStyles"
+import { replacedAuthPropError } from "../../../../../../src/domain/exec/blockEnv.ts"
 
 /**
  * The per-block configuration that distinguishes <Command>, <Check> and <Finish>.
@@ -97,15 +98,8 @@ export interface ScriptBlockProps {
   workingDir?: string | undefined
   /** The program, with optional args, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or bash. */
   interpreter?: string | undefined
-  /** Reference to an AwsAuth block by ID for AWS credentials. The credentials will be passed as environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_REGION). */
-  awsAuthId?: string | undefined
-  /** Reference to a GitHubAuth block by ID for GitHub credentials. The credentials will be passed as environment variables (GITHUB_TOKEN, GITHUB_USER). */
-  githubAuthId?: string | undefined
-  /** Reference to a GitAuth block by ID (GitHub or GitLab). The block's credentials (GITHUB_TOKEN/GITHUB_USER or GITLAB_TOKEN/GITLAB_USER) will be passed as environment variables. */
-  gitAuthId?: string | undefined
-  /** Reference to a GoogleAuth block by ID for Google Cloud credentials. The block's credentials will be passed as environment variables (GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT, CLOUDSDK_CORE_PROJECT, GOOGLE_PROJECT, CLOUDSDK_CORE_ACCOUNT, and the region/zone vars). */
-  googleAuthId?: string | undefined
-  azureAuthId?: string | undefined
+  /** The ids of the auth blocks whose sign-in the script runs with, such as `envFrom={["aws_prod"]}`. Each block's variables apply in order, a later block's over an earlier one's, then `env` applies over all of them. Run waits until each block has signed in. */
+  envFrom?: readonly string[] | undefined
   successMessage?: string | undefined
   /** Warning message (Check only — Command never reaches the warn state). */
   warnMessage?: string | undefined
@@ -147,11 +141,7 @@ export function ScriptBlock({
   env,
   workingDir,
   interpreter: interpreterProp,
-  awsAuthId,
-  githubAuthId,
-  gitAuthId,
-  googleAuthId,
-  azureAuthId,
+  envFrom: envFromProp,
   successMessage = "Success",
   warnMessage = "Warning",
   failMessage = "Failed",
@@ -165,6 +155,8 @@ export function ScriptBlock({
   onComplete,
   autoCollapse,
   variant,
+  // Props a runbook sets that ScriptBlockProps doesn't have, such as awsAuthId
+  ...otherProps
 }: ScriptBlockProps) {
   const validationError = useMemo((): AppError | null => {
     if (!id) {
@@ -196,6 +188,9 @@ export function ScriptBlock({
     envTemplates,
     envVars,
     envError,
+    envFrom,
+    envFromError,
+    unsignedEnvFrom,
     workingDirTemplate,
     workingDirError,
     interpreter,
@@ -209,14 +204,6 @@ export function ScriptBlock({
     outputDependencyBlockIds,
     unmetOutputDependencies,
     hasAllOutputDependencies,
-    unmetAwsAuthDependency,
-    hasAwsAuthDependency,
-    unmetGitHubAuthDependency,
-    hasGitHubAuthDependency,
-    unmetGoogleAuthDependency,
-    hasGoogleAuthDependency,
-    unmetAzureAuthDependency,
-    hasAzureAuthDependency,
     isRendering,
     renderError,
     templateContext,
@@ -237,16 +224,12 @@ export function ScriptBlock({
     path,
     command,
     inputsId,
-    awsAuthId,
-    githubAuthId,
-    gitAuthId,
-    googleAuthId,
-    azureAuthId,
     children,
     componentType: variant.componentType,
     usePty,
     timeoutMs,
     env,
+    envFrom: envFromProp,
     workingDir,
     interpreter: interpreterProp,
   })
@@ -374,7 +357,12 @@ export function ScriptBlock({
   // blocks supply `.inputs` values; an auth block reference never does.
   const missingInputsConfig = inputDependencies.length > 0 && !inputsId && !inlineInputsId
 
-  const propError = envError ?? workingDirError ?? interpreterError
+  const propError =
+    replacedAuthPropError(otherProps) ??
+    envError ??
+    envFromError ??
+    workingDirError ??
+    interpreterError
 
   // Report errors to the error reporting context
   useEffect(() => {
@@ -552,6 +540,7 @@ export function ScriptBlock({
         env={scriptless ? undefined : envTemplates}
         workingDir={scriptless ? undefined : workingDirTemplate}
         interpreter={scriptless ? undefined : interpreter}
+        envFrom={scriptless ? undefined : envFrom}
         inputs={childrenWithVariant}
         note={successContent}
         onMarkedDone={onComplete}
@@ -566,10 +555,7 @@ export function ScriptBlock({
     isRendering ||
     (inputDependencies.length > 0 && !hasAllInputDependencies) ||
     !hasAllOutputDependencies ||
-    !hasAwsAuthDependency ||
-    !hasGitHubAuthDependency ||
-    !hasGoogleAuthDependency ||
-    !hasAzureAuthDependency ||
+    unsignedEnvFrom.length > 0 ||
     isRunBlocked(runBlockers) ||
     (scriptless && status === "success")
 
@@ -716,6 +702,16 @@ export function ScriptBlock({
               />
             )}
 
+            {/* The auth blocks whose sign-in the script runs with */}
+            {!scriptless && envFrom.length > 0 && (
+              <div data-testid={`${id}-env-from`} className={`text-xs mb-3 ${clearIdLabel}`}>
+                <div className="font-semibold text-muted-foreground mb-1">Signed in with</div>
+                <div className="font-mono whitespace-pre-wrap break-all text-foreground">
+                  {envFrom.join(", ")}
+                </div>
+              </div>
+            )}
+
             {/* Where the script runs, as written: templates render when it runs */}
             {!scriptless && workingDirTemplate && (
               <div data-testid={`${id}-working-dir`} className={`text-xs mb-3 ${clearIdLabel}`}>
@@ -794,39 +790,8 @@ export function ScriptBlock({
               />
             )}
 
-            {/* Show unmet AWS auth dependency */}
             {hasAllInputDependencies && hasAllOutputDependencies && (
-              <UnmetAuthDependencyWarning
-                dependency={unmetAwsAuthDependency}
-                heading="Waiting for AWS authentication:"
-                hint="Authenticate with the referenced AwsAuth block first."
-              />
-            )}
-
-            {/* Show unmet GitHub auth dependency */}
-            {hasAllInputDependencies && hasAllOutputDependencies && (
-              <UnmetAuthDependencyWarning
-                dependency={unmetGitHubAuthDependency}
-                heading="Waiting for git authentication:"
-                hint="Authenticate with the referenced authentication block first."
-              />
-            )}
-
-            {/* Show unmet Google Cloud auth dependency */}
-            {hasAllInputDependencies && hasAllOutputDependencies && (
-              <UnmetAuthDependencyWarning
-                dependency={unmetGoogleAuthDependency}
-                heading="Waiting for Google Cloud authentication:"
-                hint="Authenticate with the referenced GoogleAuth block first."
-              />
-            )}
-
-            {hasAllInputDependencies && hasAllOutputDependencies && (
-              <UnmetAuthDependencyWarning
-                dependency={unmetAzureAuthDependency}
-                heading="Waiting for Azure authentication:"
-                hint="Sign in with the referenced AzureAuth block first."
-              />
+              <UnmetSignInWarning blockIds={unsignedEnvFrom} />
             )}
 
             <RunBlockedWarning

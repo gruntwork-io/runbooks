@@ -127,93 +127,56 @@ const renderCalls = () => testApi.callsTo("boilerplate:render-inline")
 const envValue = (exec: ReturnType<typeof useScriptExecution>, name: string) =>
   exec.envVars.find((envVar) => envVar.name === name)?.value
 
-describe("useScriptExecution — auth gates", () => {
-  it("keeps a googleAuthId block gated when the referenced block withdrew its authentication", () => {
-    // buildGoogleAuthEnvVars always emits the blank CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE,
-    // so only the markerOnly check reads __AUTHENTICATED here. Without it the gate
-    // could never re-close.
+describe("useScriptExecution — envFrom", () => {
+  it("waits for each envFrom block that hasn't signed in, in envFrom's order", () => {
     const { result } = renderWithOutputs(
-      { command: "gcloud projects list", googleAuthId: "gcp" },
-      { gcp: { __AUTHENTICATED: "false" } },
+      { command: "deploy", envFrom: ["aws", "gh", "gcp"] },
+      { gh: { __AUTHENTICATED: "true" } },
     )
-    expect(result.current.exec.hasGoogleAuthDependency).toBe(false)
-    expect(result.current.exec.unmetGoogleAuthDependency).toEqual({ blockId: "gcp" })
-  })
+    expect(result.current.exec.envFrom).toEqual(["aws", "gh", "gcp"])
+    expect(result.current.exec.unsignedEnvFrom).toEqual(["aws", "gcp"])
 
-  it("gates a googleAuthId block whose referenced block has not run", () => {
-    const { result } = renderScriptExecution({
-      command: "gcloud projects list",
-      googleAuthId: "gcp",
+    act(() => {
+      result.current.runbook.registerOutputs("aws", { __AUTHENTICATED: "true" })
+      result.current.runbook.registerOutputs("gcp", { __AUTHENTICATED: "true" })
     })
-    expect(result.current.exec.hasGoogleAuthDependency).toBe(false)
+    expect(result.current.exec.unsignedEnvFrom).toEqual([])
   })
 
-  it("opens a googleAuthId block for an access-token credential with no credential file", () => {
+  it("waits again for a block that signed out", () => {
     const { result } = renderWithOutputs(
-      { command: "gcloud projects list", googleAuthId: "gcp" },
-      {
-        gcp: {
-          GOOGLE_APPLICATION_CREDENTIALS: "",
-          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
-          CLOUDSDK_CORE_PROJECT: "proj",
-          __AUTHENTICATED: "true",
-        },
-      },
+      { command: "deploy", envFrom: ["aws"] },
+      { aws: { __AUTHENTICATED: "true" } },
     )
-    expect(result.current.exec.hasGoogleAuthDependency).toBe(true)
+    expect(result.current.exec.unsignedEnvFrom).toEqual([])
+
+    act(() => result.current.runbook.registerOutputs("aws", { __AUTHENTICATED: "false" }))
+    expect(result.current.exec.unsignedEnvFrom).toEqual(["aws"])
   })
 
-  it("opens an awsAuthId block once the referenced block has an access key and secret", () => {
+  it("finds a block named with hyphens under the id its outputs use", () => {
     const { result } = renderWithOutputs(
-      { command: "aws sts get-caller-identity", awsAuthId: "aws" },
-      { aws: { AWS_ACCESS_KEY_ID: "AKIA", AWS_SECRET_ACCESS_KEY: "secret" } },
+      { command: "deploy", envFrom: ["aws-prod"] },
+      { "aws-prod": { __AUTHENTICATED: "true" } },
     )
-    expect(result.current.exec.hasAwsAuthDependency).toBe(true)
+    expect(result.current.exec.unsignedEnvFrom).toEqual([])
   })
 
-  it("gates an awsAuthId block whose referenced block ran without credentials", () => {
-    const { result } = renderWithOutputs(
-      { command: "aws sts get-caller-identity", awsAuthId: "aws" },
-      { aws: {} },
+  it("reports an envFrom that isn't a list of ids, and waits for nothing", () => {
+    const { result } = renderScriptExecution({ command: "deploy", envFrom: "aws" })
+    expect(result.current.exec.envFromError).toBe(
+      'The envFrom prop must be a list of block ids, such as envFrom={["aws_prod"]}.',
     )
-    expect(result.current.exec.hasAwsAuthDependency).toBe(false)
-    expect(result.current.exec.unmetAwsAuthDependency).toEqual({ blockId: "aws" })
+    expect(result.current.exec.envFrom).toEqual([])
+    expect(result.current.exec.unsignedEnvFrom).toEqual([])
   })
 
-  it("opens a gitAuthId block when the referenced block emitted GITLAB_TOKEN", () => {
+  it("sends no env vars with the run: the main process adds the envFrom blocks' sign-ins", () => {
     const { result } = renderWithOutputs(
-      { command: "glab repo list", gitAuthId: "git" },
-      { git: { GITLAB_TOKEN: "glpat-x", GITLAB_USER: "tanuki" } },
-    )
-    expect(result.current.exec.hasGitHubAuthDependency).toBe(true)
-  })
-
-  it("gates a gitAuthId block whose referenced block has no token", () => {
-    const { result } = renderWithOutputs(
-      { command: "glab repo list", gitAuthId: "git" },
-      { git: {} },
-    )
-    expect(result.current.exec.hasGitHubAuthDependency).toBe(false)
-    expect(result.current.exec.unmetGitHubAuthDependency).toEqual({ blockId: "git" })
-  })
-})
-
-describe("useScriptExecution — execute", () => {
-  it("sends blank AWS_SESSION_TOKEN and CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE rather than dropping them", () => {
-    // Both blanks overwrite values another auth block may have left in the
-    // session env. Dropping them would run this script with that block's
-    // session token or gcloud credential.
-    const { result } = renderWithOutputs(
-      { command: "deploy", awsAuthId: "aws", googleAuthId: "gcp" },
+      { command: "aws sts get-caller-identity", envFrom: ["aws"] },
       {
         aws: {
           AWS_ACCESS_KEY_ID: "AKIA",
-          AWS_SECRET_ACCESS_KEY: "secret",
-          AWS_REGION: "us-east-1",
-        },
-        gcp: {
-          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
-          CLOUDSDK_CORE_PROJECT: "proj",
           __AUTHENTICATED: "true",
         },
       },
@@ -221,38 +184,12 @@ describe("useScriptExecution — execute", () => {
 
     act(() => result.current.exec.execute())
 
-    expect(testApi.invoke).toHaveBeenCalledWith(
-      "exec:run",
-      expect.objectContaining({
-        executableId: "exec-target",
-        envVarsOverride: expect.objectContaining({
-          AWS_ACCESS_KEY_ID: "AKIA",
-          AWS_SECRET_ACCESS_KEY: "secret",
-          AWS_SESSION_TOKEN: "",
-          CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE: "",
-          CLOUDSDK_CORE_PROJECT: "proj",
-        }),
-      }),
-    )
-  })
-
-  it("passes the real value of a credential the referenced block marked sensitive", () => {
-    const { result } = renderWithOutputs(
-      { command: "aws sts get-caller-identity", awsAuthId: "mint" },
-      { mint: { AWS_ACCESS_KEY_ID: "AKIA", AWS_SECRET_ACCESS_KEY: sensitiveOutput("topsecret") } },
-    )
-
-    act(() => result.current.exec.execute())
-
-    expect(testApi.invoke).toHaveBeenCalledWith(
-      "exec:run",
-      expect.objectContaining({
-        envVarsOverride: expect.objectContaining({
-          AWS_ACCESS_KEY_ID: "AKIA",
-          AWS_SECRET_ACCESS_KEY: "topsecret",
-        }),
-      }),
-    )
+    const [run] = testApi.callsTo("exec:run")
+    expect(run).toEqual({
+      executableId: "exec-target",
+      templateVarValues: expect.any(Object),
+      executionId: expect.any(String),
+    })
   })
 })
 

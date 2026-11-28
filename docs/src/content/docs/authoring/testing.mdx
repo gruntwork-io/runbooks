@@ -127,7 +127,7 @@ tests:
 
 #### Test case environment
 
-Each test case starts from the environment the `test` command was started with. Within a test case, a block that succeeds or warns passes the variables it writes to `$RUNBOOK_ENV` on to the blocks after it, as in the app, and an auth block adds its credentials. The test case's `env` is applied on top of all of that. Blocks, `script` assertions, and cleanup actions all see this environment.
+Each test case starts from the environment the `test` command was started with. Within a test case, a block that succeeds or warns passes the variables it writes to `$RUNBOOK_ENV` on to the blocks after it, as in the app. The test case's `env` is applied on top of that. Blocks, `script` assertions, and cleanup actions all see this environment. A block that names auth blocks in `envFrom` also gets their sign-ins, as in the app, which replace the test case's `env` for the variables they set or remove. `script` assertions and cleanup actions can't name `envFrom`, so they get no auth block's credentials.
 
 None of it carries over into the next test case. With `use_temp_working_dir`, each test case also gets its own empty working directory.
 
@@ -161,7 +161,7 @@ steps:
 | `success` | Block completed successfully (exit code 0). |
 | `fail` | Block failed (any exit code other than 0 or 2). |
 | `warn` | Block completed with warning (exit code 2). |
-| `blocked` | Block is blocked: an auth block it depends on hasn't run or was skipped, a block its `dependsOn` names hasn't finished with a success or a warning, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
+| `blocked` | Block is blocked: an auth block in its `envFrom` hasn't run or was skipped, a block its `dependsOn` names hasn't finished with a success or a warning, or the outputs listed in `missing_outputs` don't exist yet. The block doesn't run. |
 | `skip` | Don't run this block, for example an `<AwsAuth>` in a test that has no AWS credentials. [Pull request blocks](#testing-pull-request-blocks) can only be tested with `skip` or `blocked`. |
 | `config_error` | Block has a configuration error, such as a missing prop. |
 
@@ -447,7 +447,7 @@ For an `<AwsAuth>` block, the test runner looks for AWS credentials in environme
 2. `AWS_PROFILE`
 3. `AWS_ROLE_ARN` together with `AWS_WEB_IDENTITY_TOKEN_FILE`
 
-Static keys go into the test case environment, so every later block sees them. A profile, or a role and token file, is passed only to blocks that reference the auth block with `awsAuthId`. If none of the three is set, the step is skipped and blocks that reference the auth block are blocked.
+What it finds becomes the block's sign-in, which a block that names it in `envFrom` runs with, as in the app. For `AWS_PROFILE` or a web identity role, the sign-in has only the region: a block that names the auth block in `envFrom` runs without the environment's AWS keys and session token, and the AWS tools read the profile or role from the environment the test started with. If none of the three is set, the step is skipped and blocks that name the auth block in `envFrom` are blocked.
 
 The runner sets `AWS_REGION` only from the `AWS_REGION` variable. The app falls back to `AWS_DEFAULT_REGION` and then to the block's `defaultRegion`, but the runner doesn't, so under test a script that reads `$AWS_REGION` gets nothing when `AWS_REGION` isn't set.
 
@@ -497,7 +497,7 @@ In GitHub Actions:
 
 ## Testing GoogleAuth blocks
 
-For a `<GoogleAuth>` block, the test runner looks for Google Cloud credentials in environment variables and adds them to the test case environment. As with AwsAuth, it never contacts Google, so a test shows that the block is wired up and says nothing about whether the credential is valid.
+For a `<GoogleAuth>` block, the test runner looks for Google Cloud credentials in environment variables and makes them the block's sign-in, which blocks that name it in `envFrom` run with. As with AwsAuth, it never contacts Google, so a test shows that the block is wired up and says nothing about whether the credential is valid.
 
 It checks these credential variables in order:
 
@@ -506,7 +506,7 @@ It checks these credential variables in order:
 - `GOOGLE_OAUTH_ACCESS_TOKEN`
 - `CLOUDSDK_AUTH_ACCESS_TOKEN`
 
-If none is set, it falls back to gcloud's `application_default_credentials.json`, the block's `'adc'` detection source. If that is missing too, the step is skipped and every block that references it with `googleAuthId` is blocked.
+If none is set, it falls back to gcloud's `application_default_credentials.json`, the block's `'adc'` detection source. If that is missing too, the step is skipped and every block that names it in `envFrom` is blocked.
 
 It also reads these variables, none of which counts as a credential:
 
@@ -518,7 +518,7 @@ When none of those is set, the block's own `project`, `defaultRegion`, and `defa
 
 On success the runner writes the project, region, and zone under every name that gcloud, the client libraries, and the OpenTofu `google` provider each look for, as the app does: `GOOGLE_CLOUD_PROJECT` / `CLOUDSDK_CORE_PROJECT` / `GOOGLE_PROJECT`, `GOOGLE_CLOUD_REGION` / `CLOUDSDK_COMPUTE_REGION` / `GOOGLE_REGION`, and `CLOUDSDK_COMPUTE_ZONE` / `GOOGLE_ZONE`. A credentials file also sets `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, so `gcloud` uses that file and ignores any account from `gcloud auth login`. An access token is written as both `GOOGLE_OAUTH_ACCESS_TOKEN` and `CLOUDSDK_AUTH_ACCESS_TOKEN`, and clears the override.
 
-Two things differ from the session environment the app writes:
+Two things differ from the app's sign-in:
 
 - Inline JSON in `GOOGLE_CREDENTIALS` is passed on as it is, and `GOOGLE_APPLICATION_CREDENTIALS` and `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE` are cleared. So only tools that read `GOOGLE_CREDENTIALS`, such as the OpenTofu `google` provider, find the credential, and `gcloud` and the client libraries don't. The app writes the JSON to a file and points both variables at it.
 - `CLOUDSDK_CORE_ACCOUNT` isn't set.
@@ -568,14 +568,14 @@ If no prefixed credential is found, it falls back to the unprefixed variables, a
 
 ## Testing AzureAuth blocks
 
-For an `<AzureAuth>` block, the test runner looks for a service principal in environment variables, then for an Azure CLI sign-in, and adds what it finds to the test case environment under the names the app writes. It never contacts Azure, so a test shows that the block is wired up and says nothing about whether the sign-in works.
+For an `<AzureAuth>` block, the test runner looks for a service principal in environment variables, then for an Azure CLI sign-in, and makes what it finds the block's sign-in, under the names the app uses. It never contacts Azure, so a test shows that the block is wired up and says nothing about whether the sign-in works.
 
 - **Service principal:** `ARM_CLIENT_ID`, `ARM_TENANT_ID` and `ARM_CLIENT_SECRET` (or `ARM_CLIENT_CERTIFICATE_PATH`, a PEM file), then the same `AZURE_*` names. With the step's `env_prefix`, the prefixed names are tried first, then the unprefixed ones.
 - **Azure CLI:** a sign-in in `AZURE_CONFIG_DIR`, or in `~/.azure` when that's unset. It sets `AZURE_CONFIG_DIR` and `ARM_USE_CLI=true`. Set `AZURE_CONFIG_DIR` to an empty value to skip it.
 
 The tenant and subscription come from the service principal's variables, then the block's `tenantId` and `subscriptionId` props, then `ARM_TENANT_ID` / `AZURE_TENANT_ID` and `ARM_SUBSCRIPTION_ID` / `AZURE_SUBSCRIPTION_ID`, then the Azure CLI's default account. `requiredRoles` isn't checked.
 
-If neither is found, the step is skipped and every block that references it with `azureAuthId` is blocked.
+If neither is found, the step is skipped and every block that names it in `envFrom` is blocked.
 
 Unlike the app, the runner doesn't run `az login`: it uses an Azure CLI sign-in in place, sets no `AZURE_CONFIG_DIR` for a service principal, and doesn't set the `AZURE_PRINCIPAL_*` variables for a CLI sign-in.
 
@@ -587,7 +587,7 @@ For a `<GitHubAuth>` block, the test runner looks for a token for the block's ho
 - For a `*.ghe.com` tenant: `GITHUB_TOKEN`, then `GH_TOKEN`, when `GH_HOST` names the tenant.
 - For a GitHub Enterprise Server host: `GH_ENTERPRISE_TOKEN`, then `GITHUB_ENTERPRISE_TOKEN`, when `GH_HOST` names the host.
 
-On success, the blocks after it see `GITHUB_TOKEN` and `GITHUB_HOST`. The app also sets `GITHUB_USER` and `GH_HOST`, and for an Enterprise Server host `GH_ENTERPRISE_TOKEN`, so under test a script has those only if the environment the tests run in sets them.
+On success, a block that names it in `envFrom` gets `GITHUB_TOKEN`, `GITHUB_HOST` and `GH_HOST`, and for an Enterprise Server host `GH_ENTERPRISE_TOKEN`. The app also sets `GITHUB_USER`, which the runner doesn't.
 
 A `host` that isn't a valid host is a configuration error in the app. Under test, the block uses `github.com` instead.
 
@@ -627,7 +627,7 @@ For a `<GitLabAuth>` block, the test runner looks for a GitLab token in these en
 
 With `env_prefix` on the step, it checks the prefixed names instead (`CI_GITLAB_TOKEN`, `CI_GITLAB_ACCESS_TOKEN`, `CI_OAUTH_TOKEN`). The app reads only the first two of those with a prefix.
 
-On success, the blocks after it see `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips. Unlike the app, the runner ties a prefixed token to a host with these unprefixed variables too. The app uses the prefixed ones, such as `CI_GITLAB_HOST`.
+On success, a block that names it in `envFrom` gets `GITLAB_TOKEN` and `GITLAB_HOST`. As in the app, a token from the environment belongs to one GitLab host: the one `GITLAB_HOST` (or `GITLAB_URI`, `GL_HOST`) names, or `gitlab.com` if none is set. A block that pins another host with `instanceUrl` or `host` skips unless `GITLAB_HOST` names that host too, and a block whose pinned value isn't a valid URL or host always skips. Unlike the app, the runner ties a prefixed token to a host with these unprefixed variables too. The app uses the prefixed ones, such as `CI_GITLAB_HOST`.
 
 The test runner never sends the token anywhere, so a fake one is enough to test that the block authenticates:
 
@@ -657,21 +657,13 @@ Each `<GitClone>` that succeeds also becomes the repository that `$REPO_FILES` a
 
 ### Cloning with a token
 
-A `<GitClone>` that references an auth block with `gitAuthId` or `githubAuthId` clones an `https` URL with that block's token when the URL is on the host the block authenticated to. That includes GitHub Enterprise Server and self-managed GitLab hosts. The username is `oauth2` for GitLab and `x-access-token` for GitHub.
+A `<GitClone>` whose `envFrom` names an auth block clones an `https` URL with that block's token when the URL is on the host the block authenticated to. That includes GitHub Enterprise Server and self-managed GitLab hosts. The username is `oauth2` for GitLab and `x-access-token` for GitHub.
 
-Without a reference, the runner recognizes `github.com`, `*.ghe.com`, and `gitlab.com` URLs and uses that provider's token from the [test case environment](#test-case-environment): `GITHUB_TOKEN` or `GH_TOKEN` for GitHub, `GITLAB_TOKEN` for GitLab. A token already set where the tests run counts too, so to clone without one, blank it in the test case's `env`:
-
-```yaml
-tests:
-  - name: anonymous-clone
-    env:
-      GITHUB_TOKEN: ""
-      GH_TOKEN: ""
-```
+Without `envFrom`, the runner gives git no token, as the app does, and git uses the credential helpers configured where the tests run.
 
 ## Testing pull request blocks
 
-`<GitPullRequest>`, `<GitHubPullRequest>`, and `<GitLabMergeRequest>` blocks never run in tests, since they would push a branch and open a real pull request. A step that names one must use `expect: skip`, or `expect: blocked` when the auth block it references hasn't run or was skipped. A test with no `steps` expects them to skip.
+`<GitPullRequest>`, `<GitHubPullRequest>`, and `<GitLabMergeRequest>` blocks never run in tests, since they would push a branch and open a real pull request. A step that names one must use `expect: skip`, or `expect: blocked` when an auth block in its `envFrom` hasn't run or was skipped. A test with no `steps` expects them to skip.
 
 ```yaml
 # runbook_test.yml

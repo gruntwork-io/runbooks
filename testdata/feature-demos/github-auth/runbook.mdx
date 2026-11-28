@@ -18,7 +18,7 @@ This runbook demonstrates the GitHubAuth block capabilities.
 
 <Command
   id="verify-auth"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Verify GitHub Access"
   path="./scripts/verify-auth.sh"
 />
@@ -41,7 +41,7 @@ variables:
 
 <Command
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   inputsId="repo-config"
   title="Clone Repository"
   env={{ REPO_URL: "{{ .inputs.repo_url }}", CLONE_PATH: "{{ .inputs.clone_path }}" }}

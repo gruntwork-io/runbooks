@@ -50,7 +50,6 @@ describe("launch-session", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       lastLaunchedAt: "2026-01-01T00:00:00.000Z",
       lastActivityAt: "2026-01-01T00:00:00.000Z",
-      vcsBindings: {},
       finishedAt: undefined,
       ...overrides,
     }

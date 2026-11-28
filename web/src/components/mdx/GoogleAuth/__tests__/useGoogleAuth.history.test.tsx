@@ -433,7 +433,7 @@ describe("useGoogleAuth in a session — resuming", () => {
     expect(result.current.errorMessage).toContain(
       "now belongs to intruder@example.com, not ops@example.com",
     )
-    // Only the read-only check ran: the session env was never written.
+    // Only the read-only check ran: nothing was exported.
     expect(callsTo("google:validate-credentials")).toEqual([
       { keyPath: "/home/u/key.json", ...PLACEMENT },
     ])

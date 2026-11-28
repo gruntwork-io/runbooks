@@ -80,7 +80,7 @@ export async function handleEnvCredentials(params: EnvCredentialsParams = {}) {
  * (the credentials may have changed since detect), then validated.
  *
  * It writes nothing to the session. It returns the keys, and the renderer
- * publishes them (block outputs and session env, like aws:profile-auth and
+ * publishes them (block outputs and export, like aws:profile-auth and
  * aws:sso-complete) only if the sign-in attempt is still current, so a reply
  * that lands after the block is gone changes nothing.
  *

@@ -91,7 +91,7 @@ describe("useGitAuth — GitLab provider", () => {
     expect(channelsCalled.some((c) => c.includes("oauth"))).toBe(false)
   })
 
-  it("PAT success registers GITLAB_TOKEN/GITLAB_USER and writes session env", async () => {
+  it("PAT success registers GITLAB_TOKEN/GITLAB_USER and has main save the block's export", async () => {
     const testApi = installApi({
       "gitlab:validate": () => {
         return {
@@ -100,7 +100,7 @@ describe("useGitAuth — GitLab provider", () => {
           tokenType: "pat",
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -115,12 +115,13 @@ describe("useGitAuth — GitLab provider", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:validate", {
+      componentId: "git",
       token: "glpat-abc",
       host: "gitlab.com",
       registerSession: true,
     })
     // GIT_PROVIDER + __AUTHENTICATED are registered as block outputs so
-    // downstream blocks can derive the linked instance / chain via session.
+    // downstream blocks can derive the linked instance / chain to the block.
     expect(registerOutputs).toHaveBeenCalledWith("git", {
       GITLAB_TOKEN: sensitiveOutput("glpat-abc"),
       GITLAB_USER: "tanuki",
@@ -128,7 +129,6 @@ describe("useGitAuth — GitLab provider", () => {
       GIT_PROVIDER: "gitlab",
       __AUTHENTICATED: "true",
     })
-    expect(testApi.invoke).not.toHaveBeenCalledWith("session:set-env", expect.anything())
     expect(result.current.authStatus).toBe("authenticated")
     // No scopes returned (introspection unavailable) → no claim about missing scopes.
     expect(result.current.missingScope).toBe(false)
@@ -139,7 +139,7 @@ describe("useGitAuth — GitLab provider", () => {
       "gitlab:validate": () => {
         return { valid: true, user: { login: "tanuki" }, tokenType: "pat" }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -155,6 +155,7 @@ describe("useGitAuth — GitLab provider", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:validate", {
+      componentId: "git",
       token: "glpat-abc",
       registerSession: true,
       instanceUrl: "https://gitlab.acme.com",
@@ -163,14 +164,14 @@ describe("useGitAuth — GitLab provider", () => {
 
   it("pairs the PAT with the entered instance host (not the default) in the banner and validate call", async () => {
     // Regression for the token<->host mismatch: when a self-managed instance URL
-    // is supplied, the validate call (whose handler writes GITLAB_HOST into the
-    // session env main-side) and the success banner must match that
+    // is supplied, the validate call (whose handler saves GITLAB_HOST in the
+    // block's export main-side) and the success banner must match that
     // instance — not the picker's gitlab.com default.
     const testApi = installApi({
       "gitlab:validate": () => {
         return { valid: true, user: { login: "tanuki" }, tokenType: "pat" }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -186,11 +187,11 @@ describe("useGitAuth — GitLab provider", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:validate", {
+      componentId: "git",
       token: "glpat-abc",
       registerSession: true,
       instanceUrl: "https://gitlab.acme.com",
     })
-    expect(testApi.invoke).not.toHaveBeenCalledWith("session:set-env", expect.anything())
     expect(result.current.selectedHost).toBe("gitlab.acme.com")
   })
 
@@ -199,7 +200,7 @@ describe("useGitAuth — GitLab provider", () => {
       "gitlab:validate": () => {
         return { valid: true, user: { login: "tanuki" }, tokenType: "pat" }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -218,6 +219,7 @@ describe("useGitAuth — GitLab provider", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:validate", {
+      componentId: "git",
       token: "glpat-abc",
       registerSession: true,
       instanceUrl: "https://edited.example.com",
@@ -258,7 +260,7 @@ describe("useGitAuth — GitLab provider", () => {
           scopes: ["read_user", "write_repository"],
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -281,7 +283,7 @@ describe("useGitAuth — GitLab provider", () => {
       "gitlab:validate": () => {
         return { valid: true, user: { login: "tanuki" }, tokenType: "pat", scopes: ["api"] }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -309,7 +311,7 @@ describe("useGitAuth — GitLab provider", () => {
           scopes: ["read_user", "read_repository"],
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -361,7 +363,7 @@ describe("useGitAuth — GitLab provider", () => {
           ? { found: true, user: { login: "root" }, scopes: ["api"], host }
           : { found: false }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({ id: "git", provider: PROVIDERS.gitlab })
@@ -374,6 +376,7 @@ describe("useGitAuth — GitLab provider", () => {
     expect(result.current.selectedHost).toBe("gitlab.gruntwork.io")
     // Detection targeted the self-managed default host, not gitlab.com.
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:cli-credentials", {
+      componentId: "git",
       host: "gitlab.gruntwork.io",
     })
   })
@@ -396,7 +399,7 @@ describe("useGitAuth — GitLab provider", () => {
           ? { found: true, user: { login: "root" }, host }
           : { found: false }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({ id: "git", provider: PROVIDERS.gitlab })
@@ -411,6 +414,7 @@ describe("useGitAuth — GitLab provider", () => {
 
     await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:cli-credentials", {
+      componentId: "git",
       host: "gitlab.gruntwork.io",
     })
   })
@@ -459,7 +463,7 @@ describe("useGitAuth — GitHub provider (regression)", () => {
           scopes: ["read:org"],
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({
@@ -474,6 +478,7 @@ describe("useGitAuth — GitHub provider (regression)", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("github:validate", {
+      componentId: "gh",
       token: "ghp_abc",
       host: "github.com",
       registerSession: true,
@@ -501,7 +506,7 @@ describe("useGitAuth — GitHub provider (regression)", () => {
           tokenType: "fine_grained_pat",
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({ id: "gh", provider: PROVIDERS.github })
@@ -617,7 +622,7 @@ describe("useGitAuth — tri-state unreachable", () => {
         }
         return { found: true, valid: true, user: { login: "octocat" }, tokenType: "classic_pat" }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({ id: "gh", provider: PROVIDERS.github })
@@ -710,7 +715,7 @@ describe("useGitAuth — copy contracts", () => {
           divergenceHint: DIVERGENCE,
         }
       },
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     const { result } = renderGitAuth({ id: "gh", provider: PROVIDERS.github })
@@ -850,7 +855,7 @@ describe("useGitAuth — host union UX", () => {
     await waitFor(() => {
       expect(testApi.calls.slice(callsBefore)).toContainEqual({
         channel: "gitlab:cli-credentials",
-        params: { host: "gitlab.com" },
+        params: { componentId: "git", host: "gitlab.com" },
       })
     })
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:host-picked", { host: "gitlab.com" })
@@ -906,66 +911,16 @@ describe("useGitAuth — host union UX", () => {
     })
     expect(result.current.selectedHost).toBe("git.corp.example")
   })
-
-  it("flags the session as stale when another block authenticates a different host", async () => {
-    const testApi = installApi({
-      "gitlab:enumerate-hosts": () => HOSTS,
-      "gitlab:env-credentials": () => ({
-        found: true,
-        valid: true,
-        user: { login: "tanuki" },
-        host: "gitlab.com",
-        envVar: "GITLAB_TOKEN",
-      }),
-      "session:set-env": () => ({ ok: true }),
-    })
-
-    const { result } = renderGitAuth({ id: "git", provider: PROVIDERS.gitlab })
-    await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
-    expect(result.current.sessionStale).toBe(false)
-
-    // A second block authenticates a DIFFERENT host → this card is stale.
-    act(() =>
-      testApi.emit("vcs:session-changed", {
-        provider: "gitlab",
-        host: "git.corp.example",
-        source: "cli",
-      }),
-    )
-    expect(result.current.sessionStale).toBe(true)
-  })
-
-  it("ignores session changes for the other provider or the same host", async () => {
-    const testApi = installApi({
-      "gitlab:enumerate-hosts": () => HOSTS,
-      "gitlab:env-credentials": () => ({
-        found: true,
-        valid: true,
-        user: { login: "tanuki" },
-        host: "gitlab.com",
-        envVar: "GITLAB_TOKEN",
-      }),
-      "session:set-env": () => ({ ok: true }),
-    })
-
-    const { result } = renderGitAuth({ id: "git", provider: PROVIDERS.gitlab })
-    await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
-
-    act(() => testApi.emit("vcs:session-changed", { provider: "github", host: "github.com" }))
-    expect(result.current.sessionStale).toBe(false)
-    act(() => testApi.emit("vcs:session-changed", { provider: "gitlab", host: "gitlab.com" }))
-    expect(result.current.sessionStale).toBe(false)
-  })
 })
 
 describe("useGitAuth — custody", () => {
-  it("chains a referenced GitAuth block via useSessionToken — no token crosses IPC", async () => {
+  it("chains a referenced GitAuth block via fromBlock — no token crosses IPC", async () => {
     // The referenced GitAuth block authenticated earlier: metadata-only
     // outputs (no GITHUB_TOKEN), just the __AUTHENTICATED marker.
     blockOutputs["github_auth"] = { values: { __AUTHENTICATED: "true", GIT_PROVIDER: "github" } } // normalizeBlockId maps github-auth → github_auth
     const testApi = installApi({
       "github:validate": (params) => {
-        if (params.useSessionToken && params.token === undefined) {
+        if (params.fromBlock === "github-auth" && params.token === undefined) {
           return { valid: true, user: { login: "octocat" }, tokenType: "oauth" }
         }
         return { valid: false, error: "unexpected payload" }
@@ -979,9 +934,14 @@ describe("useGitAuth — custody", () => {
     })
 
     await waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
+    // Main validates the referenced block's export and saves it as this block's
     expect(testApi.invoke).toHaveBeenCalledWith(
       "github:validate",
-      expect.objectContaining({ useSessionToken: true }),
+      expect.objectContaining({
+        fromBlock: "github-auth",
+        componentId: "gh2",
+        registerSession: true,
+      }),
     )
     // The consuming block's outputs stay metadata-only too.
     expect(registerOutputs).toHaveBeenCalledWith(
@@ -1029,14 +989,13 @@ describe("useGitAuth — custody", () => {
       })
 
       await vi.waitFor(() => expect(result.current.authStatus).toBe("authenticated"))
-      // Metadata-only outputs; main owns the session env.
+      // Metadata-only outputs; main owns the block's export.
       expect(registerOutputs).toHaveBeenCalledWith("gh", {
         GITHUB_USER: "octocat",
         GITHUB_HOST: "github.com",
         GIT_PROVIDER: "github",
         __AUTHENTICATED: "true",
       })
-      expect(testApi.invoke).not.toHaveBeenCalledWith("session:set-env", expect.anything())
       // clientId was not sent — main owns the default app id.
       const [startParams] = testApi.callsTo("github:oauth-start")
       expect(startParams?.clientId).toBeUndefined()
@@ -1245,8 +1204,9 @@ describe("useGitAuth — Re-authenticate", () => {
     })
   }
 
-  it("withdraws the credential from the outputs and keeps GIT_PROVIDER", async () => {
-    installApi({
+  it("withdraws the credential from the outputs and its export, and keeps GIT_PROVIDER", async () => {
+    const testApi = installApi({
+      "session:clear-env-export": () => ({ ok: true }),
       "github:validate": () => ({
         valid: true,
         user: { login: "octocat" },
@@ -1273,6 +1233,8 @@ describe("useGitAuth — Re-authenticate", () => {
 
     expect(result.current.authStatus).toBe("pending")
     expect(registerOutputs).toHaveBeenLastCalledWith("gh", { GIT_PROVIDER: "github" })
+    // A block that names this one in envFrom waits for the next sign-in
+    expect(testApi.invoke).toHaveBeenCalledWith("session:clear-env-export", { componentId: "gh" })
   })
 
   it("does not re-detect the ambient credential on window focus", async () => {
@@ -1382,8 +1344,8 @@ describe("useGitAuth — {block} detection sources", () => {
     // before it authenticates: GIT_PROVIDER only.
     blockOutputs = { git_auth: { values: { GIT_PROVIDER: "github" } } }
     const testApi = installApi({
-      "github:validate": ({ useSessionToken }) =>
-        useSessionToken
+      "github:validate": ({ fromBlock }) =>
+        fromBlock === "git-auth"
           ? { valid: true, user: { login: "octocat" }, tokenType: "oauth" }
           : { valid: false },
       "github:env-credentials": () => ({
@@ -1971,7 +1933,10 @@ describe("useGitAuth — GitHub Enterprise hosts", () => {
       "github:env-credentials",
       expect.objectContaining({ host: "ghes.corp" }),
     )
-    expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", { host: "ghes.corp" })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", {
+      componentId: "gh",
+      host: "ghes.corp",
+    })
     expect(result.current.selectedHost).toBe("ghes.corp")
     // The authenticated host is a block output (GitClone builds URLs from it).
     expect(registerOutputs).toHaveBeenCalledWith(
@@ -1990,13 +1955,19 @@ describe("useGitAuth — GitHub Enterprise hosts", () => {
 
     const { result } = renderGitAuth({ id: "gh", provider: PROVIDERS.github })
     await waitFor(() => expect(result.current.detectionStatus).toBe("done"))
-    expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", { host: "github.com" })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", {
+      componentId: "gh",
+      host: "github.com",
+    })
 
     act(() => result.current.handleHostSelect("ghes.corp"))
 
     await waitFor(() => {
       expect(testApi.invoke).toHaveBeenCalledWith("github:host-picked", { host: "ghes.corp" })
-      expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", { host: "ghes.corp" })
+      expect(testApi.invoke).toHaveBeenCalledWith("github:cli-credentials", {
+        componentId: "gh",
+        host: "ghes.corp",
+      })
     })
     expect(testApi.calls.some(({ channel }) => channel === "gitlab:host-picked")).toBe(false)
     expect(result.current.selectedHost).toBe("ghes.corp")
@@ -2025,6 +1996,7 @@ describe("useGitAuth — GitHub Enterprise hosts", () => {
     })
 
     expect(testApi.invoke).toHaveBeenCalledWith("github:validate", {
+      componentId: "gh",
       token: "ghp_abc",
       host: "ghes.corp",
       registerSession: true,
@@ -2124,6 +2096,7 @@ describe("useGitAuth — GitHub Enterprise hosts", () => {
         host: "ghes.corp",
       })
       expect(testApi.invoke).toHaveBeenCalledWith("github:oauth-poll", {
+        componentId: "gh",
         clientId: "Iv1.ghes",
         deviceCode: "dev",
         host: "ghes.corp",

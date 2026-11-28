@@ -432,7 +432,12 @@ describe("runbook IPC handlers", () => {
 
       it("resumes a runbook's session after a restart, env included", async () => {
         const first = await getRunbook(dirA)
-        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+        await runtimeModule.runtime.runPromise(
+          sessionManager.applyScriptEnv({
+            env: { FROM_BLOCK: "1" },
+            generation: sessionManager.getGeneration(),
+          }),
+        )
         restartApp()
 
         const second = await getRunbook(dirA)
@@ -448,7 +453,12 @@ describe("runbook IPC handlers", () => {
 
       it("keeps one session per runbook when switching between them", async () => {
         const a = await getRunbook(dirA)
-        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_A: "1" }))
+        await runtimeModule.runtime.runPromise(
+          sessionManager.applyScriptEnv({
+            env: { FROM_A: "1" },
+            generation: sessionManager.getGeneration(),
+          }),
+        )
 
         const b = await getRunbook(dirB)
         expect(b.sessionId).not.toBe(a.sessionId)
@@ -464,7 +474,12 @@ describe("runbook IPC handlers", () => {
         await getRunbook(dirA)
         // Straight into the session, as a script's `export` would: nothing
         // registered this value in this run.
-        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ GITLAB_TOKEN: token }))
+        await runtimeModule.runtime.runPromise(
+          sessionManager.applyScriptEnv({
+            env: { GITLAB_TOKEN: token },
+            generation: sessionManager.getGeneration(),
+          }),
+        )
         expect(redactSecrets(`token ${token}`)).toContain(token)
         restartApp()
 
@@ -473,20 +488,30 @@ describe("runbook IPC handlers", () => {
         expect(redactSecrets(`token ${token}`)).not.toContain(token)
       })
 
-      it("binds a resumed session's git credentials to the hosts they were bound to", async () => {
-        const { vcsSessionMeta, saveVcsSessionMeta } = runtimeModule
+      it("resumes each auth block's export, and registers its token for log redaction", async () => {
+        const { redactSecrets } = await import("../../../src/domain/vcs/redact.ts")
+        const { authEnvExport } = await import("../../../src/domain/exec/authEnv.ts")
+        const token = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
         await getRunbook(dirA)
-        vcsSessionMeta.set("github", { host: "ghe.example.com", source: "oauth" })
-        saveVcsSessionMeta()
+        const envExport = authEnvExport("github", {
+          GITHUB_TOKEN: token,
+          GITHUB_HOST: "ghe.example.com",
+        })
+        if (!envExport.ok) throw new Error(envExport.error)
+        await runtimeModule.runtime.runPromise(
+          sessionManager.setEnvExport("gh", envExport.export, sessionManager.getGeneration()),
+        )
 
         await getRunbook(dirB)
-        expect(vcsSessionMeta.size).toBe(0)
+        expect(sessionManager.getEnvExport("gh")).toBeUndefined()
         restartApp()
 
         await getRunbook(dirA)
-        expect(Object.fromEntries(vcsSessionMeta)).toEqual({
-          github: { host: "ghe.example.com", source: "oauth" },
+        expect(sessionManager.getEnvExport("gh")?.env).toEqual({
+          GITHUB_TOKEN: token,
+          GITHUB_HOST: "ghe.example.com",
         })
+        expect(redactSecrets(`token ${token}`)).not.toContain(token)
       })
 
       it("returns what the session's history says each block was left as", async () => {
@@ -536,7 +561,12 @@ describe("runbook IPC handlers", () => {
         await new Promise((resolve) => {
           setTimeout(resolve, 5)
         })
-        await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+        await runtimeModule.runtime.runPromise(
+          sessionManager.applyScriptEnv({
+            env: { FROM_BLOCK: "1" },
+            generation: sessionManager.getGeneration(),
+          }),
+        )
         const [listed] = await runtimeModule.runtime.runPromise(sessions.persistence.listSessions())
         restartApp()
 
@@ -571,7 +601,12 @@ describe("runbook IPC handlers", () => {
       describe("resetToNewSession", () => {
         it("reloads the open runbook under a new, empty session", async () => {
           const first = await getRunbook(dirA, { remoteSource: "https://example.com/acme/a" })
-          await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_BLOCK: "1" }))
+          await runtimeModule.runtime.runPromise(
+            sessionManager.applyScriptEnv({
+              env: { FROM_BLOCK: "1" },
+              generation: sessionManager.getGeneration(),
+            }),
+          )
 
           const from = sent.length
           resetToNewSession()
@@ -663,7 +698,12 @@ describe("runbook IPC handlers", () => {
         it("moves the open runbook's session to the directory it was launched from again", async () => {
           expectLaunch({ source: dirA, launchDir: "/first", sessionId: undefined })
           const a = await getRunbook(dirA)
-          await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ KEPT: "1" }))
+          await runtimeModule.runtime.runPromise(
+            sessionManager.applyScriptEnv({
+              env: { KEPT: "1" },
+              generation: sessionManager.getGeneration(),
+            }),
+          )
 
           expectLaunch({ source: dirA, launchDir: "/second", sessionId: undefined })
           const again = await getRunbook(dirA)

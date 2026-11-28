@@ -20,12 +20,12 @@ default) or let the user pick from the dropdown.
 
 ## Step 2: Verify Authentication
 
-The verify step references the auth block by `gitAuthId`, so it waits for
-authentication and inherits the `GITLAB_TOKEN` from the session environment.
+The verify step names the auth block in `envFrom`, so it waits for
+authentication and runs with the block's `GITLAB_TOKEN`.
 
 <Command
   id="verify-auth"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Verify GitLab Access"
   path="./scripts/verify-auth.sh"
 />

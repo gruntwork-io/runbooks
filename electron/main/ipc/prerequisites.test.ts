@@ -112,7 +112,11 @@ async function check(executionId: string): Promise<{ result: RunResult; lines: s
 function savedEnvChanges(): { set: Record<string, string>; unset: string[] } {
   const id = sessions.persistence.currentSession()!.id
   const record = Effect.runSync(sessions.store.get(id))!
-  return JSON.parse(new TextDecoder().decode(record.env))
+  const { set, unset } = JSON.parse(new TextDecoder().decode(record.env)) as {
+    set: Record<string, string>
+    unset: string[]
+  }
+  return { set, unset }
 }
 
 describe("exec:run for a <Prerequisites> block", () => {

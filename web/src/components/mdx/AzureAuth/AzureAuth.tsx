@@ -200,11 +200,7 @@ function AzureAuthInteractive({
             )}
 
             {done && auth.signInInfo && (
-              <AuthSuccess
-                info={auth.signInInfo}
-                warningMessage={auth.warningMessage}
-                onReAuthenticate={auth.handleManualAuth}
-              />
+              <AuthSuccess info={auth.signInInfo} onReAuthenticate={auth.handleManualAuth} />
             )}
 
             {auth.cliMissing && !done && (

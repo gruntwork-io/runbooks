@@ -61,7 +61,7 @@ AzureAuth signs in with the [Azure CLI](https://learn.microsoft.com/cli/azure/in
 
 ## Environment variables
 
-When the sign-in succeeds, these variables are set in the session environment for later Command and Check blocks, and published as the block's outputs:
+When the sign-in succeeds, a Command, Check or Finish block that names the AzureAuth block in [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) runs with these variables. They are also published as the block's outputs:
 
 | Variable | Value |
 |----------|-------|
@@ -79,7 +79,7 @@ When the sign-in succeeds, these variables are set in the session environment fo
 | `AZURE_PRINCIPAL_OBJECT_ID` | The principal's object ID in the tenant |
 | `AZURE_PRINCIPAL_TYPE` | `user`, `guest` or `servicePrincipal` |
 
-A variable the sign-in has no value for is removed from the session, so a client secret from an earlier AzureAuth block doesn't linger.
+A block that names the AzureAuth block in `envFrom` runs without every one of these variables the sign-in has no value for, so a client secret from your shell or from another AzureAuth block can't take precedence: `azurerm` prefers a client secret to the Azure CLI. A block without `envFrom` doesn't get them.
 
 `ARM_TENANT_ID` isn't set when `ARM_USE_CLI` is (an Azure CLI sign-in, device code, a detected `az login`, or a service principal with a certificate). The `azurerm` state backend passes `ARM_TENANT_ID` to `az account get-access-token` as `--tenant`, alongside its `subscription_id` as `--subscription`, and Azure CLI refuses both together. The block's `AZURE_CONFIG_DIR` is already signed in to the chosen tenant, with the chosen subscription as its default, so `azurerm`, `azuread` and the backend get the tenant from the Azure CLI. Use `AZURE_TENANT_ID` in your own scripts.
 
@@ -108,27 +108,23 @@ The client secret outputs are [sensitive](/authoring/inputs-and-outputs/#sensiti
 
 ## Using with Commands and Checks
 
-Without any extra props, later blocks run with whichever AzureAuth block signed in last, through the session environment.
-
-To bind a block to one specific AzureAuth block, use the `azureAuthId` prop. The referenced block's variables are passed to that execution only, and the **Run** button stays disabled until the block has signed in:
+Name the AzureAuth block in a Command or Check block's `envFrom` to run its script with the block's variables. The **Run** button stays disabled until the block has signed in:
 
 ```mdx
 <AzureAuth id="azure-auth" />
 
 <Command
   id="list-groups"
-  azureAuthId="azure-auth"
+  envFrom={["azure-auth"]}
   command="az group list -o table"
 />
 
 <Check
   id="check-tofu"
-  azureAuthId="azure-auth"
+  envFrom={["azure-auth"]}
   command="cd infra && tofu plan -input=false"
 />
 ```
-
-An `azureAuthId` step also gets the client ID, secret, certificate and `ARM_TENANT_ID` variables blank when the block has none. That stops a service principal from another block in the session taking precedence: `azurerm` prefers a client secret to the Azure CLI.
 
 ## Several tenants or subscriptions
 
@@ -138,11 +134,11 @@ Each AzureAuth block keeps its own sign-in in its own `AZURE_CONFIG_DIR`, so blo
 <AzureAuth id="management" tenantId="contoso.onmicrosoft.com" subscriptionId="Management" />
 <AzureAuth id="workload" tenantId="fabrikam.onmicrosoft.com" />
 
-<Command id="mgmt" azureAuthId="management" command="az account show" />
-<Command id="wl" azureAuthId="workload" command="az account show" />
+<Command id="mgmt" envFrom={["management"]} command="az account show" />
+<Command id="wl" envFrom={["workload"]} command="az account show" />
 ```
 
-With several AzureAuth blocks, use `azureAuthId` on every command: the session environment holds only the most recent sign-in.
+Each command runs with the sign-in of the block its `envFrom` names.
 
 ## Tenant and subscription picker
 
@@ -213,7 +209,7 @@ In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to A
 - After a restart, the block's directory is gone, so a resumed session can't reuse its sign-in:
   - A sign-in the user accepted from [credential detection](#credential-detection) is detected again. When it's the same principal, and it can still use the saved tenant and subscription, the block signs in with it again without asking, and checks `requiredRoles` again. When anything changed, the block offers the detected sign-in as usual.
   - Otherwise (a browser or device code sign-in, a service principal typed into the block, or nothing detected), the block says Runbooks was restarted and asks the user to sign in again.
-  - Blocks with its `azureAuthId` wait until it's signed in again.
+  - Blocks that name it in `envFrom` wait until it's signed in again.
 - A client secret is passed to `az login` on its standard input, never on its command line.
 - Runbooks never sends a client secret to the renderer except as the block's sensitive output.
 
@@ -226,4 +222,4 @@ In [instruction mode](/intro/instruction-mode/), AzureAuth shows a "Sign in to A
 | *Subscription ... isn't one this account can use* | The `subscriptionId` prop names a subscription the account can't see (in the pinned tenant, when one is set) |
 | *... is missing the required role* | Ask an administrator for the role, then sign in again |
 | *AzureCLICredential: ERROR: Please specify only one of subscription and tenant, not both* | Something set `ARM_TENANT_ID` with the Azure CLI's sign-in, or the `azurerm` backend config sets `tenant_id`. Remove it: the tenant comes from the Azure CLI. See [Environment variables](#environment-variables) |
-| A Command's **Run** button stays disabled | Its `azureAuthId` names an AzureAuth block that hasn't signed in, or an ID that doesn't exist |
+| A Command's **Run** button stays disabled | Its `envFrom` names an AzureAuth block that hasn't signed in |

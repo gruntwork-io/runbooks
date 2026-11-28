@@ -39,11 +39,7 @@ Command and [Check](/authoring/blocks/check/) blocks share most of their feature
 - `env` (object): environment variables the script runs with, by name, such as `env={{ BUCKET: "{{ .inputs.BucketName }}" }}`. Each value can reference inputs and block outputs. See [Passing values as environment variables](#passing-values-as-environment-variables).
 - `workingDir` (string): the directory the script runs in, such as `workingDir="infra/live"`. A relative path is relative to the [session's directory](/commands/sessions/). Defaults to the session's directory. Like `env` values, it can use `{{ .inputs.X }}` and `{{ .outputs.block.key }}` templates. The directory must exist when the block runs. See [Working directory](/security/shell-execution-context/#working-directory).
 - `interpreter` (string): the program, with any arguments, that runs the script when it has no shebang, such as `interpreter="python3"`. A script with a shebang can't also set it. Defaults to the program for the script file's extension, or `bash`. See [How a script runs](/security/shell-execution-context/#how-a-script-runs).
-- `awsAuthId` (string): ID of an [AwsAuth](/authoring/blocks/awsauth/) block for AWS credentials. The credentials are passed as environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`). The Run button is disabled until authentication completes.
-- `gitAuthId` (string): ID of a [GitAuth](/authoring/blocks/gitauth/), [GitHubAuth](/authoring/blocks/githubauth/) or [GitLabAuth](/authoring/blocks/gitlabauth/) block, for either provider. Its credentials are passed as environment variables (`GITHUB_TOKEN` and `GITHUB_USER`, or `GITLAB_TOKEN` and `GITLAB_USER`). The Run button is disabled until authentication completes.
-- `githubAuthId` (string): ID of a [GitHubAuth](/authoring/blocks/githubauth/) block. GitHub only. The credentials are passed as environment variables (`GITHUB_TOKEN`, `GITHUB_USER`). The Run button is disabled until authentication completes. Prefer `gitAuthId`.
-- `googleAuthId` (string): ID of a [GoogleAuth](/authoring/blocks/googleauth/) block for Google Cloud credentials. The block's credentials are passed as environment variables (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `GOOGLE_CLOUD_PROJECT`, `CLOUDSDK_CORE_PROJECT`, `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT`, and the region/zone variables), overriding the session environment for this execution only. The Run button is disabled until authentication completes.
-- `azureAuthId` (string): ID of an [AzureAuth](/authoring/blocks/azureauth/) block for Azure credentials. The block's `AZURE_CONFIG_DIR`, tenant and subscription variables, `ARM_USE_CLI`, and a service principal's client variables are passed as environment variables, overriding the session environment for this execution only. The Run button is disabled until the block has signed in.
+- `envFrom` (string[]): IDs of auth blocks whose credentials the script runs with, such as `envFrom={["aws_prod", "gh"]}`. The Run button is disabled until every block in the list has signed in. See [Using credentials from an auth block](#using-credentials-from-an-auth-block).
 - `successMessage` (string): message shown when the command succeeds. Default "Success". Supports inline markdown.
 - `failMessage` (string): message shown when the command fails. Default "Failed". Supports inline markdown.
 - `runningMessage` (string): message shown while running. Default "Running...". Supports inline markdown.
@@ -338,9 +334,47 @@ Runbooks gives the script the values as data. The shell never runs anything in t
 - **You can enter an output's value yourself.** See [Entering an output by hand](#entering-an-output-by-hand).
 - **Instruction mode exports them.** In [instruction mode](/intro/instruction-mode/), the block shows an `export` line for each variable before the command, quoted for the shell, so you can copy and run them together.
 - **They are this block's.** The variables are set for this run only, and later blocks don't see them. To pass a value to later blocks, write it as a [block output](#block-outputs) or to [`$RUNBOOK_ENV`](#execution-context).
-- **They override other variables.** A variable in `env` replaces one of the same name from the session or from an auth block, so `env={{ AWS_REGION: "{{ .inputs.Region }}" }}` picks the region for a block that uses `awsAuthId`.
+- **They override other variables.** A variable in `env` replaces one of the same name from the session or from a block in [`envFrom`](#using-credentials-from-an-auth-block), so `env={{ AWS_REGION: "{{ .inputs.Region }}" }}` picks the region for a block whose `envFrom` names an AwsAuth block.
 
 A name has letters, digits and underscores, and doesn't start with a digit. A value is a string, a number or a boolean. Runbooks sets `GENERATED_FILES`, `REPO_FILES` and every name that starts with `RUNBOOK_` itself, so `env` can't use them. A block whose `env` breaks these rules shows the error and can't run.
+
+#### Using credentials from an auth block
+
+A script gets an auth block's credentials only when the block names it in `envFrom`, a list of block IDs:
+
+```mdx
+<AwsAuth id="aws_prod" title="Sign in to production" />
+<GitHubAuth id="gh" />
+
+<Command
+    id="deploy"
+    envFrom={["aws_prod", "gh"]}
+    env={{ AWS_REGION: "{{ .inputs.Region }}" }}
+    path="scripts/deploy.sh"
+/>
+```
+
+Each auth block's sign-in sets its provider's credential, account and location variables:
+
+| Block | Variables |
+|-------|-----------|
+| [AwsAuth](/authoring/blocks/awsauth/) | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` |
+| [GoogleAuth](/authoring/blocks/googleauth/) | `GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `CLOUDSDK_AUTH_ACCESS_TOKEN`, `CLOUDSDK_ACTIVE_CONFIG_NAME`, `CLOUDSDK_CORE_ACCOUNT`, the project, region and zone variables, and the inline-key variables `GOOGLE_CREDENTIALS`, `GOOGLE_CLOUD_KEYFILE_JSON` and `GCLOUD_KEYFILE_JSON` |
+| [AzureAuth](/authoring/blocks/azureauth/) | `AZURE_CONFIG_DIR`, `AZURE_EXTENSION_DIR`, the tenant and subscription variables, `ARM_USE_CLI`, a service principal's client variables, `AZURE_AUTH_TYPE` and the `AZURE_PRINCIPAL_*` variables |
+| [GitHubAuth](/authoring/blocks/githubauth/), or [GitAuth](/authoring/blocks/gitauth/) signed in to GitHub | `GITHUB_TOKEN`, `GH_TOKEN`, `GH_ENTERPRISE_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GITHUB_USER`, `GITHUB_HOST`, `GH_HOST` |
+| [GitLabAuth](/authoring/blocks/gitlabauth/), or GitAuth signed in to GitLab | `GITLAB_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `GITLAB_USER`, `GITLAB_HOST`, `GL_HOST` |
+
+Runbooks builds the script's environment in this order, each step replacing what came before:
+
+1. The session's environment: what the app started with, and the variables earlier scripts wrote to [`$RUNBOOK_ENV`](#execution-context).
+2. Each block in `envFrom`, in list order. A block replaces every variable in its provider's row, and removes the ones its sign-in has no value for, so nothing from your own environment or from another block of that provider mixes with its sign-in. When two blocks set the same variable, the later one wins.
+3. The block's [`env`](#passing-values-as-environment-variables) prop.
+
+The Run button is disabled until every block in `envFrom` has signed in. If one signs out, the block waits for it again, and if one signs in again, the script gets the new sign-in. An ID that isn't an auth block in the runbook, an ID listed twice, or a value that isn't a list is a configuration error: the block shows it and can't run.
+
+A script without `envFrom` runs with the environment the app started with, like a script you run in a terminal. Credentials you already have, such as `AWS_PROFILE`, `~/.aws`, gcloud's application default credentials, `~/.azure` or a `GITHUB_TOKEN` in your shell, work as they do there.
+
+A block that sets `awsAuthId`, `githubAuthId`, `gitAuthId`, `googleAuthId` or `azureAuthId` shows an error that names the replacement, such as `Runbooks doesn't support the awsAuthId prop. Name the block in envFrom instead: envFrom={["aws_prod"]}.`, and can't run.
 
 #### Large values
 

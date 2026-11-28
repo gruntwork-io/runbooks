@@ -140,7 +140,12 @@ describe("switching and deleting saved sessions", () => {
   describe("session:switch", () => {
     it("opens another runbook's session, which runbook:get then resumes", async () => {
       const a = await getRunbook(dirA)
-      await runtimeModule.runtime.runPromise(sessionManager.appendToEnv({ FROM_A: "1" }))
+      await runtimeModule.runtime.runPromise(
+        sessionManager.applyScriptEnv({
+          env: { FROM_A: "1" },
+          generation: sessionManager.getGeneration(),
+        }),
+      )
       await getRunbook(dirB)
       const from = sent.length
 

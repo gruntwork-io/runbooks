@@ -138,6 +138,7 @@ describe("GitClone — a repository with no commits", () => {
       expect(testApi.invoke).toHaveBeenCalledWith("git:init-default-branch", {
         worktreePath: "/home/me/infra",
         branch: "main",
+        envFrom: [],
       }),
     )
 

@@ -218,7 +218,7 @@ export function useAwsAuth({
   // Publish credentials as the block's outputs. The secret key and session
   // token are sensitive outputs, whatever the credentials came from (including
   // a block that marked them `sensitive:`), so a template that shows them shows
-  // <redacted>. Their readers (awsAuthId, a { block } source) reveal the real
+  // <redacted>. Their readers (a { block } source) reveal the real
   // values.
   const publishCredentials = useCallback(
     (creds: AwsCredentials) => {
@@ -232,17 +232,37 @@ export function useAwsAuth({
     [id, registerOutputs],
   )
 
-  // Register credentials as outputs, set the session environment, and keep
-  // the sign-in in the session's history
-  const registerCredentials = useCallback(
-    async (creds: AwsCredentials, account: AccountInfo) => {
+  // Record the credentials as the block's export, which scripts that name it
+  // in envFrom run with. A failed send leaves the export as it was; Run
+  // reports the block as not signed in if there is none.
+  const exportCredentials = useCallback(
+    async (creds: AwsCredentials) => {
       const env = {
         AWS_ACCESS_KEY_ID: creds.accessKeyId,
         AWS_SECRET_ACCESS_KEY: creds.secretAccessKey,
         AWS_REGION: creds.region,
         AWS_SESSION_TOKEN: creds.sessionToken || "",
       } satisfies Record<(typeof AWS_AUTH_ENV_VARS)[number], string>
+      try {
+        await api.invoke("session:set-env-export", { componentId: id, env })
+      } catch (error) {
+        console.error("Failed to export the AWS credentials:", error)
+      }
+    },
+    [api, id],
+  )
 
+  // Drop the block's export, so scripts that name it in envFrom wait for a sign-in
+  const clearExport = useCallback(() => {
+    api.invoke("session:clear-env-export", { componentId: id }).catch((error: unknown) => {
+      console.error("Failed to clear the AWS export:", error)
+    })
+  }, [api, id])
+
+  // Register credentials as outputs and as the block's export, and keep the
+  // sign-in in the session's history
+  const registerCredentials = useCallback(
+    async (creds: AwsCredentials, account: AccountInfo) => {
       publishCredentials(creds)
       setExpiresAt(creds.expiresAt)
       history.record(id, "auth", {
@@ -252,29 +272,23 @@ export function useAwsAuth({
         account: omitUndefined(account),
       } satisfies SavedAwsAuth)
 
-      // Also set in session environment for blocks that don't specify awsAuthId
-      try {
-        await api.invoke("session:set-env", { env })
-      } catch (error) {
-        console.error("Failed to set session environment variables:", error)
-      }
-
+      await exportCredentials(creds)
       await checkRegionStatus(creds)
     },
-    [api, id, history, publishCredentials, checkRegionStatus],
+    [id, history, publishCredentials, exportCredentials, checkRegionStatus],
   )
 
   // A restored sign-in is published at once, and then checked: the session's
   // history says the credentials worked when the session was last open, not
   // that they still do (temporary credentials expire). Credentials that no
-  // longer work send the block back to sign-in. The session env already has
-  // them: it was restored with the session. When AWS can't be reached, the
-  // check says nothing about the credentials, so the sign-in stays.
+  // longer work send the block back to sign-in. When AWS can't be reached,
+  // the check says nothing about the credentials, so the sign-in stays.
   const [restoredAtMount] = useState(restored)
   useEffect(() => {
     if (restoredAtMount === undefined) return
     const credentials = omitUndefined(restoredAtMount.credentials)
     publishCredentials(credentials)
+    void exportCredentials(credentials)
     const flow = authFlowRef.current
     void api
       .invoke("aws:validate", credentials)
@@ -283,6 +297,7 @@ export function useAwsAuth({
         if (authFlowRef.current !== flow || data.valid || data.unreachable) return
         authFlowRef.current++
         registerOutputs(id, { __AUTHENTICATED: "false" })
+        clearExport()
         setAccountInfo(null)
         setAuthStatus("failed")
         setErrorMessage(
@@ -292,7 +307,16 @@ export function useAwsAuth({
       })
       // An IPC failure says nothing about the credentials: keep the sign-in.
       .catch(() => {})
-  }, [api, id, history, registerOutputs, publishCredentials, restoredAtMount])
+  }, [
+    api,
+    id,
+    history,
+    registerOutputs,
+    publishCredentials,
+    exportCredentials,
+    clearExport,
+    restoredAtMount,
+  ])
 
   // Try to detect credentials from environment variables
   // Returns metadata only - does NOT register credentials (user must confirm first)
@@ -563,7 +587,7 @@ export function useAwsAuth({
     applyDetectionOutcome,
   ])
 
-  // User confirms detected credentials - register them to session and authenticate
+  // User confirms detected credentials - register them and authenticate
   const handleConfirmDetected = useCallback(async () => {
     if (!detectedCredentials) return
 
@@ -574,7 +598,7 @@ export function useAwsAuth({
 
     // Env-detected credentials: MAIN re-detects and validates them and hands
     // the keys back without writing anything. They are published (block
-    // outputs and session env, via registerCredentials) only once this attempt
+    // outputs and export, via registerCredentials) only once this attempt
     // is still current and the account is the one the prompt showed.
     if (detectedCredentials.source === "env") {
       try {
@@ -1080,11 +1104,12 @@ export function useAwsAuth({
   // Reset to manual authentication (show auth tabs). Also "Re-authenticate".
   const handleManualAuth = useCallback(() => {
     stopSsoPolling()
-    // Withdraw the block's outputs so `awsAuthId` steps stop using the
-    // credential this reset exists to replace (GoogleAuth does the same).
-    // registerOutputs replaces the whole map. The session env keeps the old
-    // AWS_* values until the next sign-in overwrites them.
+    // Withdraw the block's outputs and its export so scripts that name it in
+    // envFrom stop using the credential this reset exists to replace
+    // (GoogleAuth and AzureAuth do the same). registerOutputs replaces the
+    // whole map.
     registerOutputs(id, { __AUTHENTICATED: "false" })
+    clearExport()
     history.record(id, "auth", { status: "signed-out" } satisfies SavedAwsAuth)
     setAuthStatus("pending")
     setErrorMessage(null)
@@ -1103,7 +1128,7 @@ export function useAwsAuth({
     setDetectionStatus("done")
     setWaitingForBlockId(null)
     remainingSourcesRef.current = []
-  }, [stopSsoPolling, registerOutputs, id, history])
+  }, [stopSsoPolling, registerOutputs, clearExport, id, history])
 
   // Cancel SSO authentication
   const handleCancelSsoAuth = useCallback(() => {

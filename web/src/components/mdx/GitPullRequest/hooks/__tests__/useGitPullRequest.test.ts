@@ -146,7 +146,10 @@ function renderPR(cfg: PRProviderConfig) {
       createElement(RunbookContextProvider, { runbookName: "test" }, children),
     )
   const view = renderHook(
-    () => ({ pr: useGitPullRequest({ id: BLOCK_ID, cfg }), runbook: useRunbookContext() }),
+    () => ({
+      pr: useGitPullRequest({ id: BLOCK_ID, cfg, envFrom: [] }),
+      runbook: useRunbookContext(),
+    }),
     { wrapper },
   )
   const state = () => view.result.current.pr
@@ -185,7 +188,10 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
 
       const done = create()
       expect(state().status).toBe("creating")
-      expect(fake.invoke).toHaveBeenCalledWith(cfg.channels.create, CREATE_PARAMS)
+      expect(fake.invoke).toHaveBeenCalledWith(cfg.channels.create, {
+        ...CREATE_PARAMS,
+        envFrom: [],
+      })
 
       await act(async () => {
         fake.createSucceeds(0, pr)
@@ -271,6 +277,7 @@ describe.each([PR_PROVIDERS.github, PR_PROVIDERS.gitlab])("useGitPullRequest ($l
         worktreePath: WORKTREE,
         branchName: CREATE_PARAMS.headBranch,
         provider: cfg.id,
+        envFrom: [],
       })
 
       await act(async () => {

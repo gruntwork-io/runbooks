@@ -5,9 +5,9 @@ import { Effect, Ref, Stream } from "effect"
 import { FileSystem } from "../../services/FileSystem.ts"
 import { ProcessSpawner } from "../../services/ProcessSpawner.ts"
 import { Environment } from "../../services/Environment.ts"
-import { ExecEnvOverrideError, ExecTimeoutError } from "../../errors/index.ts"
+import { ExecTimeoutError } from "../../errors/index.ts"
 import { buildFileTree } from "../workspace/file-tree.ts"
-import { disallowedEnvVars } from "./authEnv.ts"
+import { applyEnvExports, type EnvExport } from "./authEnv.ts"
 import { makeLogger } from "../../logger.ts"
 
 const log = makeLogger("domain:exec")
@@ -149,9 +149,10 @@ function determineExitStatus(exitCode: number, timedOut: boolean): ExecStatusEve
  * Execute a script and return a Stream of execution events (log lines, status,
  * outputs, captured files, the variables it set for the session, and done).
  *
- * The script's env is the session's, then the request's overrides (auth
- * blocks' credentials), then `blockEnv` (the block's rendered `env` prop),
- * then the variables Runbooks sets for every run (RUNBOOK_OUTPUT, ...). It
+ * The script's env is the session's, then `envExports` (the exports of the
+ * auth blocks the block's `envFrom` names, in order), then `blockEnv` (the
+ * block's rendered `env` prop), then the variables Runbooks sets for every
+ * run (RUNBOOK_OUTPUT, ...). It
  * runs in `sessionContext.workDir`, with the interpreter `source` and the
  * script's shebang pick (see resolveScriptRunner).
  *
@@ -170,20 +171,10 @@ export const executeScript = (
   request: ExecRequest,
   sessionContext: SessionExecContext,
   dirs: ExecDirs,
-  blockEnv: Readonly<Record<string, string>> = {},
+  envExports: readonly EnvExport[],
+  blockEnv: Readonly<Record<string, string>>,
 ) =>
   Effect.gen(function* () {
-    // The overrides are an auth block's vars for this run only (see
-    // authEnv.ts). Refuse any other name before anything is created, so no
-    // caller can set PATH, BASH_ENV, LD_PRELOAD or a runbook-managed var.
-    const refused = disallowedEnvVars(request.envVarsOverride ?? {})
-    if (refused.length > 0) {
-      return yield* new ExecEnvOverrideError({
-        names: refused,
-        message: `Refused to run with env vars that no auth block passes: ${refused.join(", ")}`,
-      })
-    }
-
     log.debug("step 1: getting services")
     const fs = yield* FileSystem
     const spawner = yield* ProcessSpawner
@@ -230,14 +221,9 @@ export const executeScript = (
 
     const effectiveTimeoutMs = request.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS
 
-    // Build the execution environment
+    // The session's env, then the exports the block's envFrom names, then its env
     let execEnv: Record<string, string> = yield* withSystemPath(sessionContext.env)
-
-    // Apply per-request env var overrides, checked above
-    if (request.envVarsOverride && Object.keys(request.envVarsOverride).length > 0) {
-      execEnv = { ...execEnv, ...request.envVarsOverride }
-    }
-    execEnv = { ...execEnv, ...blockEnv }
+    execEnv = { ...applyEnvExports(execEnv, envExports), ...blockEnv }
 
     // Ends the run before the spawn, with `line` as its only log line
     const failBeforeSpawn = (line: string) =>

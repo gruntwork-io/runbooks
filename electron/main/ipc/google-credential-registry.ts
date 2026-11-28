@@ -17,10 +17,8 @@
  *     block later registers another credentials file. The new file's identity
  *     does not matter. A different project, principal or credential type, or a
  *     file that is not ours at all (the user's own ADC file, a detected
- *     `GOOGLE_APPLICATION_CREDENTIALS` path), leaves the old file as
- *     unreachable as a rotated key does. A bare access token does not release
- *     it, because the session env's `GOOGLE_APPLICATION_CREDENTIALS` still
- *     names the old file (see `setActiveCredential`). A file that ANOTHER block
+ *     `GOOGLE_APPLICATION_CREDENTIALS` path, a bare access token), leaves the
+ *     old file as unreachable as a rotated key does. A file that ANOTHER block
  *     has registered as its own credential is never released; the will-quit
  *     sweep removes it (see `commitCredential`). Release is keyed on the block,
  *     not the identity: two blocks handed the SAME key and project produce a
@@ -39,7 +37,7 @@ import { materializeCredentialFile, releaseCredentialFile } from "./google-crede
 /** The credential one GoogleAuth block's most recent authentication established. */
 export interface ActiveGoogleCredential {
   readonly ref: GoogleCredentialRef
-  /** Absolute path backing the session credential. A path, never contents (D12). */
+  /** Absolute path backing the credential. A path, never contents (D12). */
   readonly credentialsPath?: string | undefined
   readonly principal: string
   readonly credentialType: GoogleCredentialTypeIpc
@@ -81,11 +79,11 @@ const latestMaterializedByBlock = new Map<string, string>()
  * A file cannot be released the moment its replacement is written. Main and the
  * renderer learn about a new credential at different times: main materialises
  * during the IPC call, but the block's `GOOGLE_APPLICATION_CREDENTIALS` output —
- * the only value a `<Command googleAuthId>` actually injects — is not rewritten
- * until `completeAuthentication` runs, which on the OAuth tab in a multi-project
- * org waits for the user to pick a project. Releasing eagerly deleted the file
- * the renderer was still handing to steps, and gcloud reported it as an opaque
- * "Failed to load credential file" naming a temp dir the user never created.
+ * which templates and a `{ block }` source read — is not rewritten until
+ * `completeAuthentication` runs, which on the OAuth tab in a multi-project org
+ * waits for the user to pick a project. Releasing eagerly deleted a file the
+ * renderer was still publishing, and gcloud reported it as an opaque "Failed to
+ * load credential file" naming a temp dir the user never created.
  */
 const pendingReleaseByBlock = new Map<string, Set<string>>()
 
@@ -181,24 +179,17 @@ function isActiveForAnotherBlock(ownKey: string, filePath: string): boolean {
  * File a block's credential, and remember it as the newest.
  *
  * Every successful authentication lands here, including the ones that
- * materialise nothing. The gcloud Config tab or a detected
- * `GOOGLE_APPLICATION_CREDENTIALS` path (an existing file, reused as-is)
- * supersedes the block's newest materialised file just as a new
- * materialisation would, so that file is queued for release here and forgotten
- * as the block's newest. `commitCredential` still does the releasing, so it
- * survives until the renderer publishes the replacement.
- *
- * A bare access token (no file at all) queues nothing. google.ts overwrites the
- * session env's `GOOGLE_APPLICATION_CREDENTIALS` only when the new credential
- * is a file, so after a token re-auth the session still names the block's old
- * file, and every later `<Command>` would fail the executor's missing-file
- * check if it were released. It stays the block's newest, so the next
- * file-backed re-authentication queues it; otherwise the will-quit sweep
- * removes it.
+ * materialise nothing. The gcloud Config tab, a detected
+ * `GOOGLE_APPLICATION_CREDENTIALS` path (an existing file, reused as-is) or a
+ * bare access token supersedes the block's newest materialised file just as a
+ * new materialisation would: the block's export no longer names it. So that
+ * file is queued for release here and forgotten as the block's newest.
+ * `commitCredential` still does the releasing, so it survives until the
+ * renderer publishes the replacement.
  *
  * A path this block itself materialised (its newest, or one already queued) is
  * left alone. A materialising flow normally arrives with its own file as the
- * newest, but it writes the session env between materialising and getting here,
+ * newest, but it records the export between materialising and getting here,
  * so an overlapping flow on the same block can materialise in between. Queueing
  * THAT flow's file would let the earlier flow's commit delete the credential
  * the later one is about to publish.
@@ -212,7 +203,7 @@ export function setActiveCredential(
   const path = credential.credentialsPath
   const pending = pendingReleaseByBlock.get(key)
   const isOwnFile = path !== undefined && (path === latest || pending?.has(path) === true)
-  if (latest && path !== undefined && !isOwnFile) {
+  if (latest && !isOwnFile) {
     const queue = pending ?? new Set<string>()
     queue.add(latest)
     pendingReleaseByBlock.set(key, queue)
@@ -224,8 +215,7 @@ export function setActiveCredential(
 
 /**
  * The credential registered for a block. A block that has not authenticated
- * does NOT borrow a neighbour's — the caller falls through to the session env,
- * which is the only credential it can honestly claim.
+ * does NOT borrow a neighbour's.
  */
 export function activeCredentialFor(
   blockId: string | undefined,

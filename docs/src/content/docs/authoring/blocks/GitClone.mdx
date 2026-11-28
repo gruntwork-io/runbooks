@@ -22,7 +22,7 @@ At its simplest, the block is a single text input for a git URL:
 
 ### With GitHub authentication
 
-When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse GitHub repositories" dropdown for discovering repos by organization and name, and a ref selector for choosing a branch or tag to clone. The GitHub token is also used when cloning GitHub URLs, which gives access to private repositories.
+When its `envFrom` names a `<GitHubAuth>` block, the GitClone block enables a "Browse GitHub repositories" dropdown for discovering repos by organization and name, and a ref selector for choosing a branch or tag to clone. The GitHub token is also used when cloning GitHub URLs, which gives access to private repositories.
 
 ```mdx
 <GitHubAuth
@@ -33,7 +33,7 @@ When paired with a `<GitHubAuth>` block, the GitClone block enables a "Browse Gi
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone a Repo"
   description="Browse or enter a git URL to clone"
 />
@@ -49,7 +49,7 @@ Using a local checkout needs Git 2.31 or later. With an older Git, the block rep
 
 Confirming with **Use This Repo** registers the checkout and produces the block's outputs, as a completed clone does. Until then, any later block referencing its outputs reports them as missing. To undo the choice, use **Stop using this repo** in the result panel (see [Cancelling and starting over](#cancelling-and-starting-over)).
 
-Inspecting a directory needs no credentials, so browsing works while a linked auth block is still pending. Confirming waits on the auth block, as cloning does, because the GitHub `org_id` and `repo_id` outputs are resolved from the session token at that moment.
+Inspecting a directory needs no credentials, so browsing works while a linked auth block is still pending. Confirming waits on the auth block, as cloning does, because the GitHub `org_id` and `repo_id` outputs are resolved with its token at that moment.
 
 ```mdx
 <GitClone
@@ -101,8 +101,7 @@ You can pre-fill the URL, ref, sparse checkout path, and local path fields. User
 | `description` | `string` | No | Description text below the title. Supports inline markdown. |
 | `autoCollapse` | `boolean` | No | Folds the block down to its title once the repository is cloned. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | ID of one or more [`<Inputs>`](/authoring/blocks/inputs) blocks. `title`, `description`, and the `prefilled*` props resolve `{{ .inputs.VarName }}` expressions against them. |
-| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access and clone authentication. |
-| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block, for either provider. When set, the block waits for authentication to complete and clones with that provider's session token, including from a self-managed GitLab instance. |
+| `envFrom` | `string[]` | No | IDs of [`<GitAuth>`](/authoring/blocks/gitauth), [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) blocks. The block waits for them to sign in, and clones with the token of one whose host matches the repository's. See [Authentication](#authentication). |
 | `prefilledUrl` | `string` | No | Pre-fills the Git URL input field. The user can edit this value before cloning. |
 | `prefilledRef` | `string` | No | Pre-fills the ref (branch or tag) to clone. When set, the specified ref is passed to `git clone --branch`. Defaults to the repository's default branch if empty. |
 | `prefilledRepoPath` | `string` | No | Pre-fills the sparse checkout path: a directory relative to the repository root, such as `modules/vpc`. When set, only that directory is checked out, plus the loose files above it such as a top-level `README.md`. Empty or `.` clones the whole repository. See [Sparse checkout](#sparse-checkout). |
@@ -164,19 +163,20 @@ The seeded commit is empty. It gives the default branch something to point at, s
 | SSH, bracketed host | `git@[2001:db8::1]:org/repo.git`, `git@[git.example.com:2222]:org/repo.git` | As in git, an IPv6 address, or a host with a non-default SSH port, goes in brackets. Without brackets, the text after the colon is always the repository path. |
 | `ssh://` URL | `ssh://git@github.com/org/repo.git` | Not accepted. The block refuses it as an invalid git URL. Use the `git@host:org/repo.git` form above, with the host in brackets for a non-default port. |
 
-### GitHub authentication
+### Authentication
 
-The GitClone block resolves GitHub credentials in this order:
+GitClone gets a token only from the auth blocks its `envFrom` names:
 
-1. `githubAuthId`. If set, the block uses the token the referenced GitHubAuth block signed in with, for the host that block authenticated to.
-2. The session environment. The block looks for a GitHub token bound to the host (see [environment variables and hosts](/authoring/blocks/githubauth/#environment-variables-and-hosts)).
-3. No token. The "Browse GitHub repositories" section is hidden. The user can still clone public repos or use SSH URLs.
+1. If one of them signed in to the repository's host, the block clones with that block's token. When several match, the last one in the list wins.
+2. Otherwise Runbooks supplies no token, and git uses your own setup, such as a credential helper (`gh auth setup-git`, the macOS keychain) or an SSH key, as it does in a terminal. Public repositories clone either way.
 
-When a GitHub token is available and the user enters an HTTPS URL on the host that token belongs to, Runbooks authenticates the clone with the token.
+The "Browse GitHub repositories" dropdown needs a GitHub token, so it appears only when `envFrom` names a GitHub auth block.
+
+Runbooks sends the token only over HTTPS, to the host the auth block signed in to.
 
 #### GitHub Enterprise
 
-GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` output, `github.com` by default). When the auth block authenticated to a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`:
+GitClone follows the GitHub host of the auth block its `envFrom` names (that block's `GITHUB_HOST` output, `github.com` by default). When the auth block authenticated to a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`:
 
 - The **Browse GitHub repositories** dropdown lists organizations, repositories, and refs from that host's API.
 - Repositories picked in the browser are cloned from `https://<host>/<org>/<repo>`, and the URL placeholder shows that host.
@@ -191,7 +191,7 @@ GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` out
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone a Repo"
   prefilledUrl="https://github.example.com/platform/infrastructure-live"
 />
@@ -199,7 +199,7 @@ GitClone follows the GitHub host of the linked auth block (its `GITHUB_HOST` out
 
 A `prefilledUrl` on `github.com`, a `*.ghe.com` tenant, or the auth block's host is recognized as a GitHub repository, so its organization and repository are pre-selected in the browser.
 
-The token is passed to git only for the clone itself (through the environment, which requires git 2.31 or later), so it is never saved in the checkout's `.git/config` or shown as part of its remote URL. A script that later runs `git pull`, `git fetch`, or `git push` in the checkout needs its own git credentials, such as a configured credential helper (`gh auth setup-git`), an SSH remote, or a one-off helper that reads the token from the environment:
+The token is passed to git only for the clone itself (through the environment, which requires git 2.31 or later), so it is never saved in the checkout's `.git/config` or shown as part of its remote URL. A script that later runs `git pull`, `git fetch`, or `git push` in the checkout needs its own git credentials, such as a configured credential helper (`gh auth setup-git`), an SSH remote, or a one-off helper that reads the token from the environment of a script whose `envFrom` names the auth block:
 
 ```bash
 git -c credential.helper= \
@@ -207,7 +207,7 @@ git -c credential.helper= \
   pull
 ```
 
-The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, set by the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host, such as `credential.https://gitlab.com.helper`, and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper.
+The helper is scoped to `https://` on the token's own host (`GITHUB_HOST`, from the GitHub Auth block), so git never offers the token to another remote or over plain `http://`. For a GitLab checkout, scope it to your GitLab host, such as `credential.https://gitlab.com.helper`, and use `username=oauth2` and `${GITLAB_TOKEN}` in the helper.
 
 ### Sparse checkout
 
@@ -335,7 +335,7 @@ The GitClone block has a collapsible **View Logs** section, like the [Command](/
 
 <GitClone
   id="clone-infra"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone Infrastructure Repo"
   description="Clone the infrastructure repository to make changes"
   prefilledUrl="https://github.com/acme-corp/infrastructure-live"
@@ -345,7 +345,7 @@ The GitClone block has a collapsible **View Logs** section, like the [Command](/
 
 <Command
   id="apply-changes"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Apply OpenTofu Changes"
   env={{ REPO_DIR: "{{ .outputs.clone_infra.clone_path }}" }}
   command='cd "$REPO_DIR" && tofu apply -auto-approve'

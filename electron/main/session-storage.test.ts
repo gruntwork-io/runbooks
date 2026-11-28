@@ -92,7 +92,12 @@ describe("openSessionStorage", () => {
 
   /** Give the open session an env var, then close the storage. */
   async function saveEnvAndClose(id: string) {
-    await runtime.runPromise(sessionManager.appendToEnv({ TOKEN: "s3cret" }))
+    await runtime.runPromise(
+      sessionManager.applyScriptEnv({
+        env: { TOKEN: "s3cret" },
+        generation: sessionManager.getGeneration(),
+      }),
+    )
     storage!.close()
     storage = undefined
     return savedSession(id)
@@ -130,7 +135,12 @@ describe("openSessionStorage", () => {
   it("saves no env, and warns once, when the OS has no credential store", async () => {
     keychain.available = false
     const session = await openSession()
-    await runtime.runPromise(sessionManager.appendToEnv({ OTHER: "1" }))
+    await runtime.runPromise(
+      sessionManager.applyScriptEnv({
+        env: { OTHER: "1" },
+        generation: sessionManager.getGeneration(),
+      }),
+    )
 
     const saved = await saveEnvAndClose(session.id)
 

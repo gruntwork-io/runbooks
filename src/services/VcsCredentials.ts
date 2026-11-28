@@ -116,8 +116,7 @@ export interface VcsCredentialsShape {
    * unified host→token resolution (replaces remote-source
    * getTokenForHost). READ-ONLY: source reads with no network validation
    * (golang semantics — an absent result is silent fall-through and an empty
-   * final result is NOT an error; the repo may be public). Session-env
-   * precedence is composed by the caller (it lives Electron-side).
+   * final result is NOT an error; the repo may be public).
    */
   readonly tokenForHost: (host: string) => Effect.Effect<string | undefined>
 

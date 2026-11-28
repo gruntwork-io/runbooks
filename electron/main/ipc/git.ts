@@ -12,11 +12,9 @@ import { ipcMain, type IpcMainInvokeEvent } from "electron"
 import {
   runtime,
   sessionManager,
-  getGitHubSessionCredential,
-  getGitLabSessionBoundHost,
-  getGitLabSessionTokenForOrigin,
-  getSessionTokenForHost,
-  getSessionTokenForProvider,
+  exportedVcsCredential,
+  getExportedGitLabTokenForOrigin,
+  getExportedVcsCredential,
 } from "./runtime.ts"
 import { ProcessSpawner } from "../../../src/services/ProcessSpawner.ts"
 import {
@@ -66,7 +64,7 @@ const makeSendLog = (event: IpcMainInvokeEvent) => (line: string) =>
 
 /**
  * Fail when a repo's origin is plain http: pushing to it would send the
- * session token in cleartext. (An SSH origin authenticates with keys; the
+ * token in cleartext. (An SSH origin authenticates with keys; the
  * token then goes only to the provider's https API.) "Plain http" is read the
  * way withGitHttpAuth reads the URL (isPlainHttpRemoteUrl), so every origin
  * the push would attach the token to in cleartext is caught, however it is
@@ -88,12 +86,12 @@ const refusePlainHttpOrigin = (
     : Effect.void
 
 /**
- * Resolve the session's GitHub token for a repo on disk, HOST-BOUND to the
- * repo's origin: the token is released only when it belongs to the host
- * `origin` points at (github.com, a GHES host, or a ghe.com tenant), so a
- * github.com token is never pushed to an enterprise host or the reverse, and
- * never when origin is plain http. Yields the host too — the PR API calls go
- * to that host. Fails with a typed GitError (so it flows through
+ * Resolve the GitHub token `envFrom` gives for a repo on disk, HOST-BOUND to
+ * the repo's origin: a block's token is released only when the block signed
+ * in to the host `origin` points at (github.com, a GHES host, or a ghe.com
+ * tenant), so a github.com token is never pushed to an enterprise host or the
+ * reverse, and never when origin is plain http. Yields the host too — the PR
+ * API calls go to that host. Fails with a typed GitError (so it flows through
  * failureMessage() / git:error like every other git failure) naming both hosts
  * on a mismatch.
  *
@@ -102,19 +100,20 @@ const refusePlainHttpOrigin = (
  * host (SSH to an IPv6 literal or zone id, a local path, or no origin that
  * could be read):
  *
- *  - a push (`callsApi: false`) uses the session's own credential: such a
- *    push never carries the token, which withGitHttpAuth attaches to http(s)
+ *  - a push (`callsApi: false`) uses the block's own credential: such a push
+ *    never carries the token, which withGitHttpAuth attaches to http(s)
  *    remotes only.
  *  - a flow that calls the GitHub API with the token (`callsApi: true`: a
  *    pull request, or the commit author lookup) is refused. Its requests
- *    would otherwise go to the session's host, github.com unless configured
- *    otherwise, which is not where the repo was shown to live.
+ *    would otherwise go to the block's host, which is not where the repo was
+ *    shown to live.
  *
  * An http(s) origin whose host can't be matched is refused either way.
  */
 const resolveGitHubTokenForRepo = (
   repoPath: string,
   purpose: string,
+  envFrom: readonly string[],
   { callsApi }: { readonly callsApi: boolean },
 ) =>
   Effect.gen(function* () {
@@ -125,14 +124,12 @@ const resolveGitHubTokenForRepo = (
     yield* refusePlainHttpOrigin(remoteUrl, failWith, "GitHub", purpose)
     const remoteHost = gitHostFromRemoteUrl(remoteUrl)
     const origin = tryNormalizeGitHubHost(remoteHost)
-    const session = yield* getGitHubSessionCredential(undefined, () =>
-      failWith(
-        `No GitHub token available in session. Authenticate with the GitHub Auth block before ${purpose}.`,
-      ),
+    const block = yield* getExportedVcsCredential("github", envFrom, undefined, () =>
+      failWith(`No GitHub sign-in. Name a GitHub Auth block in envFrom before ${purpose}.`),
     )
     if (origin === undefined && isHttpRemoteUrl(remoteUrl)) {
       return yield* failWith(
-        `The GitHub credential in this session is for ${session.host}, but this repository's origin is ` +
+        `The GitHub sign-in in envFrom is for ${block.host}, but this repository's origin is ` +
           `${remoteHost ?? "an unknown host"}, which is not a GitHub host. Point origin at a GitHub host before ${purpose}.`,
       )
     }
@@ -149,46 +146,41 @@ const resolveGitHubTokenForRepo = (
               `to. Add an origin that points at the repository on your GitHub host before ${purpose}.`,
       )
     }
-    if (origin === undefined || origin === session.host) return session
-    return yield* getGitHubSessionCredential(origin, () =>
+    if (origin === undefined || origin === block.host) return block
+    return yield* getExportedVcsCredential("github", envFrom, origin, () =>
       failWith(
-        `The GitHub credential in this session is for ${session.host}, but this repository's origin is ${origin}. ` +
-          `Authenticate a GitHub Auth block for ${origin} before ${purpose}.`,
+        `The GitHub sign-in in envFrom is for ${block.host}, but this repository's origin is ${origin}. ` +
+          `Name a GitHub Auth block for ${origin} in envFrom before ${purpose}.`,
       ),
     )
   })
 
 /**
- * GitLab counterpart of resolveGitHubTokenForRepo: the session's GitLab token
- * is released only when the repo's origin is on the host it is bound to
- * (getGitLabSessionBoundHost), and never when origin is plain http. The origin
- * may be any repo a runbook cloned, and the token goes to origin's instance
- * API (the commit author, the MR) as well as to origin itself (the push).
- * When there is no origin, or origin names no host, it is refused
- * (gitlabInstanceForRemoteUrl): there is no host to bind to, and gitlab.com
- * is never assumed.
+ * GitLab counterpart of resolveGitHubTokenForRepo: the GitLab token `envFrom`
+ * gives is released only when the repo's origin is on the host its block
+ * signed in to, and never when origin is plain http. The origin may be any
+ * repo a runbook cloned, and the token goes to origin's instance API (the
+ * commit author, the MR) as well as to origin itself (the push). When there is
+ * no origin, or origin names no host, it is refused
+ * (gitlabInstanceForRemoteUrl): there is no host to bind to, and gitlab.com is
+ * never assumed.
  */
-const resolveGitLabTokenForRepo = (repoPath: string, purpose: string) =>
+const resolveGitLabTokenForRepo = (repoPath: string, purpose: string, envFrom: readonly string[]) =>
   Effect.gen(function* () {
     const failWith = (stderr: string) =>
       new GitError({ command: "resolve gitlab token", stderr, exitCode: 1 })
     const gitClient = yield* GitClient
     const remoteUrl = yield* gitClient.getRemoteUrl(repoPath).pipe(Effect.orElseSucceed(() => ""))
     yield* refusePlainHttpOrigin(remoteUrl, failWith, "GitLab", purpose)
-    yield* getSessionTokenForProvider("gitlab", () =>
-      failWith(
-        `No GitLab token available in session. Authenticate with the GitLab Auth block before ${purpose}.`,
-      ),
+    const block = yield* getExportedVcsCredential("gitlab", envFrom, undefined, () =>
+      failWith(`No GitLab sign-in. Name a GitLab Auth block in envFrom before ${purpose}.`),
     )
     const apiBase = yield* gitlabInstanceForRemoteUrl(remoteUrl, purpose)
     const origin = new URL(apiBase).host
-    const boundHost = yield* getGitLabSessionBoundHost()
-    return yield* getGitLabSessionTokenForOrigin(apiBase, () =>
+    return yield* getExportedGitLabTokenForOrigin(envFrom, apiBase, () =>
       failWith(
-        (boundHost
-          ? `The GitLab credential in this session is for ${boundHost}, but this repository's origin is ${origin}. `
-          : "The GitLab credential in this session is not bound to a host: GITLAB_HOST was changed after the GitLab Auth block ran, or cannot be parsed. ") +
-          `Authenticate a GitLab Auth block for ${origin} before ${purpose}.`,
+        `The GitLab sign-in in envFrom is for ${block.host}, but this repository's origin is ${origin}. ` +
+          `Name a GitLab Auth block for ${origin} in envFrom before ${purpose}.`,
       ),
     )
   })
@@ -277,6 +269,7 @@ interface GitPrParams {
   headBranch: string
   commitMessage: string
   labels?: string[]
+  envFrom?: readonly string[]
 }
 
 /** Map the renderer PR/MR payload to the domain create-params shape. */
@@ -383,19 +376,16 @@ export function registerGitHandlers(): void {
               })
             }
 
-            // Resolve a token for private clones: prefer a renderer-supplied
-            // token, otherwise fall back to the session env keyed by PROVIDER.
-            // The provider comes from the linked Git Auth block (the renderer
-            // passes it), NOT from the remote hostname — that's what lets
-            // self-hosted GitHub/GitLab (arbitrary hostnames) resolve the right
-            // token. For older callers that don't pass a provider, fall back to
-            // the well-known SaaS hostnames. Public repos still clone with no
-            // token (Effect.result turns "no session token" into "no auth").
+            // A private clone uses the token of the auth blocks the block's
+            // envFrom names, keyed by PROVIDER. The provider comes from the
+            // linked Git Auth block (the renderer passes it), NOT from the
+            // remote hostname — that's what lets self-hosted GitHub/GitLab
+            // (arbitrary hostnames) resolve the right token. Without a provider,
+            // it falls back to the well-known SaaS hostnames. Without envFrom,
+            // no token is sent and git uses the user's own credential helpers.
             //
-            // A session token is also HOST-BOUND: it is released only when the
-            // clone URL's host is the host the credential belongs to (the GitHub
-            // credential's host — github.com, a GHES host, or a ghe.com tenant —
-            // or the GITLAB_HOST written with GITLAB_TOKEN), and never for a
+            // The token is also HOST-BOUND: it is released only when the clone
+            // URL's host is the host its block signed in to, and never for a
             // plain http URL, so a runbook's clone URL can never carry it to
             // another host or send it in cleartext. (Over SSH git authenticates
             // with keys; the token only reaches the https API below.)
@@ -408,19 +398,10 @@ export function registerGitHandlers(): void {
                 : isGitHubHost(cloneHost)
                   ? ("github" as const)
                   : undefined)
-            let resolvedToken = params.credentials?.token
-            if (!resolvedToken && cloneProvider && cloneUrl?.protocol !== "http:") {
-              const noToken = () =>
-                new GitError({
-                  command: "resolve git token",
-                  stderr: "no session token",
-                  exitCode: 1,
-                })
-              const sessionToken = yield* Effect.result(
-                getSessionTokenForHost(cloneProvider, cloneHost, noToken),
-              )
-              resolvedToken = sessionToken._tag === "Success" ? sessionToken.success : undefined
-            }
+            const resolvedToken =
+              cloneProvider && cloneUrl?.protocol !== "http:"
+                ? exportedVcsCredential(cloneProvider, params.envFrom ?? [], cloneHost)?.token
+                : undefined
 
             const options: CloneOptions = {
               ...(params.ref !== undefined ? { ref: params.ref } : {}),
@@ -677,7 +658,12 @@ export function registerGitHandlers(): void {
     "git:local-repo",
     async (
       _event,
-      params: { path: string; register?: boolean; provider?: "github" | "gitlab" },
+      params: {
+        path: string
+        register?: boolean
+        provider?: "github" | "gitlab"
+        envFrom?: readonly string[]
+      },
     ): Promise<GitLocalRepoResponse> => {
       const generation = sessionManager.getGeneration()
       const program = Effect.gen(function* () {
@@ -696,11 +682,11 @@ export function registerGitHandlers(): void {
           ...(info.owner && info.repo ? { repo_owner: info.owner, repo_name: info.repo } : {}),
         }
 
-        // GitHub numeric IDs, when a token is available — mirrors git:clone.
+        // GitHub numeric IDs, when envFrom gives a token — mirrors git:clone.
         // Host-bound to the checkout's own remote host. A remote with no
-        // GitHub host is left alone rather than looked up on the session's
-        // host (github.com by default): the repo was never shown to live
-        // there, and a same-named repo there would report the wrong IDs.
+        // GitHub host is left alone rather than looked up on the auth block's
+        // host: the repo was never shown to live there, and a same-named repo
+        // there would report the wrong IDs.
         const remoteHost = tryNormalizeGitHubHost(gitHostFromRemoteUrl(info.remoteUrl ?? ""))
         if (
           params.register &&
@@ -709,20 +695,10 @@ export function registerGitHandlers(): void {
           params.provider !== "gitlab" &&
           remoteHost !== undefined
         ) {
-          const token = yield* Effect.result(
-            getGitHubSessionCredential(
-              remoteHost,
-              () =>
-                new GitError({
-                  command: "resolve git token",
-                  stderr: "no session token",
-                  exitCode: 1,
-                }),
-            ),
-          )
-          if (token._tag === "Success") {
+          const credential = exportedVcsCredential("github", params.envFrom ?? [], remoteHost)
+          if (credential !== undefined) {
             const repoResult = yield* Effect.result(
-              getRepo(token.success.token, info.owner, info.repo, token.success.host),
+              getRepo(credential.token, info.owner, info.repo, credential.host),
             )
             if (repoResult._tag === "Success") {
               outputs.org_id = String(repoResult.success.ownerId)
@@ -764,6 +740,7 @@ export function registerGitHandlers(): void {
         worktreePath: string
         branchName: string
         provider?: "github" | "gitlab"
+        envFrom?: readonly string[]
       },
     ) => {
       const sendLog = makeSendLog(event)
@@ -775,18 +752,25 @@ export function registerGitHandlers(): void {
         // Resolve the token by PROVIDER (passed by the PR/MR block from its
         // linked auth block), so a GitLab push uses the GitLab token and a
         // GitHub push the GitHub token — never inferred from the remote host,
-        // which would break self-hosted instances. Defaults to github for older
+        // which would break self-hosted instances. Defaults to github for
         // callers that don't pass a provider. Either token is also bound to
         // origin's host, and never sent over plain http
-        // (resolveGitHubTokenForRepo / resolveGitLabTokenForRepo).
+        // (resolveGitHubTokenForRepo / resolveGitLabTokenForRepo). Without
+        // envFrom, the push sends no token and git uses the user's own
+        // credential helpers.
         const provider = params.provider ?? "github"
+        const envFrom = params.envFrom ?? []
         const token =
-          provider === "github"
-            ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing", { callsApi: false })).token
-            : yield* resolveGitLabTokenForRepo(repoPath, "pushing")
+          envFrom.length === 0
+            ? undefined
+            : provider === "github"
+              ? (yield* resolveGitHubTokenForRepo(repoPath, "pushing", envFrom, {
+                  callsApi: false,
+                })).token
+              : yield* resolveGitLabTokenForRepo(repoPath, "pushing", envFrom)
 
         const options: PushOptions = {
-          token,
+          ...(token !== undefined ? { token } : {}),
           username: gitCredentialUsername(provider),
           setUpstream: true,
         }
@@ -823,6 +807,7 @@ export function registerGitHandlers(): void {
         worktreePath: string
         branch: string
         provider?: "github" | "gitlab"
+        envFrom?: readonly string[]
       },
     ) => {
       const sendLog = makeSendLog(event)
@@ -830,13 +815,18 @@ export function registerGitHandlers(): void {
       const program = Effect.gen(function* () {
         const repoPath = yield* validateSessionPath(params.worktreePath)
         const provider = params.provider ?? "github"
+        const envFrom = params.envFrom ?? []
         const { token, host } =
           provider === "github"
-            ? yield* resolveGitHubTokenForRepo(repoPath, "creating the default branch", {
+            ? yield* resolveGitHubTokenForRepo(repoPath, "creating the default branch", envFrom, {
                 callsApi: true,
               })
             : {
-                token: yield* resolveGitLabTokenForRepo(repoPath, "creating the default branch"),
+                token: yield* resolveGitLabTokenForRepo(
+                  repoPath,
+                  "creating the default branch",
+                  envFrom,
+                ),
                 host: undefined,
               }
 
@@ -876,9 +866,8 @@ export function registerGitHandlers(): void {
       const { token, host } = yield* resolveGitHubTokenForRepo(
         repoPath,
         "creating a pull request",
-        {
-          callsApi: true,
-        },
+        params.envFrom ?? [],
+        { callsApi: true },
       )
       // sendLog is threaded in as the progress sink so each line is emitted
       // when its step actually runs, not all at once before the work starts.
@@ -899,7 +888,11 @@ export function registerGitHandlers(): void {
       const repoPath = yield* validateSessionPath(params.worktreePath)
       // The MR targets the repo's own GitLab instance, which createMergeRequest
       // derives from the repo's remote URL — the token must belong to it.
-      const token = yield* resolveGitLabTokenForRepo(repoPath, "creating a merge request")
+      const token = yield* resolveGitLabTokenForRepo(
+        repoPath,
+        "creating a merge request",
+        params.envFrom ?? [],
+      )
       return yield* createMergeRequest(token, buildPrParams(params, repoPath), sendLog)
     })
 

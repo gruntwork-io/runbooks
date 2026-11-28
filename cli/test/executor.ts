@@ -17,15 +17,8 @@ import { NodeFileSystemLive } from "../../src/layers/NodeFileSystem.ts"
 import { ChildProcessSpawnerLive } from "../../src/layers/ChildProcessSpawner.ts"
 import { ProcessSpawner, type SpawnLogChannel } from "../../src/services/ProcessSpawner.ts"
 import { buildCloneSteps } from "../../src/domain/git/cloneSteps.ts"
-import {
-  githubEnvCredentialForHost,
-  githubSessionCredential,
-} from "../../src/domain/github/auth.ts"
-import {
-  DEFAULT_GITHUB_HOST,
-  isGitHubHost,
-  tryNormalizeGitHubHost,
-} from "../../src/domain/git/github-host.ts"
+import { githubEnvCredentialForHost, githubSessionEnv } from "../../src/domain/github/auth.ts"
+import { DEFAULT_GITHUB_HOST, tryNormalizeGitHubHost } from "../../src/domain/git/github-host.ts"
 import { gitCredentialUsername, withGitHttpAuth } from "../../src/domain/git/url.ts"
 import {
   parseBlockOutputsContent,
@@ -64,7 +57,6 @@ import { tryNormalizeGitLabHost } from "../../src/domain/git/gitlab-host.ts"
 import {
   GITLAB_TOKEN_ENV_VARS,
   envTokenHost,
-  gitlabSessionTokenHost,
   mayAutoSendEnvToken,
 } from "../../src/domain/gitlab/auth.ts"
 import { redactSecrets } from "../../src/domain/vcs/redact.ts"
@@ -82,17 +74,21 @@ import { runAssertion, countFiles, envListToRecord, type AssertionContext } from
 import {
   InputValidator,
   inputsIdsOf,
-  parseAuthDependencies,
   parseRunDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
   lowercaseFirst,
   type TemplateInlineBlock,
   type TemplateBlock,
-  type AuthDependency,
 } from "./validation.ts"
 import { AUTH_BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
-import { AZURE_AUTH_ENV_VARS } from "../../src/domain/exec/authEnv.ts"
+import {
+  applyEnvExports,
+  authEnvExport,
+  type AuthProvider,
+  type EnvExport,
+} from "../../src/domain/exec/authEnv.ts"
+import { parseBlockEnvFrom } from "../../src/domain/exec/blockEnv.ts"
 import { unknownBlocksError } from "../../src/runbooks-version.ts"
 import type { ParsedComponent } from "../../src/domain/registry/executable.ts"
 import { errorMessage } from "../../src/errors/message.ts"
@@ -165,10 +161,10 @@ const GOOGLE_REGION_WRITE_VARS = [
 const GOOGLE_ZONE_WRITE_VARS = ["CLOUDSDK_COMPUTE_ZONE", "GOOGLE_ZONE"] as const
 
 /**
- * A git auth block's env lookup: the token and the session vars to write, or
- * why the block skips.
+ * A git auth block's env lookup: the variables it exports, or why the block
+ * skips.
  */
-type GitAuthLookup = { token: string; vars: Record<string, string> } | { skipReason: string }
+type GitAuthLookup = { vars: Record<string, string> } | { skipReason: string }
 
 /** Build a StepResult with its mutable fields freshly initialized per call. */
 function makeStepResult(block: string, expectedStatus: ExpectedStatus): StepResult {
@@ -309,7 +305,6 @@ export class TestExecutor {
   private validator!: InputValidator
   private templateInlines!: Map<string, TemplateInlineBlock>
   private templates!: Map<string, TemplateBlock>
-  private authDeps!: Map<string, AuthDependency>
   private runDeps!: Map<string, string[]>
   // The blocks each block reads `.inputs` from, by block ID (inputsIdsOf)
   private inputsIds!: Map<string, string[]>
@@ -330,9 +325,10 @@ export class TestExecutor {
   // Check and Command blocks whose latest run this test case ended in success
   // or warn, by normalized block ID, for `dependsOn`
   private passedScripts = new Set<string>()
-  private authBlockCredentials = new Map<string, Record<string, string>>()
-  // The token each git auth block found, and for which provider, for GitClone
-  private gitAuthTokens = new Map<string, { provider: GitProvider; token: string }>()
+  // Each auth block's export, by block ID, for the blocks that name it in envFrom
+  private envExports = new Map<string, EnvExport>()
+  // Files written for this test case's Google sign-ins, removed when it ends
+  private credentialDirs: string[] = []
   private activeWorkTreePath = ""
 
   /**
@@ -367,7 +363,6 @@ export class TestExecutor {
     this.templates = parseTemplateBlocks(this.runbookPath)
 
     // Parse auth dependencies
-    this.authDeps = parseAuthDependencies(this.runbookPath)
     this.runDeps = parseRunDependencies(this.runbookPath)
     this.inputsIds = new Map(
       this.validator.getComponents().map((block) => [block.id, inputsIdsOf(block)]),
@@ -513,8 +508,7 @@ export class TestExecutor {
     this.generatedFileCounts = new Map()
     this.blockStates = new Map()
     this.passedScripts = new Set()
-    this.authBlockCredentials = new Map()
-    this.gitAuthTokens = new Map()
+    this.envExports = new Map()
     this.activeWorkTreePath = ""
 
     // 3. Get all blocks in document order
@@ -592,6 +586,10 @@ export class TestExecutor {
           this.runCleanup(cleanup)
         }
       }
+      // A Google sign-in's credential file holds a key
+      for (const dir of this.credentialDirs.splice(0)) {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
     }
 
     result.duration = Date.now() - start
@@ -654,27 +652,19 @@ export class TestExecutor {
       return result
     }
 
-    // 3. Check auth dependencies. A block whose auth block hasn't run, or was
-    // skipped, is blocked, which is what an `expect: blocked` step asserts.
-    // `expect: skip` skips the block whatever state its auth block is in.
-    if (step.expect !== "skip" && this.authDeps.has(block.id)) {
-      const authDep = this.authDeps.get(block.id)!
-      const authState = this.blockStates.get(authDep.authBlockId)
-
-      if (authState === undefined) {
-        result.passed = step.expect === "blocked"
-        result.actualStatus = "blocked"
-        result.error = `Block depends on "${authDep.authBlockId}" which hasn't run yet`
-        result.duration = Date.now() - start
-        return result
-      }
-
-      if (authState === "skipped") {
-        result.passed = step.expect === "blocked"
-        result.actualStatus = "blocked"
-        result.error = `Block depends on "${authDep.authBlockId}" which was skipped`
-        result.duration = Date.now() - start
-        return result
+    // 3. Check envFrom. A block whose envFrom names an auth block that hasn't
+    // run, or was skipped, is blocked, which is what an `expect: blocked` step
+    // asserts. `expect: skip` skips the block whatever state those blocks are in.
+    if (step.expect !== "skip") {
+      for (const authId of envFromOf(block)) {
+        const authState = this.blockStates.get(authId)
+        if (authState === undefined || authState === "skipped") {
+          result.passed = step.expect === "blocked"
+          result.actualStatus = "blocked"
+          result.error = `Block depends on "${authId}" which ${authState === undefined ? "hasn't run yet" : "was skipped"}`
+          result.duration = Date.now() - start
+          return result
+        }
       }
     }
 
@@ -1009,24 +999,17 @@ export class TestExecutor {
       const [command, args] =
         launch.kind === "self" ? [scriptPath, []] : [launch.command, [...launch.args, scriptPath]]
 
-      // Build environment. The per-block vars go on last, as in the app.
-      const env = this.sessionEnvWithTestEnv()
+      // Build environment as the app does: the session's, then the exports
+      // the block's envFrom names, then the per-block vars
+      const env = applyEnvExports(
+        this.sessionEnvWithTestEnv(),
+        foundExec.envFrom.flatMap((id) => this.envExports.get(id) ?? []),
+      )
       env["RUNBOOK_OUTPUT"] = outputFile
       env["RUNBOOK_ENV"] = sessionEnvFile
       env["GENERATED_FILES"] = filesDir
       if (this.activeWorkTreePath) env["REPO_FILES"] = this.activeWorkTreePath
       for (const { envVar, path: logFile } of levelLogs) env[envVar] = logFile
-
-      // Inject auth block credentials if this block has an auth dependency
-      if (this.authDeps.has(foundExec.componentId)) {
-        const authDep = this.authDeps.get(foundExec.componentId)!
-        const creds = this.authBlockCredentials.get(authDep.authBlockId)
-        if (creds) {
-          for (const [k, v] of Object.entries(creds)) {
-            env[k] = v
-          }
-        }
-      }
 
       // Then the block's env, as data, as in the app
       Object.assign(env, blockEnv)
@@ -1378,16 +1361,28 @@ export class TestExecutor {
     return written
   }
 
+  /**
+   * Record `blockId`'s sign-in as its export, as the app's block does, for
+   * the blocks that name it in envFrom. Throws when `env` has a variable
+   * `provider`'s export doesn't control: each runner builds `env` from that
+   * provider's names.
+   */
+  private recordExport(blockId: string, provider: AuthProvider, env: Record<string, string>): void {
+    const envExport = authEnvExport(provider, env)
+    if (!envExport.ok) throw new Error(envExport.error)
+    this.envExports.set(blockId, envExport.export)
+  }
+
   // -----------------------------------------------------------------------
   // GitHubAuth / GitLabAuth / GitAuth blocks
   // -----------------------------------------------------------------------
 
   /**
    * Git auth in headless test mode, for either provider: find a token in the
-   * provider's env vars and write the session vars main writes on a
-   * successful auth (GITHUB_TOKEN, or GITLAB_TOKEN and GITLAB_HOST). Like the
-   * other auth runners this never reaches the network, so the token is taken
-   * at face value.
+   * provider's env vars and export what the app's block exports on a
+   * successful auth (GITHUB_TOKEN and its host, or GITLAB_TOKEN and
+   * GITLAB_HOST). Like the other auth runners this never reaches the network,
+   * so the token is taken at face value.
    */
   private runGitAuth(
     block: ParsedComponent,
@@ -1413,25 +1408,13 @@ export class TestExecutor {
       return result
     }
 
-    const envVars = lookup.vars
-    this.authBlockCredentials.set(block.id, envVars)
-    this.gitAuthTokens.set(block.id, { provider, token: lookup.token })
-
-    // Inject into session env
-    const written = new Set(Object.keys(envVars))
-    this.sessionEnv = this.sessionEnv.filter((entry) => {
-      const eq = entry.indexOf("=")
-      return eq === -1 || !written.has(entry.slice(0, eq))
-    })
-    for (const [k, v] of Object.entries(envVars)) {
-      this.sessionEnv.push(`${k}=${v}`)
-    }
+    this.recordExport(block.id, provider, lookup.vars)
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log(`--- ${providerName} credentials found, injected ---`)
+    if (this.options.verbose) console.log(`--- ${providerName} credentials found, exported ---`)
     return result
   }
 
@@ -1449,7 +1432,7 @@ export class TestExecutor {
       token = this.getenv("RUNBOOKS_GITHUB_TOKEN") || token
     }
     if (!token) return { skipReason: "No GitHub credentials found" }
-    return { token, vars: { GITHUB_TOKEN: token, GITHUB_HOST: host } }
+    return { vars: githubSessionEnv(host, token) }
   }
 
   /**
@@ -1478,7 +1461,7 @@ export class TestExecutor {
           : "GitLab token has no usable host: GITLAB_HOST (or GITLAB_URI, GL_HOST) isn't a valid URL or host",
       }
     }
-    return { token, vars: { GITLAB_TOKEN: token, GITLAB_HOST: host } }
+    return { vars: { GITLAB_TOKEN: token, GITLAB_HOST: host } }
   }
 
   // -----------------------------------------------------------------------
@@ -1518,28 +1501,17 @@ export class TestExecutor {
       }
     }
 
-    // Check AWS_PROFILE
-    if (!found) {
-      const profile = this.getenv("AWS_PROFILE")
-      if (profile) {
-        blockCreds["AWS_PROFILE"] = profile
-        const region = this.getenv("AWS_REGION")
-        if (region) blockCreds["AWS_REGION"] = region
-        found = true
-      }
-    }
-
-    // Check OIDC
-    if (!found) {
-      const roleArn = this.getenv("AWS_ROLE_ARN")
-      const tokenFile = this.getenv("AWS_WEB_IDENTITY_TOKEN_FILE")
-      if (roleArn && tokenFile) {
-        blockCreds["AWS_ROLE_ARN"] = roleArn
-        blockCreds["AWS_WEB_IDENTITY_TOKEN_FILE"] = tokenFile
-        const region = this.getenv("AWS_REGION")
-        if (region) blockCreds["AWS_REGION"] = region
-        found = true
-      }
+    // A profile or a web identity. The app's block resolves it to keys, which
+    // the test can't do without the network, so the block exports only the
+    // region, and the AWS tools read the profile or role from the
+    // environment the test started with.
+    const usesProfile = this.getenv("AWS_PROFILE") !== ""
+    const usesWebIdentity =
+      this.getenv("AWS_ROLE_ARN") !== "" && this.getenv("AWS_WEB_IDENTITY_TOKEN_FILE") !== ""
+    if (!found && (usesProfile || usesWebIdentity)) {
+      const region = this.getenv("AWS_REGION")
+      if (region) blockCreds["AWS_REGION"] = region
+      found = true
     }
 
     if (!found) {
@@ -1551,30 +1523,13 @@ export class TestExecutor {
       return result
     }
 
-    this.authBlockCredentials.set(block.id, blockCreds)
-
-    // Inject explicit credentials into session
-    if (blockCreds["AWS_ACCESS_KEY_ID"]) {
-      this.sessionEnv = this.sessionEnv.filter(
-        (e) =>
-          !e.startsWith("AWS_ACCESS_KEY_ID=") &&
-          !e.startsWith("AWS_SECRET_ACCESS_KEY=") &&
-          !e.startsWith("AWS_SESSION_TOKEN="),
-      )
-      this.sessionEnv.push(`AWS_ACCESS_KEY_ID=${blockCreds["AWS_ACCESS_KEY_ID"]}`)
-      this.sessionEnv.push(`AWS_SECRET_ACCESS_KEY=${blockCreds["AWS_SECRET_ACCESS_KEY"]}`)
-      this.sessionEnv.push(`AWS_SESSION_TOKEN=${blockCreds["AWS_SESSION_TOKEN"] ?? ""}`)
-      if (blockCreds["AWS_REGION"]) {
-        this.sessionEnv = this.sessionEnv.filter((e) => !e.startsWith("AWS_REGION="))
-        this.sessionEnv.push(`AWS_REGION=${blockCreds["AWS_REGION"]}`)
-      }
-    }
+    this.recordExport(block.id, "aws", blockCreds)
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log("--- AWS credentials found, injected ---")
+    if (this.options.verbose) console.log("--- AWS credentials found, exported ---")
     return result
   }
 
@@ -1624,9 +1579,10 @@ export class TestExecutor {
 
   /**
    * GoogleAuth in headless test mode: resolve a credential the way the block's
-   * own detection does and inject the env vars main writes on a successful
-   * interactive auth. Like runAwsAuth this never reaches the network, so the
-   * credential is taken at face value — the test asserts wiring, not validity.
+   * own detection does and export what the app's block exports on a
+   * successful interactive auth. Like runAwsAuth this never reaches the
+   * network, so the credential is taken at face value — the test asserts
+   * wiring, not validity.
    */
   private runGoogleAuth(block: ParsedComponent, step: TestStep, start: number): StepResult {
     const result = makeStepResult(`googleAuth:${block.id}`, step.expect)
@@ -1657,6 +1613,15 @@ export class TestExecutor {
       return result
     }
 
+    // Inline JSON goes in a file, as the app's block writes it, since the
+    // block exports a credential file's path, not its content
+    if (credential.name === "GOOGLE_CREDENTIALS") {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "runbooks-gcp-"))
+      this.credentialDirs.push(dir)
+      const file = path.join(dir, "credentials.json")
+      fs.writeFileSync(file, credential.value, { mode: 0o600 })
+      credential = { name: "GOOGLE_APPLICATION_CREDENTIALS", value: file }
+    }
     blockCreds[credential.name] = credential.value
 
     // Point the gcloud CLI at the same file. gcloud keeps its own credential
@@ -1696,29 +1661,13 @@ export class TestExecutor {
     if (region) for (const name of GOOGLE_REGION_WRITE_VARS) blockCreds[name] = region
     if (zone) for (const name of GOOGLE_ZONE_WRITE_VARS) blockCreds[name] = zone
 
-    this.authBlockCredentials.set(block.id, blockCreds)
-
-    // Clear EVERY credential-bearing var, not just the one being written, so an
-    // ambient GOOGLE_APPLICATION_CREDENTIALS cannot shadow a token the prefix
-    // selected, and an earlier override cannot keep gcloud on another file.
-    const stale = new Set<string>([
-      ...GOOGLE_CREDENTIAL_ENV_VARS,
-      "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE",
-      ...Object.keys(blockCreds),
-    ])
-    this.sessionEnv = this.sessionEnv.filter((entry) => {
-      const eq = entry.indexOf("=")
-      return eq === -1 || !stale.has(entry.slice(0, eq))
-    })
-    for (const [k, v] of Object.entries(blockCreds)) {
-      this.sessionEnv.push(`${k}=${v}`)
-    }
+    this.recordExport(block.id, "google", blockCreds)
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log("--- Google Cloud credentials found, injected ---")
+    if (this.options.verbose) console.log("--- Google Cloud credentials found, exported ---")
     return result
   }
 
@@ -1840,20 +1789,13 @@ export class TestExecutor {
       creds["AZURE_SUBSCRIPTION_ID"] = subscriptionId
     }
 
-    this.authBlockCredentials.set(block.id, creds)
-
-    const stale = new Set<string>(AZURE_AUTH_ENV_VARS)
-    this.sessionEnv = this.sessionEnv.filter((entry) => {
-      const eq = entry.indexOf("=")
-      return eq === -1 || !stale.has(entry.slice(0, eq))
-    })
-    for (const [k, v] of Object.entries(creds)) this.sessionEnv.push(`${k}=${v}`)
+    this.recordExport(block.id, "azure", creds)
 
     this.blockStates.set(block.id, "success")
     result.actualStatus = "success"
     result.passed = this.matchesExpectedStatus(step.expect, "success")
     result.duration = Date.now() - start
-    if (this.options.verbose) console.log("--- Azure credentials found, injected ---")
+    if (this.options.verbose) console.log("--- Azure credentials found, exported ---")
     return result
   }
 
@@ -2000,16 +1942,11 @@ export class TestExecutor {
 
   /**
    * The environment for an https clone's git commands, carrying a token only
-   * when one belongs to the clone URL's host, as main's clone handler does.
-   * The provider comes from the auth block the GitClone references with
-   * `gitAuthId` or `githubAuthId`, or, with no reference, from the URL's host
-   * (a github.com-family host or gitlab.com). The token is that auth block's
-   * when the block authenticated the URL's host, otherwise the session env's
-   * with the app's host binding (githubSessionCredential,
-   * gitlabSessionTokenHost). The test's `env` goes on top of the session env,
-   * as for any Command, so a test can blank an ambient token. GitLab takes the
-   * token as user `oauth2`, GitHub as `x-access-token`. Only https URLs get a
-   * token; SSH authenticates itself.
+   * from an auth block the GitClone names in envFrom, and only when that
+   * block signed in to the clone URL's host. With several, a later block
+   * wins. Without one, git's own credential helpers apply, as in a terminal.
+   * GitLab takes the token as user `oauth2`, GitHub as `x-access-token`. Only
+   * https URLs get a token; SSH authenticates itself.
    */
   private cloneAuthEnv(block: ParsedComponent, cloneURL: string): NodeJS.ProcessEnv {
     let url: URL
@@ -2020,40 +1957,26 @@ export class TestExecutor {
     }
     if (url.protocol !== "https:") return process.env
     const host = url.host.toLowerCase()
+    const githubHost = tryNormalizeGitHubHost(cloneURL)
 
-    const authId = stringProp(block.props, "gitAuthId") || stringProp(block.props, "githubAuthId")
-    const provider: GitProvider | undefined =
-      (authId ? this.gitAuthTokens.get(authId)?.provider : undefined) ??
-      (host === "gitlab.com" ? "gitlab" : isGitHubHost(host) ? "github" : undefined)
-    if (!provider) return process.env
-
-    const creds = authId ? this.authBlockCredentials.get(authId) : undefined
-    const session = this.sessionEnvWithTestEnv()
-    let token = ""
-    if (provider === "github") {
-      const cloneHost = tryNormalizeGitHubHost(cloneURL)
-      if (!cloneHost) return process.env
-      if (creds && (creds["GITHUB_HOST"] ?? DEFAULT_GITHUB_HOST) === cloneHost) {
-        token = creds["GITHUB_TOKEN"] ?? ""
+    let credential: { provider: GitProvider; token: string } | undefined
+    for (const authId of envFromOf(block)) {
+      const env = this.envExports.get(authId)?.env ?? {}
+      if (env.GITHUB_TOKEN && githubHost && env.GITHUB_HOST === githubHost) {
+        credential = { provider: "github", token: env.GITHUB_TOKEN }
+      } else if (env.GITLAB_TOKEN && env.GITLAB_HOST === host) {
+        credential = { provider: "gitlab", token: env.GITLAB_TOKEN }
       }
-      if (!token) {
-        token =
-          githubSessionCredential(session, cloneHost, tryNormalizeGitHubHost(session.GITHUB_HOST))
-            ?.token ?? ""
-      }
-    } else {
-      if (creds && creds["GITLAB_HOST"] === host) token = creds["GITLAB_TOKEN"] ?? ""
-      if (!token && gitlabSessionTokenHost(session) === host) token = session["GITLAB_TOKEN"] ?? ""
     }
-    if (!token) return process.env
+    if (!credential) return process.env
 
     // No terminal prompt: a rejected token must fail the step, not wait for a
     // username on the TTY until the step times out.
     return withGitHttpAuth(
       { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       cloneURL,
-      token,
-      gitCredentialUsername(provider),
+      credential.token,
+      gitCredentialUsername(credential.provider),
     )
   }
 
@@ -2426,6 +2349,16 @@ function describeCleanupError(e: unknown): string {
     return detail ? `exit code ${status}: ${detail}` : `exit code ${status}`
   }
   return errorMessage(e)
+}
+
+/**
+ * The auth blocks a block's envFrom prop names, or none when it has no valid
+ * one: the registry refuses a script block whose prop isn't valid, and the
+ * validator refuses a GitClone or pull request block's.
+ */
+function envFromOf(block: ParsedComponent): readonly string[] {
+  const parsed = parseBlockEnvFrom(block.props.envFrom)
+  return parsed.ok ? parsed.envFrom : []
 }
 
 /** A block ID as templates name it, with hyphens turned into underscores. */

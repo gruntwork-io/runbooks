@@ -12,8 +12,8 @@
  * code, whatever it contains. The variables are the block's own. They don't
  * stay in the session for the blocks after it.
  *
- * Also the block's `workingDir` prop, and the names a script can't set for
- * the session through RUNBOOK_ENV.
+ * Also the block's `envFrom` and `workingDir` props, and the names a script
+ * can't set for the session through RUNBOOK_ENV.
  *
  * Imports nothing, so the renderer can bundle it.
  */
@@ -118,6 +118,54 @@ export function parseBlockWorkingDir(value: unknown): ParsedWorkingDir {
     }
   }
   return { ok: true, workingDir: value }
+}
+
+export type ParsedEnvFrom =
+  | { readonly ok: true; readonly envFrom: readonly string[] }
+  | { readonly ok: false; readonly error: string }
+
+/**
+ * Check a block's `envFrom` prop: the ids of the blocks whose exported
+ * variables its script runs with, in the order they apply, so a later block
+ * wins. `env` applies after all of them. A block without one has none.
+ */
+export function parseBlockEnvFrom(value: unknown): ParsedEnvFrom {
+  if (value === undefined) return { ok: true, envFrom: [] }
+  if (
+    !Array.isArray(value) ||
+    value.some((id: unknown) => typeof id !== "string" || id.trim() === "")
+  ) {
+    return {
+      ok: false,
+      error: 'The envFrom prop must be a list of block ids, such as envFrom={["aws_prod"]}.',
+    }
+  }
+  const ids = value as string[]
+  const repeated = ids.find((id, i) => ids.indexOf(id) !== i)
+  if (repeated !== undefined) {
+    return { ok: false, error: `envFrom names "${repeated}" more than once.` }
+  }
+  return { ok: true, envFrom: ids }
+}
+
+/** Props that named an auth block before envFrom. A block that sets one can't run. */
+const REPLACED_AUTH_PROPS = [
+  "awsAuthId",
+  "githubAuthId",
+  "gitAuthId",
+  "googleAuthId",
+  "azureAuthId",
+] as const
+
+/**
+ * Why a block can't run because it sets a prop such as awsAuthId, naming the
+ * envFrom that replaces it, or null when it sets none.
+ */
+export function replacedAuthPropError(props: Readonly<Record<string, unknown>>): string | null {
+  const prop = REPLACED_AUTH_PROPS.find((name) => props[name] !== undefined)
+  if (prop === undefined) return null
+  const id = typeof props[prop] === "string" ? props[prop] : "<block id>"
+  return `Runbooks doesn't support the ${prop} prop. Name the block in envFrom instead: envFrom={["${id}"]}.`
 }
 
 /**

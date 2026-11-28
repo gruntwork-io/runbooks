@@ -2,14 +2,11 @@ import { GitPullRequest } from "@/components/mdx/GitPullRequest"
 import type { GitHubPullRequestProps } from "@/components/mdx/GitPullRequest/types"
 
 /**
- * Backward-compatible <GitHubPullRequest> block.
- *
- * GitHubPullRequest is now a GitHub-locked alias of the generic
- * <GitPullRequest> block — equivalent to
- * `<GitPullRequest provider="github" hideProviderSelect />`. It keeps its
- * existing props (including `githubAuthId`) and default title, so existing
- * runbooks behave exactly as before. The internal `__registryType` keeps its
- * duplicate-id and error-message identity reporting as "GitHubPullRequest".
+ * The <GitHubPullRequest> block: a GitHub-locked alias of the generic
+ * <GitPullRequest> block, equivalent to
+ * `<GitPullRequest provider="github" hideProviderSelect />`, with its own
+ * default title. The internal `__registryType` keeps its duplicate-id and
+ * error-message identity reporting as "GitHubPullRequest".
  */
 export function GitHubPullRequest(props: GitHubPullRequestProps) {
   return (

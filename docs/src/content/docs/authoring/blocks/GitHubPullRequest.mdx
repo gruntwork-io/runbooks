@@ -18,14 +18,14 @@ Pair it with `<GitHubAuth>` and `<GitClone>`:
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone Repository"
   prefilledUrl="https://github.com/acme-corp/infrastructure"
 />
 
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Open Pull Request"
   description="Create a PR with the changes made in this runbook"
 />
@@ -38,7 +38,7 @@ You can pre-populate the PR title, description, labels, branch name, and commit 
 ```mdx
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   prefilledPullRequestTitle="Add VPC module configuration"
   prefilledPullRequestDescription="## Changes\n- Added VPC module\n- Configured NAT gateway"
   prefilledPullRequestLabels={["enhancement", "terraform"]}
@@ -58,7 +58,7 @@ The `prefilledPullRequestTitle`, `prefilledPullRequestDescription`, `prefilledBr
 ```mdx
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   prefilledPullRequestTitle="Add {{ .outputs.config.MODULE_NAME }} module"
   prefilledBranchName="feature/{{ .outputs.config.MODULE_NAME }}"
 />
@@ -75,8 +75,7 @@ Template expressions are resolved in real-time as upstream blocks produce output
 | `description` | `string` | No | Description text below the title. Supports inline markdown and template expressions. |
 | `autoCollapse` | `boolean` | No | Folds the block down to its title once the pull request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID for template variable substitution. When multiple IDs are provided, variables are merged in order (later IDs override earlier ones). |
-| `githubAuthId` | `string` | No | Reference to a [`<GitHubAuth>`](/authoring/blocks/githubauth) block. When set, the block waits for authentication to complete and uses the token for GitHub API access. |
-| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitHubAuth>`](/authoring/blocks/githubauth) block. Works like `githubAuthId`. If the linked block signed in to GitLab, the block shows a blocking error. |
+| `envFrom` | `string[]` | No | IDs of [`<GitHubAuth>`](/authoring/blocks/githubauth) or [`<GitAuth>`](/authoring/blocks/gitauth) blocks. The block waits for them to sign in, and uses the token of the one signed in to the repository's host for GitHub API access. If one signed in to GitLab, the block shows a blocking error. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the PR title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the PR description field. Supports template expressions, markdown, and `\n` for newlines. |
 | `prefilledPullRequestLabels` | `string[]` | No | Pre-selects labels by name. Labels must exist in the repository. |
@@ -133,9 +132,9 @@ The block shows **Git Push** until you choose "create another".
 
 ### Prerequisites
 
-The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR is created against. With `githubAuthId` or `gitAuthId`, it also needs the auth block it names, a `<GitHubAuth>` block or a `<GitAuth provider="github">` block, to have signed in. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
+The block needs a `<GitClone>` block that has cloned or selected a repository, which the PR is created against. With `envFrom`, it also needs the auth blocks it names, `<GitHubAuth>` blocks or `<GitAuth provider="github">` blocks, to have signed in. It checks both and shows an amber warning for whichever is missing. The Create PR button stays disabled until both are met.
 
-For authentication, the block waits for the `__AUTHENTICATED` output that the block referenced by `githubAuthId` or `gitAuthId` sets once it signs in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and links to the block to complete. Without `githubAuthId` or `gitAuthId`, the block doesn't wait for an auth block. It creates the PR with the session's GitHub token, and fails if the session has none.
+For authentication, the block waits for each auth block in `envFrom` to sign in, whichever way the user signed in. Until then, the block displays "Waiting for GitHub authentication" and links to the block to complete. Without `envFrom`, Runbooks supplies no token. git pushes the branch with your own credentials, such as a credential helper, and the block can't create the PR, which needs a GitHub token.
 
 For the repository, the block uses the workspace's active repository: the one selected in the workspace's repository dropdown, which is the first one added, whether by a clone or a [local checkout](/authoring/blocks/gitclone/#using-a-local-checkout), until the user selects another. No prop picks a `<GitClone>` block. Until a `<GitClone>` block has added a repository to the workspace, the block displays "No repository available". A `<GitClone>` block with `showFileTree={false}` doesn't add its repository.
 
@@ -149,7 +148,7 @@ Labels are applied after the PR opens. If applying them fails, the PR is still c
 
 The pull request is opened against the host of the cloned repository's `origin` remote: `github.com`, a GitHub Enterprise Server host such as `github.example.com`, or a GHE.com tenant such as `acme.ghe.com`. The block uses that host's API (`https://api.github.com`, `https://<host>/api/v3`, or `https://api.<tenant>.ghe.com`) and fetches labels from it.
 
-That host must be the one the linked auth block authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error and sends the token nowhere. Links to token settings shown by the block also follow the authenticated host.
+That host must be the one the auth block in `envFrom` authenticated to (its `GITHUB_HOST` output). If they differ, for example a repository cloned from `github.example.com` while the auth block signed in to `github.com`, the block fails with an error and sends the token nowhere. Links to token settings shown by the block also follow the authenticated host.
 
 ```mdx
 <GitHubAuth
@@ -159,13 +158,13 @@ That host must be the one the linked auth block authenticated to (its `GITHUB_HO
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   prefilledUrl="https://github.example.com/platform/infrastructure-live"
 />
 
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Open Pull Request"
 />
 ```
@@ -182,7 +181,7 @@ See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-
 
 <GitClone
   id="clone-infra"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone Infrastructure Repo"
   prefilledUrl="https://github.com/acme-corp/infrastructure-live"
 />
@@ -196,7 +195,7 @@ See [GitHub Enterprise support](/authoring/blocks/githubauth/#github-enterprise-
 
 <GitHubPullRequest
   id="open-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Open Pull Request"
   prefilledPullRequestTitle="Update infrastructure configuration"
   prefilledPullRequestLabels={["infrastructure"]}

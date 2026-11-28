@@ -71,8 +71,6 @@ describe("activeCredentialFor", () => {
   it("never lets a block that has not authenticated borrow a neighbour's", () => {
     setActiveCredential("target-project", credential("/tmp/b/adc.json"))
 
-    // The caller falls through to the session env instead — the only credential
-    // it can honestly claim.
     expect(activeCredentialFor("source-project")).toBeUndefined()
   })
 
@@ -112,8 +110,8 @@ describe("materializeForIdentity", () => {
     // the renderer keeps publishing the OLD path as GOOGLE_APPLICATION_CREDENTIALS
     // until completeAuthentication runs — which on the OAuth tab in a
     // multi-project org waits for the user to pick a project. Releasing here
-    // deleted the file a <Command googleAuthId> in that window was handed, and
-    // gcloud failed with "Failed to load credential file".
+    // deleted the file a step in that window was handed, and gcloud failed
+    // with "Failed to load credential file".
     const key = identityKeyFor("block-a", SA, "my-proj")
     const first = materializeForIdentity("block-a", key, ADC_JSON)
     const second = materializeForIdentity("block-a", key, ADC_JSON)
@@ -332,10 +330,9 @@ describe("a re-authentication that materialises nothing", () => {
     }
   })
 
-  it("keeps the block's service-account file when it publishes a bare access token", () => {
-    // A token re-auth writes no GOOGLE_APPLICATION_CREDENTIALS, so the session
-    // env still names the SA file. Releasing it would make every later
-    // <Command> fail the executor's missing-credentials-file check.
+  it("releases the block's service-account file once it publishes a bare access token", () => {
+    // The block's export for a token clears GOOGLE_APPLICATION_CREDENTIALS, so
+    // nothing names the SA file any more.
     const saFile = committedServiceAccountFile("block-a")
 
     setActiveCredential("block-a", {
@@ -343,26 +340,16 @@ describe("a re-authentication that materialises nothing", () => {
       principal: USER.email,
       credentialType: "access_token",
     })
-    commitCredential("block-a", undefined)
-
+    // Not before the renderer stops publishing the old path.
     expect(fs.existsSync(saFile)).toBe(true)
 
-    // The next file-backed re-authentication overwrites the session's
-    // GOOGLE_APPLICATION_CREDENTIALS, and that is what releases it.
-    const replacement = materializeForIdentity(
-      "block-a",
-      identityKeyFor("block-a", SA, "my-proj"),
-      ADC_JSON,
-    )
-    setActiveCredential("block-a", credential(replacement))
-    commitCredential("block-a", replacement)
+    commitCredential("block-a", undefined)
 
     expect(fs.existsSync(saFile)).toBe(false)
-    expect(fs.existsSync(replacement)).toBe(true)
   })
 
   it("does not queue an overlapping flow's newer file when an earlier flow registers", () => {
-    // Two auth flows on one block overlap: each writes the session env between
+    // Two auth flows on one block overlap: each records the export between
     // materialising and registering, so the second can materialise before the
     // first registers. The renderer then publishes them in order.
     const key = identityKeyFor("block-a", SA, "my-proj")

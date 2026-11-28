@@ -28,7 +28,7 @@ Pre-select GitLab and hide the dropdown so the runbook is GitLab-only:
 
 <GitClone
   id="clone-repo"
-  gitAuthId="git-auth"
+  envFrom={["git-auth"]}
   title="Clone Repository"
   prefilledUrl="https://gitlab.com/acme-corp/infrastructure-live"
 />
@@ -72,8 +72,8 @@ Both providers support more than their public SaaS host. Set `host` to pin the b
 
 | Provider | Default host | Other hosts | Picker lists |
 | --- | --- | --- | --- |
-| `github` | `github.com` | GitHub Enterprise Server (such as `github.example.com`) and GHE.com data-residency tenants (such as `acme.ghe.com`) | Hosts from gh's `hosts.yml` (`gh auth login --hostname <host>`), `GH_HOST`, the session host, recently used hosts |
-| `gitlab` | `gitlab.com` | Self-managed GitLab instances (such as `gitlab.example.com`) | Hosts from glab's `config.yml`, hosts named by environment variables, the session host, recently used hosts |
+| `github` | `github.com` | GitHub Enterprise Server (such as `github.example.com`) and GHE.com data-residency tenants (such as `acme.ghe.com`) | Hosts from gh's `hosts.yml` (`gh auth login --hostname <host>`), `GH_HOST`, recently used hosts |
+| `gitlab` | `gitlab.com` | Self-managed GitLab instances (such as `gitlab.example.com`) | Hosts from glab's `config.yml`, hosts named by environment variables, recently used hosts |
 
 ```mdx
 <GitAuth
@@ -135,16 +135,16 @@ Five minutes before the token expires, the block turns red, says when it expires
 
 ## Usage
 
-On successful authentication, the block sets these session environment variables, which later blocks inherit:
+On successful authentication, a block that names the GitAuth block in [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) gets these environment variables:
 
 | Provider | Variables |
 | --- | --- |
 | `github` | `GITHUB_TOKEN`, `GITHUB_USER`, `GITHUB_HOST`, `GH_HOST` (plus `GH_ENTERPRISE_TOKEN` on GitHub Enterprise Server) |
 | `gitlab` | `GITLAB_TOKEN`, `GITLAB_USER`, `GITLAB_HOST` |
 
-`GITLAB_HOST` is the instance the token belongs to, either `gitlab.com` or your self-managed host.
+`GITLAB_HOST` is the instance the token belongs to, either `gitlab.com` or your self-managed host. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host. The script runs without that provider's other token and host variables (`GH_TOKEN`, `GITHUB_ENTERPRISE_TOKEN`, `GITLAB_ACCESS_TOKEN`, `OAUTH_TOKEN`, `GL_HOST`), so `gh` and `glab` can't pick up a token from your shell or from another block in place of this one. The Run or Check button stays disabled until the GitAuth block has signed in.
 
-A [`<GitClone>`](/authoring/blocks/gitclone/) of a private `github.com` or `gitlab.com` repository uses the session `GITHUB_TOKEN` or `GITLAB_TOKEN`. To clone from a self-managed GitLab instance, set `gitAuthId` on the GitClone block so it uses the session `GITLAB_TOKEN`. Runbooks sends a session token only over HTTPS to the host it belongs to, never to another host or over plain `http://`, and not at all once a later script points `GITHUB_HOST` or `GITLAB_HOST` at a different host. For GitHub, `GITHUB_HOST` and `GH_HOST` record which host the token belongs to, so `gh` commands in later [Command](/authoring/blocks/command/) and [Check](/authoring/blocks/check/) scripts target the same host.
+A [`<GitClone>`](/authoring/blocks/gitclone/) or pull request block that names the GitAuth block in `envFrom` uses its token for a repository on the block's host. Runbooks sends the token only over HTTPS to the host it belongs to, never to another host or over plain `http://`. A GitClone without `envFrom` gets no token from Runbooks, and git uses your own credential helpers, as it does in a terminal.
 
 ### Block outputs
 
@@ -157,18 +157,7 @@ The block also publishes block outputs, which later blocks can read as `{{ .outp
 | `GIT_PROVIDER` | `github` or `gitlab` |
 | `__AUTHENTICATED` | `true` once the block has authenticated |
 
-Don't read the token from the outputs. Scripts get it as `GITHUB_TOKEN` or `GITLAB_TOKEN` through `gitAuthId` or `githubAuthId` (below), or from the session environment.
-
-### Explicit block references
-
-Blocks can reference an auth block by ID so they wait for authentication and receive its credentials for that execution only:
-
-- `gitAuthId` references a `<GitAuth>` block of either provider and injects the token and user it produced. Use this for GitLab.
-- `githubAuthId` is GitHub only. It reads `GITHUB_TOKEN` and `GITHUB_USER`, so it cannot reference a GitLab block.
-
-<Aside type="caution">
-A GitLab `<GitAuth>` block cannot be referenced via `githubAuthId`. Use `gitAuthId`, or rely on the session environment, from which any `<Command>` or `<Check>` inherits `GITLAB_TOKEN` without an explicit reference.
-</Aside>
+The token isn't an output. Scripts get it as `GITHUB_TOKEN` or `GITLAB_TOKEN` through `envFrom`.
 
 ## Provider-locked aliases
 

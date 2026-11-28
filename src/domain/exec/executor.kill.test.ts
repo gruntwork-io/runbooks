@@ -123,6 +123,8 @@ describe("executeScript cancellation (e2e, real process tree)", () => {
           {},
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
           { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
+          [],
+          {},
         )
         // Draining the log stream parks the fiber while the process runs —
         // this is the interruptible point cancellation acts on.
@@ -189,6 +191,8 @@ async function runToCompletion(
           request,
           { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
           { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
+          [],
+          {},
         )
         const blockUntil = Date.now() + blockAfterSpawnMs
         while (Date.now() < blockUntil) {
@@ -246,6 +250,8 @@ describe("executeScript timeoutMs (e2e, real process)", () => {
             { timeoutMs: 2000 },
             { env: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, workDir: os.tmpdir() },
             { workTree: "", generated: "", logs: LOGS_DIR, scripts: SCRIPTS_DIR },
+            [],
+            {},
           )
           yield* Stream.runDrain(run.logStream)
           yield* run.completionEffect

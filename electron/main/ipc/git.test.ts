@@ -63,11 +63,26 @@ mockElectron({
 })
 
 const { registerGitHandlers } = await import("./git.ts")
-const { sessionManager, vcsSessionMeta } = await import("./runtime.ts")
+const { sessionManager } = await import("./runtime.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
 const { githubSessionEnv } = await import("../../../src/domain/github/auth.ts")
+const { authEnvExport } = await import("../../../src/domain/exec/authEnv.ts")
 
 registerGitHandlers()
+
+/** The auth blocks the git blocks below name in envFrom. */
+const GITHUB_AUTH = "github_auth"
+const GITLAB_AUTH = "gitlab_auth"
+const ENV_FROM = [GITHUB_AUTH, GITLAB_AUTH]
+
+/** Sign auth block `blockId` in with `env`, as its GitHub or GitLab Auth block does. */
+const signIn = (blockId: string, provider: "github" | "gitlab", env: Record<string, string>) => {
+  const envExport = authEnvExport(provider, env)
+  if (!envExport.ok) throw new Error(envExport.error)
+  return Effect.runPromise(
+    sessionManager.setEnvExport(blockId, envExport.export, sessionManager.getGeneration()),
+  )
+}
 
 const event = { sender: { send: () => {} } }
 
@@ -94,7 +109,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   const clone = (url: string) => {
     const handler = handlers.get("git:clone")
     if (!handler) throw new Error("no handler for git:clone")
-    return Promise.resolve(handler(event, { url })) as Promise<CloneResult>
+    return Promise.resolve(handler(event, { url, envFrom: ENV_FROM })) as Promise<CloneResult>
   }
 
   interface PushResult {
@@ -105,7 +120,9 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   const push = (worktreePath: string, branchName: string) => {
     const handler = handlers.get("git:push")
     if (!handler) throw new Error("no handler for git:push")
-    return Promise.resolve(handler(event, { worktreePath, branchName })) as Promise<PushResult>
+    return Promise.resolve(
+      handler(event, { worktreePath, branchName, envFrom: ENV_FROM }),
+    ) as Promise<PushResult>
   }
 
   const ENV_KEYS = [
@@ -161,7 +178,6 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   })
 
   afterEach(() => {
-    vcsSessionMeta.clear()
     sessionManager.deleteSession()
     for (const key of ENV_KEYS) {
       if (savedEnv[key] === undefined) delete process.env[key]
@@ -307,13 +323,10 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       return repo
     }
 
-    const authenticate = async (env: Record<string, string>, authHost?: string) => {
-      await Effect.runPromise(sessionManager.appendToEnv(env))
-      if (authHost) vcsSessionMeta.set("github", { host: authHost, source: "manual" })
-    }
+    const authenticate = (env: Record<string, string>) => signIn(GITHUB_AUTH, "github", env)
 
-    it("sends the token to an https origin on the host the session's credential is for", async () => {
-      await authenticate(githubSessionEnv(httpsHost, SECRET, "user"), httpsHost)
+    it("sends the token to an https origin on the host its block signed in to", async () => {
+      await authenticate(githubSessionEnv(httpsHost, SECRET, "user"))
 
       await push(checkoutWithOrigin(`https://${httpsHost}/o/r.git`), "feature")
 
@@ -322,8 +335,8 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       expect(requests.map((r) => r.authorization)).toContain(basicAuth)
     })
 
-    it("never sends the token to an http origin, even on the host the session's credential is for", async () => {
-      await authenticate(githubSessionEnv(httpHost, SECRET, "user"), httpHost)
+    it("never sends the token to an http origin, even on the host its block signed in to", async () => {
+      await authenticate(githubSessionEnv(httpHost, SECRET, "user"))
 
       const result = await push(checkoutWithOrigin(`http://${httpHost}/o/r.git`), "feature")
 
@@ -337,18 +350,18 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       ["a backslash", "/o\\r.git"],
       ["a non-breaking space", "/o/r\u00a0.git"],
     ])("refuses a github.com token for an https origin with %s in its path", async (_, path) => {
-      await authenticate({ GITHUB_TOKEN: SECRET })
+      await authenticate(githubSessionEnv("github.com", SECRET))
 
       const result = await push(checkoutWithOrigin(`https://${httpsHost}${path}`), "feature")
 
       expect(result.error).toContain(
-        `The GitHub credential in this session is for github.com, but this repository's origin is ${httpsHost}.`,
+        `The GitHub sign-in in envFrom is for github.com, but this repository's origin is ${httpsHost}.`,
       )
       expect(requests).toEqual([])
     })
 
     it("refuses the token for an https origin whose host is not a GitHub host name", async () => {
-      await authenticate({ GITHUB_TOKEN: SECRET })
+      await authenticate(githubSessionEnv("github.com", SECRET))
 
       const result = await push(checkoutWithOrigin("https://[::1]:9/o/r.git"), "feature")
 
@@ -357,7 +370,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     })
 
     it("binds the token to the host, not the SSH port, of a git@[host:port]:path origin", async () => {
-      await authenticate(githubSessionEnv("ghes.corp", SECRET, "user"), "ghes.corp")
+      await authenticate(githubSessionEnv("ghes.corp", SECRET, "user"))
       expect((await clone("git@[ghes.corp:2222]:acme/infra.git")).error).toBeUndefined()
       const repo = nodePath.join(workDir, "infra")
       git(repo, "checkout", "-q", "-b", "feature")
@@ -469,11 +482,13 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     const invoke = (channel: string, params: unknown) => {
       const handler = handlers.get(channel)
       if (!handler) throw new Error(`no handler for ${channel}`)
-      return Promise.resolve(handler(event, params)) as Promise<GitResult>
+      return Promise.resolve(
+        handler(event, { envFrom: ENV_FROM, ...(params as object) }),
+      ) as Promise<GitResult>
     }
 
     const authenticate = (env: Record<string, string>) =>
-      Effect.runPromise(sessionManager.appendToEnv(env))
+      env.GITLAB_TOKEN ? signIn(GITLAB_AUTH, "gitlab", env) : signIn(GITHUB_AUTH, "github", env)
 
     /** A clone of acme/infra with `origin` replaced (undefined: removed) and one uncommitted change. */
     const checkout = (origin: string | undefined) => {
@@ -583,7 +598,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     it.each(NO_HOST)(
       "git:pull-request sends the token nowhere when origin has %s",
       async (_, origin) => {
-        await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+        await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
 
         const result = await pullRequest(checkout(origin("infra")))
 
@@ -596,7 +611,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     it.each(NO_HOST)(
       "git:init-default-branch sends the GitHub token nowhere when origin has %s",
       async (_, origin) => {
-        await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+        await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
 
         const result = await initDefaultBranch(emptyCheckout(origin("empty")), "github")
 
@@ -659,12 +674,12 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     })
 
     it("git:pull-request keeps a github.com token away from a [git@ghes.corp:2222]:… origin", async () => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+      await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
 
       const result = await pullRequest(checkout("[git@ghes.corp:2222]:acme/infra.git"))
 
       expect(result.error).toContain(
-        "The GitHub credential in this session is for github.com, but this repository's origin is ghes.corp.",
+        "The GitHub sign-in in envFrom is for github.com, but this repository's origin is ghes.corp.",
       )
       expect(apiRequests).toEqual([])
     })
@@ -673,7 +688,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
       ["an IPv6 literal", "git@[::1]:acme/infra.git"],
       ["a file URL", "file:///srv/git/acme/infra.git"],
     ])("git:local-repo looks up no GitHub IDs for an origin with %s", async (_, origin) => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+      await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
 
       const result = await invoke("git:local-repo", { path: checkout(origin), register: true })
 
@@ -684,7 +699,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     })
 
     it("git:local-repo looks the GitHub IDs up on the origin's own host", async () => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+      await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
 
       await invoke("git:local-repo", {
         path: checkout("git@github.com:acme/infra.git"),
@@ -704,7 +719,7 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
     // A push carries a token only to an http(s) origin, so a push to an SSH
     // origin git can reach but no URL can name still goes ahead, token unused.
     it("git:push still pushes to an SSH origin with an IPv6 zone id, sending no token", async () => {
-      await authenticate({ GITHUB_TOKEN: GITHUB_SECRET })
+      await authenticate(githubSessionEnv("github.com", GITHUB_SECRET))
       const repo = checkout("git@[fe80::1%eth0]:acme/infra.git")
       git(repo, "checkout", "-q", "-b", "feature")
       git(repo, "commit", "-q", "--allow-empty", "-m", "work")
@@ -719,14 +734,15 @@ describe("remote URL handling (real git, stand-in ssh)", () => {
   })
 })
 
-describe("session token binding (local http and https remotes)", () => {
+describe("token binding (local http and https remotes)", () => {
+  // Names the auth blocks in envFrom unless `params` names others, or none
   const invoke = (channel: string, params?: unknown) => {
     const handler = handlers.get(channel)
     if (!handler) throw new Error(`no handler for ${channel}`)
     // git:clone throws on failure; the others return { error }.
-    return Promise.resolve(handler(event, params)).catch((err: unknown) => ({
-      error: errorMessage(err),
-    })) as Promise<any>
+    return Promise.resolve(handler(event, { envFrom: ENV_FROM, ...(params as object) })).catch(
+      (err: unknown) => ({ error: errorMessage(err) }),
+    ) as Promise<any>
   }
 
   // -------------------------------------------------------------------------
@@ -870,7 +886,6 @@ describe("session token binding (local http and https remotes)", () => {
     tlsRemote.seen.length = 0
     fetchCalls = []
     mockApis()
-    vcsSessionMeta.clear()
     await Effect.runPromise(
       sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment({}))),
     )
@@ -878,21 +893,12 @@ describe("session token binding (local http and https remotes)", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch
-    vcsSessionMeta.clear()
     sessionManager.deleteSession()
   })
 
-  /** What a GitLab auth block writes to the session for `host`. */
-  const authGitLab = async (host: string) => {
-    await Effect.runPromise(
-      sessionManager.appendToEnv({ GITLAB_TOKEN, GITLAB_USER: "tanuki", GITLAB_HOST: host }),
-    )
-    vcsSessionMeta.set("gitlab", { host, source: "manual" })
-  }
-
-  /** A Command script that writes `GITLAB_HOST=<value>` to RUNBOOK_ENV. */
-  const scriptSetsGitLabHost = (value: string) =>
-    Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: value }))
+  /** What a GitLab auth block exports for `host`. */
+  const authGitLab = (host: string, blockId = GITLAB_AUTH, token = GITLAB_TOKEN) =>
+    signIn(blockId, "gitlab", { GITLAB_TOKEN: token, GITLAB_USER: "tanuki", GITLAB_HOST: host })
 
   /** A session whose env is inherited from a shell (no auth block ran). */
   const inheritedSession = (env: Record<string, string>) =>
@@ -900,13 +906,9 @@ describe("session token binding (local http and https remotes)", () => {
       sessionManager.createSession(workDir).pipe(Effect.provide(makeTestEnvironment(env))),
     )
 
-  /** What a GitHub auth block writes to the session for `host`. */
-  const authGitHub = async (host: string) => {
-    await Effect.runPromise(
-      sessionManager.appendToEnv(githubSessionEnv(host, GITHUB_TOKEN, "octocat")),
-    )
-    vcsSessionMeta.set("github", { host, source: "manual" })
-  }
+  /** What a GitHub auth block exports for `host`. */
+  const authGitHub = (host: string) =>
+    signIn(GITHUB_AUTH, "github", githubSessionEnv(host, GITHUB_TOKEN, "octocat"))
 
   /**
    * A checkout in the session working dir whose origin is `origin`, with one
@@ -946,7 +948,7 @@ describe("session token binding (local http and https remotes)", () => {
   // Tests
   // -------------------------------------------------------------------------
 
-  describe("git:clone — a session token goes only to its own host, over https", () => {
+  describe("git:clone — a block's token goes only to its own host, over https", () => {
     it("GitLab: the bound host over https gets the token (unchanged)", async () => {
       await authGitLab(httpsHost)
       await clone(`https://${httpsHost}/acme/infra.git`, "gitlab")
@@ -1088,62 +1090,74 @@ describe("session token binding (local http and https remotes)", () => {
     })
   })
 
-  describe("GitLab host binding — a script cannot move it; an inherited env follows glab's host vars", () => {
-    it("a script that points GITLAB_HOST at another host does not carry the auth block's token there", async () => {
-      await authGitLab("gitlab.com")
-      await scriptSetsGitLabHost(httpsHost)
+  describe("only the blocks envFrom names give a token", () => {
+    it("a token in the session's env goes nowhere", async () => {
+      await inheritedSession({ GITLAB_TOKEN, GITLAB_HOST: httpsHost })
 
       await clone(`https://${httpsHost}/acme/infra.git`, "gitlab")
-      const origin = `https://${httpsHost}/acme/infra.git`
-      const push = await invoke("git:push", {
-        worktreePath: checkout(origin),
-        branchName: "main",
-        provider: "gitlab",
-      })
-      const mr = await mergeRequest(checkout(origin))
-
-      expect(tlsRemote.seen.length).toBeGreaterThan(0) // the clone did reach the remote
-      expect(sinksOf(GITLAB_TOKEN)).toEqual([])
-      expect(fetchCalls).toEqual([])
-      for (const result of [push, mr]) expect(result.error).toContain("not bound to a host")
-    })
-
-    it("a script that names the auth block's host in URL form keeps the binding", async () => {
-      await authGitLab(httpsHost)
-      await scriptSetsGitLabHost(`https://${httpsHost}/`)
-      const repo = checkout(`https://${httpsHost}/acme/infra.git`)
-      await invoke("git:push", { worktreePath: repo, branchName: "main", provider: "gitlab" })
-      expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
-    })
-
-    it("an inherited GITLAB_HOST in URL form, or GL_HOST, binds the inherited token to that host", async () => {
-      const hostVarSets: Array<Record<string, string>> = [
-        { GITLAB_HOST: `https://${httpsHost}` },
-        { GL_HOST: httpsHost },
-      ]
-      for (const hostVars of hostVarSets) {
-        tlsRemote.seen.length = 0
-        await inheritedSession({ GITLAB_TOKEN, ...hostVars })
-        const repo = checkout(`https://${httpsHost}/acme/infra.git`)
-        const push = await invoke("git:push", {
-          worktreePath: repo,
-          branchName: "main",
-          provider: "gitlab",
-        })
-        expect(push.error ?? "").not.toContain("credential")
-        expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
-      }
-    })
-
-    it("an inherited GL_HOST keeps the inherited token away from any other host, and names its host", async () => {
-      await inheritedSession({ GITLAB_TOKEN, GL_HOST: "gitlab.corp.example" })
       const push = await invoke("git:push", {
         worktreePath: checkout(`https://${httpsHost}/acme/infra.git`),
         branchName: "main",
         provider: "gitlab",
       })
+
+      expect(tlsRemote.seen.length).toBeGreaterThan(0) // the clone did reach the remote
       expect(sinksOf(GITLAB_TOKEN)).toEqual([])
-      expect(push.error).toContain("is for gitlab.corp.example")
+      expect(push.error).toContain("No GitLab sign-in")
+    })
+
+    it("without envFrom, a clone and a push send no token, even with a block signed in", async () => {
+      await authGitLab(httpsHost)
+      const repo = checkout(`https://${httpsHost}/acme/infra.git`)
+
+      await invoke("git:clone", {
+        url: `https://${httpsHost}/acme/infra.git`,
+        provider: "gitlab",
+        localPath: "no-env-from",
+        envFrom: [],
+      })
+      const push = await invoke("git:push", {
+        worktreePath: repo,
+        branchName: "main",
+        provider: "gitlab",
+        envFrom: [],
+      })
+
+      expect(tlsRemote.seen.length).toBeGreaterThan(0)
+      expect(sinksOf(GITLAB_TOKEN)).toEqual([])
+      // git ran the push itself: Runbooks didn't refuse it for a missing sign-in
+      expect(push.error ?? "").not.toContain("sign-in")
+    })
+
+    it("a later block in envFrom wins over an earlier one", async () => {
+      const earlier = "glpat-earlier-secret"
+      await authGitLab(httpsHost, "earlier", earlier)
+      await authGitLab(httpsHost, "later")
+
+      await invoke("git:clone", {
+        url: `https://${httpsHost}/acme/infra.git`,
+        provider: "gitlab",
+        localPath: "later-wins",
+        envFrom: ["earlier", "later"],
+      })
+
+      expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
+      expect(sinksOf(earlier)).toEqual([])
+    })
+
+    it("an earlier block's token is used for a host only it signed in to", async () => {
+      await authGitLab(httpsHost, "earlier")
+      await authGitLab("gitlab.com", "later", "glpat-other-host")
+
+      await invoke("git:clone", {
+        url: `https://${httpsHost}/acme/infra.git`,
+        provider: "gitlab",
+        localPath: "host-match",
+        envFrom: ["earlier", "later"],
+      })
+
+      expect(sinksOf(GITLAB_TOKEN)).toEqual([`git https://${httpsHost}`])
+      expect(sinksOf("glpat-other-host")).toEqual([])
     })
   })
 

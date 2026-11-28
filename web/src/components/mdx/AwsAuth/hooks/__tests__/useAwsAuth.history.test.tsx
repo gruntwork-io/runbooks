@@ -33,7 +33,8 @@ beforeEach(() => {
   runbookState.blockOutputs = {}
   testApi = makeTestApi({
     "session:record-event": () => ({ ok: true }),
-    "session:set-env": () => ({ ok: true }),
+    "session:set-env-export": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
     "aws:env-credentials": () => ({ found: false }),
   })
@@ -307,6 +308,8 @@ describe("useAwsAuth in a session — recording", () => {
 
     expect(recorded()).toEqual([{ status: "signed-out" }])
     expect(result.current.authStatus).toBe("pending")
+    // Scripts that name the block in envFrom wait for the next sign-in
+    expect(testApi.invoke).toHaveBeenCalledWith("session:clear-env-export", { componentId: "aws" })
   })
 })
 
@@ -329,6 +332,16 @@ describe("useAwsAuth in a session — resuming", () => {
       }),
     )
     expect(testApi.invoke).toHaveBeenCalledWith("aws:validate", SAVED.credentials)
+    // The export goes back with the outputs, with the real values
+    expect(testApi.invoke).toHaveBeenCalledWith("session:set-env-export", {
+      componentId: "aws",
+      env: {
+        AWS_ACCESS_KEY_ID: "AKIA_SAVED",
+        AWS_SECRET_ACCESS_KEY: "saved-secret",
+        AWS_REGION: "us-west-2",
+        AWS_SESSION_TOKEN: "saved-token",
+      },
+    })
 
     await act(async () => check.resolve({ valid: true, ...ACCOUNT }))
 
@@ -349,6 +362,7 @@ describe("useAwsAuth in a session — resuming", () => {
     expect(result.current.errorMessage).toContain("ExpiredToken")
     expect(result.current.accountInfo).toBeNull()
     expect(registerOutputs.mock.calls.at(-1)).toEqual(["aws", { __AUTHENTICATED: "false" }])
+    expect(testApi.invoke).toHaveBeenCalledWith("session:clear-env-export", { componentId: "aws" })
     expect(recorded()).toEqual([{ status: "signed-out" }])
   })
 

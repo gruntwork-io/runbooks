@@ -18,7 +18,7 @@ This runbook demonstrates the GitHubPullRequest block, which provides a streamli
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone a Repository"
   description="Clone the repository you want to create a PR for"
   prefilledUrl="https://github.com/gruntwork-io/runbooks-test"
@@ -39,7 +39,7 @@ This runbook demonstrates the GitHubPullRequest block, which provides a streamli
 
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Open Pull Request"
   description="Create a pull request with the changes from this runbook"
   prefilledPullRequestTitle="Update changelog via runbook"

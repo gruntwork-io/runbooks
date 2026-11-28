@@ -385,28 +385,6 @@ export const envTokenHost = (
 }
 
 /**
- * The host the session's GITLAB_TOKEN is bound to, or undefined when it may
- * be sent nowhere. Mirrors githubSessionCredential.
- *
- * `authHost` is the host a GitAuth block wrote the session credential for
- * (main-only bookkeeping, cleared together with the session env). With it,
- * the binding is that host, and only while the env still carries a
- * GITLAB_HOST naming it (bare or as a URL, as glab accepts). If a script
- * changed or removed GITLAB_HOST, there is no binding: the token may still be
- * the auth block's, so following the script's GITLAB_HOST could send it to
- * another host. Without `authHost`, the session env is whatever the process
- * started with, so it is bound by glab's own conventions (envTokenHost),
- * exactly like the ambient env.
- */
-export const gitlabSessionTokenHost = (
-  env: Record<string, string | undefined>,
-  authHost?: string,
-): string | undefined => {
-  if (authHost === undefined) return envTokenHost(env)
-  return tryNormalizeGitLabHost(env.GITLAB_HOST) === authHost ? authHost : undefined
-}
-
-/**
  * glab's host env-var precedence (GITLAB_HOST, then GITLAB_URI, then GL_HOST),
  * each read as `<prefix><name>`, raw and unnormalized; a blank var counts as
  * unset.

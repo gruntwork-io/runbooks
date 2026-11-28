@@ -8,6 +8,10 @@ import { useComponentIdRegistry } from "@/contexts/ComponentIdRegistry"
 import { useErrorReporting } from "@/contexts/useErrorReporting"
 import { useGitWorkTree } from "@/contexts/useGitWorkTree"
 import { useOutputs } from "@/contexts/useRunbook"
+import {
+  parseBlockEnvFrom,
+  replacedAuthPropError,
+} from "../../../../../src/domain/exec/blockEnv.ts"
 import { useSessionHistory } from "@/contexts/useSessionHistory"
 import { useDisplayPath } from "@/contexts/useDisplayPath"
 import { parseSavedClone, type SavedClone } from "@/lib/sessionHistory"
@@ -53,13 +57,15 @@ function parseOwnerRepoFromURL(url: string): { org: string; repo: string } | nul
   return parsed ? { org: parsed.owner, repo: parsed.repo } : null
 }
 
+// One identity for a block without envFrom, so the hook's memos stay stable
+const NO_ENV_FROM: readonly string[] = []
+
 function GitCloneInteractive({
   id,
   title = "Clone Repository",
   description,
   inputsId,
-  githubAuthId,
-  gitAuthId,
+  envFrom: envFromProp,
   prefilledUrl = "",
   prefilledRef = "",
   prefilledRepoPath = "",
@@ -69,7 +75,15 @@ function GitCloneInteractive({
   hideSourceSelect = false,
   prefilledRepoDir = "",
   autoCollapse,
+  ...otherProps
 }: GitCloneProps) {
+  // A prop such as githubAuthId, or an envFrom that isn't a list of ids, is a
+  // configuration error: the block can't tell which sign-in to use
+  const parsedEnvFrom = parseBlockEnvFrom(envFromProp)
+  const propError =
+    replacedAuthPropError(otherProps) ?? (parsedEnvFrom.ok ? null : parsedEnvFrom.error)
+  const envFrom =
+    parsedEnvFrom.ok && parsedEnvFrom.envFrom.length > 0 ? parsedEnvFrom.envFrom : NO_ENV_FROM
   const validationError = useMemo((): AppError | null => {
     if (!id) {
       return {
@@ -77,8 +91,9 @@ function GitCloneInteractive({
         details: "Please provide a unique 'id' for this component instance.",
       }
     }
+    if (propError) return { message: propError, details: "Fix the prop, then reload the runbook." }
     return null
-  }, [id])
+  }, [id, propError])
 
   // --- Template dependency resolution (resolve inputs/outputs expressions) ---
 
@@ -153,7 +168,6 @@ function GitCloneInteractive({
     "GitClone",
     blockRef,
   )
-  const authBlockId = githubAuthId ?? gitAuthId
 
   const { reportError, clearError } = useErrorReporting()
 
@@ -183,6 +197,7 @@ function GitCloneInteractive({
     hasGitHubToken,
     tokenChecked,
     gitHubAuthMet,
+    waitingForAuthId,
     githubHost,
     workingDir,
     localPreview,
@@ -204,8 +219,7 @@ function GitCloneInteractive({
     fetchRefs,
   } = useGitClone({
     id,
-    githubAuthId,
-    gitAuthId,
+    envFrom,
     restored: restored && { result: restored.result, outputs: restored.outputs },
     onReady: (_result, published) => setPublishedOutputs(published),
     onRestoreLost: () => {
@@ -386,10 +400,17 @@ function GitCloneInteractive({
         severity: "error",
         message: `GitClone ID "${id}" collides with "${collidingId}" after normalization`,
       })
+    } else if (propError) {
+      reportError({
+        componentId: id,
+        componentType: "GitClone",
+        severity: "error",
+        message: propError,
+      })
     } else {
       clearError(id)
     }
-  }, [id, isDuplicate, isNormalizedCollision, collidingId, reportError, clearError])
+  }, [id, isDuplicate, isNormalizedCollision, collidingId, propError, reportError, clearError])
 
   // Register the repo as a git worktree once it is usable, from either source:
   // a clone, or a checkout the user already had. Held back while the repo has
@@ -624,7 +645,7 @@ function GitCloneInteractive({
             )}
 
             {/* Blocked state: waiting for the referenced auth block */}
-            {hasAllBlockingDependencies && !gitHubAuthMet && authBlockId !== undefined && (
+            {hasAllBlockingDependencies && !gitHubAuthMet && waitingForAuthId !== undefined && (
               <div className="mb-4 p-3 bg-warning-muted border border-warning/30 rounded-md flex items-start gap-2">
                 <AlertTriangle className="size-4 text-warning mt-0.5 shrink-0" />
                 <div>
@@ -632,7 +653,7 @@ function GitCloneInteractive({
                     Waiting for git authentication
                   </p>
                   <p className="text-xs text-warning-foreground m-0 mt-0.5">
-                    Complete the <BlockLink blockId={authBlockId} /> authentication block above
+                    Complete the <BlockLink blockId={waitingForAuthId} /> authentication block above
                     before {isLocalSource ? "selecting a repository" : "cloning"}.
                   </p>
                 </div>

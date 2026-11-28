@@ -68,7 +68,10 @@ describe("GitAuth (GitHub) — host picker", () => {
     renderWithApi(<GitAuth id="git" />)
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("github:cli-credentials", { host: "github.com" })
+      expect(invoke).toHaveBeenCalledWith("github:cli-credentials", {
+        componentId: "git",
+        host: "github.com",
+      })
     })
     await screen.findByText(/redirected to authorize/i)
     expect(screen.queryByText(/GitHub host:/)).toBeNull()
@@ -89,7 +92,10 @@ describe("GitAuth (GitHub) — host picker", () => {
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("github:host-picked", { host: "ghes.corp" })
-      expect(invoke).toHaveBeenCalledWith("github:cli-credentials", { host: "ghes.corp" })
+      expect(invoke).toHaveBeenCalledWith("github:cli-credentials", {
+        componentId: "git",
+        host: "ghes.corp",
+      })
     })
     // OAuth isn't set up for ghes.corp (no client ID): the tab is disabled
     // with the reason, and the PAT form takes over.

@@ -25,7 +25,7 @@ Scripts in a runbook without this block still see a `GITHUB_TOKEN` set in the en
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone Repository"
   prefilledUrl="https://github.com/acme-corp/infrastructure-live"
 />
@@ -87,7 +87,6 @@ Without a `host` prop, the block offers a **GitHub host** picker listing every G
 
 - Hosts you are logged into with the GitHub CLI (from gh's `hosts.yml`, which `gh auth login --hostname <host>` writes to)
 - The host named by the `GH_HOST` environment variable
-- The host the current session is already authenticated to
 - Enterprise hosts you recently authenticated to in Runbooks
 - `github.com`, always
 
@@ -172,25 +171,17 @@ The built-in Gruntwork Runbooks OAuth app only exists on `github.com`. To offer 
 
 ## Usage
 
-When authentication succeeds, these environment variables are set in the session:
+When authentication succeeds, a Command, Check or Finish block that names the GitHubAuth block in [`envFrom`](/authoring/blocks/command/#using-credentials-from-an-auth-block) runs with these environment variables:
 
 | Variable | Description |
 |----------|-------------|
 | `GITHUB_TOKEN` | The GitHub access token |
 | `GITHUB_USER` | The authenticated user's login name |
 | `GITHUB_HOST` | The GitHub host the token belongs to (such as `github.com`, `acme.ghe.com`, or `github.example.com`) |
-| `GH_HOST` | Same as `GITHUB_HOST`, so `gh` commands in later scripts target the same host |
+| `GH_HOST` | Same as `GITHUB_HOST`, so `gh` commands target the same host |
 | `GH_ENTERPRISE_TOKEN` | Set on GitHub Enterprise Server hosts only. Holds the same token, because it is the only token variable `gh` reads for Enterprise Server |
 
-Later Command and Check blocks have access to these credentials. If you authenticate more than once, the most recent credentials become the default.
-
-### Block outputs
-
-The block also publishes `GITHUB_USER`, `GITHUB_HOST`, `GIT_PROVIDER` (`github`) and `__AUTHENTICATED` as [block outputs](/authoring/blocks/gitauth/#block-outputs). Don't read the token from the outputs. Scripts get it as `GITHUB_TOKEN` through `githubAuthId` or `gitAuthId`, or from the session environment.
-
-### Explicit block references
-
-A Command or Check block can reference a GitHubAuth block with the `githubAuthId` prop. Its Run or Check button is then disabled until the referenced block has valid credentials. When several GitHubAuth blocks exist, the block runs with the credentials of the one you named.
+The block runs without `GH_TOKEN`, `GITHUB_ENTERPRISE_TOKEN` and every variable above the sign-in has no value for, so `gh` can't pick up a token from your shell or from another block in place of this one. A block without `envFrom` doesn't get them.
 
 ```mdx
 <GitHubAuth
@@ -202,7 +193,7 @@ A Command or Check block can reference a GitHubAuth block with the `githubAuthId
   id="verify-auth"
   title="Verify GitHub Access"
   command="gh auth status"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   successMessage="Successfully authenticated!"
 />
 
@@ -210,24 +201,18 @@ A Command or Check block can reference a GitHubAuth block with the `githubAuthId
   id="list-repos"
   title="List Repositories"
   command="gh repo list --limit 10"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   successMessage="Repositories listed!"
 />
 ```
 
-`gh` reads `GITHUB_TOKEN`, but `git` doesn't. To clone a private repository, use a [`<GitClone>`](/authoring/blocks/gitclone/) block with `githubAuthId`, as in [Basic usage](#basic-usage).
+The block's Run or Check button is disabled until the GitHubAuth block has signed in. When several GitHubAuth blocks exist, each block runs with the credentials of the one its `envFrom` names.
 
-#### How environment variables work with references
+`gh` reads `GITHUB_TOKEN`, but `git` doesn't. To clone a private repository, use a [`<GitClone>`](/authoring/blocks/gitclone/) block with `envFrom`, as in [Basic usage](#basic-usage).
 
-When a GitHubAuth block authenticates, it sets the session environment variables (`GITHUB_TOKEN`, `GITHUB_USER`, `GITHUB_HOST`, `GH_HOST`) for all later blocks. It also stores its credentials so that blocks can request them with `githubAuthId`.
+### Block outputs
 
-A block that sets `githubAuthId` gets the referenced block's credentials as environment variables that override the session values for that block only. This holds when several GitHubAuth blocks have different credentials, when another auth block set the session `GITHUB_TOKEN`, and when the user later re-authenticated with different credentials.
-
-Without `githubAuthId`, a block uses whatever `GITHUB_TOKEN` is in the session environment, set by the most recent authentication.
-
-<Aside type="tip">
-We recommend `githubAuthId` even with a single GitHubAuth block. It stops users from running a command before authenticating, and it helps with automated testing.
-</Aside>
+The block also publishes `GITHUB_USER`, `GITHUB_HOST`, `GIT_PROVIDER` (`github`) and `__AUTHENTICATED` as [block outputs](/authoring/blocks/gitauth/#block-outputs). The token isn't an output. Scripts get it as `GITHUB_TOKEN` through `envFrom`.
 
 ### Credential detection
 
@@ -407,7 +392,7 @@ When detecting credentials from GitHub CLI, Runbooks checks whether the token ha
 
 1. **Gruntwork never sees your credentials.** Authentication happens between your machine and GitHub. Tokens are not sent to Gruntwork servers.
 2. **Tokens stay with their host.** A token is sent only to the GitHub host it was issued for.
-3. **Credentials are encrypted at rest.** Tokens are stored in your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
+3. **Credentials are encrypted at rest.** A block's token is kept with your local Runbooks session, which Runbooks saves encrypted with the operating system's credential store. See [What is encrypted](/commands/sessions/#what-is-encrypted).
 
 ### How credentials stay local
 
@@ -480,4 +465,4 @@ You can manage authorizations at:
 
 On an enterprise host, use the same paths on that host, for example `https://github.example.com/settings/tokens`.
 
-Runbooks keeps a token in your local session, encrypted, until you [delete the session](/commands/sessions/#deleting-sessions). Quitting Runbooks or resetting the session doesn't delete it.
+Runbooks keeps a block's token with your local session, encrypted, until the block signs in again or is signed out, or you reset or [delete the session](/commands/sessions/#deleting-sessions). Quitting Runbooks doesn't delete it.

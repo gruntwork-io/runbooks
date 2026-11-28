@@ -16,14 +16,14 @@ The `<GitLabMergeRequest>` block creates a GitLab merge request from changes mad
 
 <GitClone
   id="clone-repo"
-  gitAuthId="gl-auth"
+  envFrom={["gl-auth"]}
   title="Clone Repository"
   prefilledUrl="https://gitlab.com/acme-corp/infrastructure"
 />
 
 <GitLabMergeRequest
   id="create-mr"
-  gitAuthId="gl-auth"
+  envFrom={["gl-auth"]}
   title="Create Merge Request"
   prefilledBranchName="upgrade-pipelines-v4"
   prefilledCommitMessage="Upgrade Gruntwork Pipelines from v3 to v4 [skip ci]"
@@ -42,7 +42,7 @@ You can pre-populate the MR title, description, labels, branch name, and commit 
 | `title` | `string` | No | Display title. Defaults to `Create Merge Request`. |
 | `description` | `string` | No | Description text below the title. |
 | `autoCollapse` | `boolean` | No | Folds the block down to its title once the merge request is opened. Defaults to `false`. See [Folding done blocks](/authoring/blocks/#folding-done-blocks). |
-| `gitAuthId` | `string` | No | Reference to a [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) block. |
+| `envFrom` | `string[]` | No | IDs of [`<GitAuth>`](/authoring/blocks/gitauth) or [`<GitLabAuth>`](/authoring/blocks/gitlabauth) blocks. The block waits for them to sign in, and uses the token of the one signed in to the repository's GitLab host. |
 | `inputsId` | `string \| string[]` | No | Reference to one or more [`<Inputs>`](/authoring/blocks/inputs) blocks by ID. The template expressions in the props below can use their values. |
 | `prefilledPullRequestTitle` | `string` | No | Pre-fills the MR title field. Supports template expressions. |
 | `prefilledPullRequestDescription` | `string` | No | Pre-fills the MR description field. Supports template expressions. |

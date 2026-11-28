@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import { useApi } from "@/contexts/ApiContext"
 import { useRunbookContext } from "@/contexts/useRunbook"
 import { useSession } from "@/contexts/useSession"
@@ -93,7 +93,6 @@ export function useAzureAuth({
   )
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [warningMessage, setWarningMessage] = useState<string | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
   const [signInInfo, setSignInInfo] = useState<AzureSignInInfo | null>(
     restoredAtMount ? infoOf(restoredAtMount) : null,
@@ -148,6 +147,13 @@ export function useAzureAuth({
     void api.invoke("azure:cancel", { blockId: id }).catch(() => {})
   }
 
+  // Drop the block's export, so scripts that name it in envFrom wait for a sign-in
+  const clearExport = useCallback(() => {
+    api.invoke("session:clear-env-export", { componentId: id }).catch((error: unknown) => {
+      console.error("Failed to clear the Azure export:", error)
+    })
+  }, [api, id])
+
   useEffect(
     () => () => {
       flowRef.current++
@@ -164,8 +170,7 @@ export function useAzureAuth({
     setAuthStatus("authenticated")
     setErrorMessage(null)
     setNotice(null)
-    setWarningMessage(result.sessionEnvWarning ?? null)
-    const { status: _status, sessionEnvWarning: _warning, ...saved } = result
+    const { status: _status, ...saved } = result
     const detectedFrom = detectedFromRef.current
     history.record(id, "auth", {
       status: "signed-in",
@@ -276,6 +281,7 @@ export function useAzureAuth({
         if (flowRef.current !== flow || data.valid || data.unreachable) return
         flowRef.current++
         registerOutputs(id, { __AUTHENTICATED: "false" })
+        clearExport()
         history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
         setSignInInfo(null)
         if (!data.ended) {
@@ -293,7 +299,7 @@ export function useAzureAuth({
         }
       })
       .catch(() => {})
-  }, [api, id, history, registerOutputs, restoredAtMount, detects])
+  }, [api, id, history, registerOutputs, clearExport, restoredAtMount, detects])
 
   const planKey = JSON.stringify(plan)
   useEffect(() => {
@@ -472,12 +478,14 @@ export function useAzureAuth({
 
   function handleManualAuth() {
     stopAttempt()
+    // Scripts that name the block in envFrom wait for its next sign-in, as
+    // AwsAuth and GoogleAuth do
     registerOutputs(id, { __AUTHENTICATED: "false" })
+    clearExport()
     history.record(id, "auth", { status: "signed-out" } satisfies SavedAzureAuth)
     setAuthStatus("pending")
     setErrorMessage(null)
     setNotice(null)
-    setWarningMessage(null)
     setSignInInfo(null)
     setSelecting(false)
     detectedFromRef.current = undefined
@@ -494,7 +502,6 @@ export function useAzureAuth({
     authStatus,
     errorMessage,
     notice,
-    warningMessage,
     cliMissing,
     signInInfo,
     detectionStatus,

@@ -1,6 +1,6 @@
 /**
  * IPC contract tests for the gitlab:* handlers: where an auto-detected
- * credential, or the session's token, may be sent.
+ * credential, or an auth block's exported token, may be sent.
  *
  * The handlers run against the REAL main-process stack — runtime.ts (AppLive),
  * vcs-tristate.ts, VcsCredentialsLive, GitLabHttpClient, recent-hosts.ts —
@@ -53,7 +53,8 @@ await mock.module("../window.ts", () => ({
 }))
 
 const { registerGitLabHandlers } = await import("./gitlab.ts")
-const { sessionManager, vcsSessionMeta } = await import("./runtime.ts")
+const { sessionManager } = await import("./runtime.ts")
+const { authEnvExport } = await import("../../../src/domain/exec/authEnv.ts")
 const systemTrust = await import("../system-trust.ts")
 const { makeTestEnvironment } = await import("../../../src/test-utils/TestEnvironment.ts")
 
@@ -138,7 +139,6 @@ beforeEach(async () => {
   process.env.GLAB_CONFIG_DIR = glabConfigDir
   fetchCalls = []
   mockGitLab()
-  vcsSessionMeta.clear()
   await Effect.runPromise(
     sessionManager.createSession("/tmp").pipe(Effect.provide(makeTestEnvironment({}))),
   )
@@ -146,7 +146,6 @@ beforeEach(async () => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch
-  vcsSessionMeta.clear()
   sessionManager.deleteSession()
   fs.rmSync(userDataDir, { recursive: true, force: true })
   fs.rmSync(glabConfigDir, { recursive: true, force: true })
@@ -155,23 +154,54 @@ afterEach(() => {
 const sessionEnv = async () =>
   Object.fromEntries((await Effect.runPromise(sessionManager.getSession())).env)
 
+/** The auth block the requests below are made for. */
+const AUTH = "gitlab_auth"
+
+/** What block `blockId` exports, or undefined when it hasn't signed in. */
+const exported = (blockId = AUTH) => sessionManager.getEnvExport(blockId)?.env
+
+/** Sign auth block `blockId` in with `env`, as gitlab:validate does. */
+const signIn = (env: Record<string, string>, blockId = AUTH) => {
+  const envExport = authEnvExport("gitlab", env)
+  if (!envExport.ok) throw new Error(envExport.error)
+  return Effect.runPromise(
+    sessionManager.setEnvExport(blockId, envExport.export, sessionManager.getGeneration()),
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("gitlab:env-credentials — never over plain http", () => {
-  it("an http:// instance for the bound host is absent: no request, no session write (prefixed or not)", async () => {
+  it("an http:// instance for the bound host is absent: no request, no export (prefixed or not)", async () => {
     process.env.GITLAB_TOKEN = "glpat-env"
     process.env.CI_GITLAB_TOKEN = "glpat-ci"
-    const plain = await invoke("gitlab:env-credentials", { instanceUrl: "http://gitlab.com" })
+    const plain = await invoke("gitlab:env-credentials", {
+      instanceUrl: "http://gitlab.com",
+      componentId: AUTH,
+    })
     const prefixed = await invoke("gitlab:env-credentials", {
       instanceUrl: "http://gitlab.com",
       prefix: "CI_",
+      componentId: AUTH,
     })
     expect(plain.found).toBe(false)
     expect(prefixed.found).toBe(false)
     expect(fetchCalls).toHaveLength(0)
-    expect((await sessionEnv()).GITLAB_TOKEN).toBeUndefined()
+    expect(exported()).toBeUndefined()
+  })
+
+  it("a valid credential is the block's export, and stays out of the session's env", async () => {
+    process.env.GITLAB_TOKEN = "glpat-env"
+    await invoke("gitlab:env-credentials", { host: "gitlab.com", componentId: AUTH })
+
+    expect(exported()).toEqual({
+      GITLAB_TOKEN: "glpat-env",
+      GITLAB_HOST: "gitlab.com",
+      GITLAB_USER: "tanuki",
+    })
+    expect((await sessionEnv()).GITLAB_HOST).toBeUndefined()
   })
 
   it("https (explicit or a bare host) is unchanged", async () => {
@@ -190,6 +220,19 @@ describe("gitlab:env-credentials — never over plain http", () => {
 })
 
 describe("gitlab:validate", () => {
+  it("fails a sign-in whose export can't be saved, naming why without the token", async () => {
+    sessionManager.deleteSession()
+
+    const result = invoke("gitlab:validate", {
+      token: "glpat-unsaved",
+      registerSession: true,
+      componentId: AUTH,
+    })
+
+    await expect(result).rejects.toThrow("Runbooks couldn't save the sign-in: no active session")
+    await expect(result).rejects.not.toThrow("glpat-unsaved")
+  })
+
   it("a manually entered token still validates against an http:// instance", async () => {
     const result = await invoke("gitlab:validate", {
       token: "glpat-manual",
@@ -201,44 +244,50 @@ describe("gitlab:validate", () => {
     ])
   })
 
-  it("useSessionToken sends the session credential only to its own host, over https", async () => {
-    // Block A: the env token authenticates gitlab.com and lands in the session.
+  it("fromBlock sends that block's credential only to its own host, over https", async () => {
+    // Block A: the env token authenticates gitlab.com and becomes A's export.
     process.env.GITLAB_TOKEN = "glpat-env"
-    expect((await invoke("gitlab:env-credentials", { host: "gitlab.com" })).valid).toBe(true)
-    expect((await sessionEnv()).GITLAB_HOST).toBe("gitlab.com")
+    expect(
+      (await invoke("gitlab:env-credentials", { host: "gitlab.com", componentId: "a" })).valid,
+    ).toBe(true)
     fetchCalls = []
 
     // Block B chains to A but targets plain http, or another host: refused
     // without any request.
     const http = await invoke("gitlab:validate", {
-      useSessionToken: true,
+      fromBlock: "a",
       instanceUrl: "http://gitlab.com",
     })
     const other = await invoke("gitlab:validate", {
-      useSessionToken: true,
+      fromBlock: "a",
       instanceUrl: "https://evil.example",
     })
     expect([http.valid, other.valid]).toEqual([false, false])
     expect(fetchCalls).toHaveLength(0)
 
-    const same = await invoke("gitlab:validate", { useSessionToken: true, host: "gitlab.com" })
+    const same = await invoke("gitlab:validate", {
+      fromBlock: "a",
+      host: "gitlab.com",
+      componentId: "b",
+      registerSession: true,
+    })
     expect(same.valid).toBe(true)
     expect(
       fetchCalls.filter((c) => c.url.endsWith("/user")).map((c) => [c.url, c.authorization]),
     ).toEqual([["https://gitlab.com/api/v4/user", "Bearer glpat-env"]])
+    // B exports the credential it chained to, for the blocks that name B
+    expect(exported("b")?.GITLAB_TOKEN).toBe("glpat-env")
   })
 })
 
-describe("gitlab:labels — which instance the session's token is sent to", () => {
+describe("gitlab:labels — which instance a block's token is sent to", () => {
   const SECRET = "glpat-SECRETTOKEN"
   const labels = (params: { owner: string; repo: string; host?: string }) =>
-    invoke("gitlab:labels", params) as Promise<{ labels: string[] }>
+    invoke("gitlab:labels", { ...params, envFrom: [AUTH] }) as Promise<{ labels: string[] }>
 
   beforeEach(async () => {
-    // The token is bound to the custom-port instance the repo lives on.
-    await Effect.runPromise(
-      sessionManager.appendToEnv({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp:8443" }),
-    )
+    // The block signed in to the custom-port instance the repo lives on.
+    await signIn({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.corp:8443" })
   })
 
   it("reads labels from the repo's own instance", async () => {
@@ -251,7 +300,7 @@ describe("gitlab:labels — which instance the session's token is sent to", () =
     expect(fetchCalls[0]?.authorization).toBe(`Bearer ${SECRET}`)
   })
 
-  it("falls back to the instance the token is bound to when the renderer names none", async () => {
+  it("falls back to the instance the block signed in to when the renderer names none", async () => {
     await labels({ owner: "acme", repo: "infra" })
 
     expect(fetchCalls.length).toBeGreaterThan(0)
@@ -282,12 +331,12 @@ describe("gitlab:labels — which instance the session's token is sent to", () =
     },
   )
 
-  // Even a token bound to gitlab.com must not go there for a repo whose host
+  // Even a token for gitlab.com must not go there for a repo whose host
   // didn't parse: that repo was never shown to live on gitlab.com.
   it.each(["ho%st", "ftp://gitlab.com"])(
-    "does not read the unparseable host %s as gitlab.com, where the token is bound",
+    "does not read the unparseable host %s as gitlab.com, where the block signed in",
     async (host) => {
-      await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: "gitlab.com" }))
+      await signIn({ GITLAB_TOKEN: SECRET, GITLAB_HOST: "gitlab.com" })
 
       const result = await labels({ owner: "acme", repo: "infra", host })
 
@@ -317,12 +366,15 @@ describe("gitlab:cli-credentials — glab's token only to its own host, https un
     fs.rmSync(emptyBinDir, { recursive: true, force: true })
   })
 
-  it("an http:// instance is absent: no request, no session write", async () => {
+  it("an http:// instance is absent: no request, no export", async () => {
     writeGlabConfig("hosts:\n    gitlab.com:\n        token: glpat-glab\n")
-    const result = await invoke("gitlab:cli-credentials", { instanceUrl: "http://gitlab.com" })
+    const result = await invoke("gitlab:cli-credentials", {
+      instanceUrl: "http://gitlab.com",
+      componentId: AUTH,
+    })
     expect(result.found).toBe(false)
     expect(fetchCalls).toHaveLength(0)
-    expect((await sessionEnv()).GITLAB_TOKEN).toBeUndefined()
+    expect(exported()).toBeUndefined()
 
     // The same token over https is unchanged.
     expect(
@@ -347,12 +399,10 @@ describe("gitlab:cli-credentials — glab's token only to its own host, https un
   })
 })
 
-describe("gitlab:labels — the session token only to its own host, over https", () => {
-  it("another host or plain http gets no request; the bound host is unchanged", async () => {
-    await Effect.runPromise(
-      sessionManager.appendToEnv({ GITLAB_TOKEN: "glpat-session", GITLAB_HOST: "gitlab.com" }),
-    )
-    const repo = { owner: "acme", repo: "infra" }
+describe("gitlab:labels — a block's token only to its own host, over https", () => {
+  it("another host or plain http gets no request; the block's host is unchanged", async () => {
+    await signIn({ GITLAB_TOKEN: "glpat-block", GITLAB_HOST: "gitlab.com" })
+    const repo = { owner: "acme", repo: "infra", envFrom: [AUTH] }
 
     const other = await invoke("gitlab:labels", { ...repo, host: "evil.example" })
     const http = await invoke("gitlab:labels", { ...repo, host: "http://gitlab.com" })
@@ -362,39 +412,23 @@ describe("gitlab:labels — the session token only to its own host, over https",
     expect((await invoke("gitlab:labels", { ...repo, host: "gitlab.com" })).labels).toEqual(["bug"])
     expect((await invoke("gitlab:labels", repo)).labels).toEqual(["bug"])
     expect(fetchCalls.map((c) => [new URL(c.url).origin, c.authorization])).toEqual([
-      ["https://gitlab.com", "Bearer glpat-session"],
-      ["https://gitlab.com", "Bearer glpat-session"],
+      ["https://gitlab.com", "Bearer glpat-block"],
+      ["https://gitlab.com", "Bearer glpat-block"],
     ])
   })
 
-  it("a script that moves GITLAB_HOST after the auth block ran cannot move the token", async () => {
-    process.env.GITLAB_TOKEN = "glpat-env"
-    expect((await invoke("gitlab:env-credentials", { host: "gitlab.com" })).valid).toBe(true)
-    fetchCalls = []
-    // A Command script's `export GITLAB_HOST=evil.example`, captured into the session.
-    await Effect.runPromise(sessionManager.appendToEnv({ GITLAB_HOST: "evil.example" }))
-
-    const repo = { owner: "acme", repo: "infra" }
-    const moved = await invoke("gitlab:labels", { ...repo, host: "evil.example" })
-    const fallback = await invoke("gitlab:labels", repo)
-    const original = await invoke("gitlab:labels", { ...repo, host: "gitlab.com" })
-    expect([moved.labels, fallback.labels, original.labels]).toEqual([[], [], []])
-    expect(fetchCalls).toHaveLength(0)
-  })
-
-  it("without an auth block, an inherited token is bound by glab's host vars (GL_HOST)", async () => {
+  it("a token in the session's env goes nowhere: only a block envFrom names gives one", async () => {
     await Effect.runPromise(
-      sessionManager.appendToEnv({ GITLAB_TOKEN: "glpat-inherited", GL_HOST: "git.corp.example" }),
+      sessionManager.applyScriptEnv({
+        env: { GITLAB_TOKEN: "glpat-inherited", GITLAB_HOST: "gitlab.com" },
+        generation: sessionManager.getGeneration(),
+      }),
     )
     const repo = { owner: "acme", repo: "infra" }
-    expect((await invoke("gitlab:labels", { ...repo, host: "gitlab.com" })).labels).toEqual([])
-    expect(fetchCalls).toHaveLength(0)
 
-    // With no host from the renderer, the lookup targets the bound host.
-    expect((await invoke("gitlab:labels", repo)).labels).toEqual(["bug"])
-    expect(fetchCalls.map((c) => [new URL(c.url).origin, c.authorization])).toEqual([
-      ["https://git.corp.example", "Bearer glpat-inherited"],
-    ])
+    expect((await invoke("gitlab:labels", { ...repo, host: "gitlab.com" })).labels).toEqual([])
+    expect((await invoke("gitlab:labels", repo)).labels).toEqual([])
+    expect(fetchCalls).toHaveLength(0)
   })
 })
 
@@ -428,13 +462,15 @@ describe("a sign-in that finishes after another runbook opened", () => {
         .createSession("/tmp/runbook-b", "/tmp/runbook-b/runbook.mdx")
         .pipe(Effect.provide(makeTestEnvironment({}))),
     )
-    vcsSessionMeta.clear()
   }
 
   it.each([
-    ["gitlab:validate", { token: "glpat-from-a", host: "gitlab.com", registerSession: true }],
-    ["gitlab:env-credentials", { host: "gitlab.com" }],
-  ] as const)("%s writes nothing to the new runbook's session", async (channel, params) => {
+    [
+      "gitlab:validate",
+      { token: "glpat-from-a", host: "gitlab.com", registerSession: true, componentId: AUTH },
+    ],
+    ["gitlab:env-credentials", { host: "gitlab.com", componentId: AUTH }],
+  ] as const)("%s exports nothing in the new runbook's session", async (channel, params) => {
     process.env.GITLAB_TOKEN = "glpat-env-from-a"
     const release = holdValidation()
 
@@ -445,10 +481,7 @@ describe("a sign-in that finishes after another runbook opened", () => {
 
     // Runbook A's (now unmounted) block still gets its answer...
     expect(result.valid).toBe(true)
-    // ...but runbook B's session has no credential and no GitLab host binding.
-    const env = await sessionEnv()
-    expect(env.GITLAB_TOKEN).toBeUndefined()
-    expect(env.GITLAB_HOST).toBeUndefined()
-    expect(vcsSessionMeta.get("gitlab")).toBeUndefined()
+    // ...but runbook B's session has no export for it.
+    expect(exported()).toBeUndefined()
   })
 })

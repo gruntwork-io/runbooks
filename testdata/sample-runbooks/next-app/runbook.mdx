@@ -33,7 +33,7 @@ If you already have a repository, skip this step — we'll clone it in the next 
   id="create-repo"
   env={{ ORG: "{{ .inputs.GithubOrgName }}", REPO: "{{ .inputs.RepoName }}" }}
   command='gh repo create "$ORG/$REPO" --public'
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Create a GitHub repository"
   description="Creates a new public GitHub repository. If it already exists, skip this step and clone it below."
   successMessage="Repository created!"
@@ -63,7 +63,7 @@ Clone the repository you created above, or an existing repository you'd like to 
 
 <GitClone
   id="clone-repo"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Clone the Repository"
   description="Clone the repository so we can scaffold the Next.js app into it"
   prefilledUrl="https://github.com/gruntwork-test/empty-repo"
@@ -125,7 +125,7 @@ Now let's push everything to a new branch and open a pull request.
 
 <GitHubPullRequest
   id="create-pr"
-  githubAuthId="gh-auth"
+  envFrom={["gh-auth"]}
   title="Open a Pull Request"
   description="Create a pull request with the scaffolded Next.js app and custom components"
   prefilledPullRequestTitle="feat: scaffold Next.js app"

@@ -115,7 +115,7 @@ describe("GitAuth — provider switch (real hook)", () => {
         user: { login: host === "gitlab.gruntwork.io" ? "root" : "odgrim" },
         ...(host === undefined ? {} : { host }),
       }),
-      "session:set-env": () => ({ ok: true }),
+      "session:clear-env-export": () => ({ ok: true }),
     })
 
     renderWithApi(<GitAuth id="git" provider="gitlab" />)
@@ -139,6 +139,7 @@ describe("GitAuth — provider switch (real hook)", () => {
       ).toBeInTheDocument()
     })
     expect(testApi.invoke).toHaveBeenCalledWith("gitlab:cli-credentials", {
+      componentId: "git",
       host: "gitlab.gruntwork.io",
     })
   })
@@ -185,6 +186,7 @@ describe("GitAuth — provider switch (real hook)", () => {
 
     await waitFor(() =>
       expect(testApi.invoke).toHaveBeenCalledWith("gitlab:cli-credentials", {
+        componentId: "git",
         host: "gitlab.corp",
       }),
     )

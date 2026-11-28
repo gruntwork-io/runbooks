@@ -60,7 +60,7 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
         />
         <GitLabMergeRequest
           id="mr"
-          gitAuthId="auth"
+          envFrom={["auth"]}
           prefilledCommitMessage="Upgrade Pipelines from v3 to v4 [skip ci]"
         />
       </TestWrapper>,
@@ -76,7 +76,7 @@ describe("GitLabMergeRequest (gitlab-locked wrapper)", () => {
     render(
       <TestWrapper>
         <Seed id="auth" values={{ GIT_PROVIDER: "github", GITHUB_TOKEN: "tok" }} />
-        <GitLabMergeRequest id="mr" gitAuthId="auth" />
+        <GitLabMergeRequest id="mr" envFrom={["auth"]} />
       </TestWrapper>,
     )
     expect(await screen.findByText("Wrong authentication provider")).toBeInTheDocument()

@@ -79,7 +79,7 @@ describe("GitHubPullRequest (back-compat wrapper)", () => {
   })
 
   it("uses GitHub Pull Request terminology in the auth-wait hint", () => {
-    renderPR({ githubAuthId: "auth" })
+    renderPR({ envFrom: ["auth"] })
     // authMet is mocked true, so render the no-repo warning; the auth label is
     // still GitHub-flavored across the block.
     expect(screen.getByText(/No repository available/)).toBeInTheDocument()

@@ -30,7 +30,6 @@ function record(overrides: Partial<SessionRecord> = {}): SessionRecord {
     createdAt: "2026-01-01T00:00:00.000Z",
     lastLaunchedAt: "2026-01-01T00:00:00.000Z",
     lastActivityAt: "2026-01-01T00:00:00.000Z",
-    vcsBindings: {},
     finishedAt: undefined,
     ...overrides,
   }
@@ -193,40 +192,6 @@ describe("SessionStore", () => {
       )
 
       expect(run(store.get("s1"))?.env).toBeUndefined()
-    })
-  })
-
-  describe("saveVcsBindings", () => {
-    it("replaces a session's git host bindings and leaves the rest of the session alone", () => {
-      run(store.insert(record({ vcsBindings: { gitlab: { host: "gitlab.com" } } })))
-
-      run(
-        store.saveVcsBindings("s1", {
-          github: { host: "ghe.example.com", source: "oauth" },
-        }),
-      )
-
-      expect(run(store.get("s1"))).toEqual(
-        record({ vcsBindings: { github: { host: "ghe.example.com", source: "oauth" } } }),
-      )
-    })
-
-    it("leaves out a saved binding that isn't one", () => {
-      run(store.insert(record()))
-      database
-        .prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'")
-        .run(JSON.stringify({ github: { host: 42 }, gitlab: { host: "gitlab.com", source: 1 } }))
-
-      expect(run(store.get("s1"))?.vcsBindings).toEqual({ gitlab: { host: "gitlab.com" } })
-    })
-
-    it("reads bindings that aren't JSON, or aren't an object of objects, as none", () => {
-      run(store.insert(record()))
-      for (const json of ["{", "null", "42", '"github"', '{"github":null,"gitlab":"gitlab.com"}']) {
-        database.prepare("UPDATE sessions SET vcs_bindings = ? WHERE id = 's1'").run(json)
-
-        expect(run(store.get("s1"))?.vcsBindings).toEqual({})
-      }
     })
   })
 
@@ -674,6 +639,13 @@ describe("SessionStore", () => {
 
       expect(run(upgraded.get("s1"))).toMatchObject({ dir: "/sessions/dirs/s1", executionCount: 3 })
       run(upgraded.close())
+      const check = openSqliteDatabase(file)
+      const columns = (
+        check.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>
+      ).map((c) => c.name)
+      check.close()
+      expect(columns).not.toContain("working_dir")
+      expect(columns).not.toContain("vcs_bindings")
     })
 
     it("refuses a database written by a newer schema version", () => {

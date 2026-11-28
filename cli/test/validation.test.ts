@@ -5,7 +5,6 @@ import * as os from "node:os"
 import {
   InputValidator,
   inputsIdsOf,
-  parseAuthDependencies,
   parseRunDependencies,
   parseTemplateInlineBlocks,
   parseTemplateBlocks,
@@ -257,76 +256,52 @@ ${nestedInputs("next-steps")}
 })
 
 // ---------------------------------------------------------------------------
-// parseAuthDependencies
+// InputValidator: envFrom on GitClone and pull request blocks
 // ---------------------------------------------------------------------------
 
-describe("parseAuthDependencies", () => {
-  it("links a block to its AwsAuth dependency", () => {
-    const p = writeRunbook(`
-<AwsAuth id="aws1" />
-<Command id="cmd1" awsAuthId="aws1">echo hi</Command>
-`)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("cmd1")
-    expect(d).toBeDefined()
-    expect(d!.authBlockId).toBe("aws1")
-    expect(d!.authBlockType).toBe("AwsAuth")
+describe("InputValidator envFrom on git blocks", () => {
+  function configError(content: string, type: string, id: string): string {
+    const v = new InputValidator(writeRunbook(content))
+    v.init()
+    return v.getConfigError(type, id)
+  }
+
+  it("accepts an envFrom that names auth blocks", () => {
+    expect(
+      configError(
+        '<GitHubAuth id="gh" />\n\n<GitClone id="clone" envFrom={["gh"]} />\n',
+        "GitClone",
+        "clone",
+      ),
+    ).toBe("")
   })
 
-  it("links a block to its GoogleAuth dependency via googleAuthId", () => {
-    const p = writeRunbook(`
-<GoogleAuth id="gcp1" />
-<Command id="cmd1" googleAuthId="gcp1">gcloud projects list</Command>
-`)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("cmd1")
-    expect(d).toBeDefined()
-    expect(d!.authBlockId).toBe("gcp1")
-    expect(d!.authBlockType).toBe("GoogleAuth")
+  it("refuses an envFrom that names a block that isn't an auth block", () => {
+    expect(
+      configError(
+        '<Command id="cmd" command="echo hi" />\n\n<GitClone id="clone" envFrom={["cmd"]} />\n',
+        "GitClone",
+        "clone",
+      ),
+    ).toBe('envFrom names "cmd", which isn\'t an auth block in this runbook.')
   })
 
-  it("keeps googleAuthId and awsAuthId dependencies distinct", () => {
-    const p = writeRunbook(`
-<AwsAuth id="aws1" />
-<GoogleAuth id="gcp1" />
-<Command id="aws-cmd" awsAuthId="aws1">echo aws</Command>
-<Check id="gcp-check" googleAuthId="gcp1">echo gcp</Check>
-`)
-    const deps = parseAuthDependencies(p)
-    expect(deps.get("aws-cmd")?.authBlockType).toBe("AwsAuth")
-    expect(deps.get("gcp-check")?.authBlockType).toBe("GoogleAuth")
-    expect(deps.get("gcp-check")?.authBlockId).toBe("gcp1")
+  it("refuses an envFrom that isn't a list of ids", () => {
+    expect(
+      configError('<GitHubPullRequest id="pr" envFrom="gh" />\n', "GitHubPullRequest", "pr"),
+    ).toContain("The envFrom prop must be a list of block ids")
   })
 
-  it("links a block to its GitHubAuth dependency via githubAuthId", () => {
-    const p = writeRunbook(`
-<GitHubAuth id="gh1" />
-<GitClone id="gc1" githubAuthId="gh1" url="https://github.com/x/y" />
-`)
-    const deps = parseAuthDependencies(p)
-    const d = deps.get("gc1")
-    expect(d?.authBlockId).toBe("gh1")
-    expect(d?.authBlockType).toBe("GitHubAuth")
-  })
-
-  it("ignores auth references inside fenced code blocks", () => {
-    const p = writeRunbook(
-      "```mdx\n" + `<Command id="cmd-in-fence" awsAuthId="aws1">echo</Command>\n` + "```\n",
+  it("refuses githubAuthId, naming the envFrom that replaces it", () => {
+    expect(
+      configError(
+        '<GitHubAuth id="gh" />\n\n<GitClone id="clone" githubAuthId="gh" />\n',
+        "GitClone",
+        "clone",
+      ),
+    ).toBe(
+      'Runbooks doesn\'t support the githubAuthId prop. Name the block in envFrom instead: envFrom={["gh"]}.',
     )
-    expect(parseAuthDependencies(p).has("cmd-in-fence")).toBe(false)
-  })
-
-  it("returns an empty map when no auth-dependent blocks exist", () => {
-    const p = writeRunbook(`<AwsAuth id="aws1" />`)
-    expect(parseAuthDependencies(p).size).toBe(0)
-  })
-
-  it("reads a JSX expression reference after a block whose command holds an escaped quote", () => {
-    const p = writeRunbook(String.raw`<AwsAuth id="aws1" />
-<Command id="first" command={'echo it\'s > out.txt'} />
-<Command id={"cmd1"} awsAuthId={"aws1"} command="aws sts get-caller-identity" />
-`)
-    expect(parseAuthDependencies(p).get("cmd1")?.authBlockId).toBe("aws1")
   })
 })
 

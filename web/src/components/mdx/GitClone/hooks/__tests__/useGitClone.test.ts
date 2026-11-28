@@ -39,8 +39,12 @@ beforeEach(() => {
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(ApiProvider, { api: testApi.api }, children)
 
-const renderGitClone = (options: Parameters<typeof useGitClone>[0]) =>
-  renderHook(() => useGitClone(options), { wrapper })
+type GitCloneOptions = Parameters<typeof useGitClone>[0]
+
+// A block without envFrom unless the test names auth blocks
+const renderGitClone = (
+  options: Omit<GitCloneOptions, "envFrom"> & { envFrom?: GitCloneOptions["envFrom"] },
+) => renderHook(() => useGitClone({ envFrom: [], ...options }), { wrapper })
 
 /**
  * Hold git:clone, so each call stays pending until the test settles it.
@@ -68,41 +72,41 @@ const SUCCESS: Cloned = {
   outputs: { clone_path: "/work/infra" },
 }
 
-describe("useGitClone — auth gate (gitAuthId / githubAuthId)", () => {
-  it("is met when there is no auth dependency", () => {
+describe("useGitClone — auth gate (envFrom)", () => {
+  it("is met when envFrom names no block", () => {
     const { result } = renderGitClone({ id: "clone" })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is met when the referenced block emitted GITLAB_TOKEN", () => {
+  it("is met when the named block emitted GITLAB_TOKEN", () => {
     blockOutputs = { gitauth: { values: { GITLAB_TOKEN: "glpat-x", GITLAB_USER: "tanuki" } } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["gitauth"] })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is met via __AUTHENTICATED (env-detected GitLab block)", () => {
+  it("is met via __AUTHENTICATED (env-detected GitLab block)", () => {
     // env/cli detection registers only the __AUTHENTICATED marker to block
-    // outputs; the token lives in session env.
+    // outputs; the token is the block's export, in the main process.
     blockOutputs = { gitauth: { values: { __AUTHENTICATED: "true" } } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["gitauth"] })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("gitAuthId is NOT met when the referenced block has no credentials yet", () => {
+  it("is NOT met when the named block has no credentials yet", () => {
     blockOutputs = { gitauth: { values: {} } }
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["gitauth"] })
     expect(result.current.gitHubAuthMet).toBe(false)
   })
 
-  it("githubAuthId still gates on GITHUB_TOKEN (regression)", () => {
+  it("is met when the named block emitted GITHUB_TOKEN", () => {
     blockOutputs = { ghauth: { values: { GITHUB_TOKEN: "ghp_x" } } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["ghauth"] })
     expect(result.current.gitHubAuthMet).toBe(true)
   })
 
-  it("githubAuthId is NOT met for an empty referenced block", () => {
-    blockOutputs = { ghauth: { values: {} } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+  it("is NOT met until every named block has signed in", () => {
+    blockOutputs = { ghauth: { values: { __AUTHENTICATED: "true" } }, gitauth: { values: {} } }
+    const { result } = renderGitClone({ id: "clone", envFrom: ["ghauth", "gitauth"] })
     expect(result.current.gitHubAuthMet).toBe(false)
   })
 })
@@ -380,16 +384,21 @@ describe("useGitClone — GitHub host of the linked auth block", () => {
       await result.current.fetchRepos("acme")
       await result.current.fetchRefs("acme", "infra")
     })
-    expect(testApi.invoke).toHaveBeenCalledWith("github:orgs", { host: "github.com" })
-    expect(testApi.invoke).toHaveBeenCalledWith("github:repos", { org: "acme", host: "github.com" })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:orgs", { host: "github.com", envFrom: [] })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:repos", {
+      org: "acme",
+      host: "github.com",
+      envFrom: [],
+    })
     expect(testApi.invoke).toHaveBeenCalledWith("github:refs", {
       owner: "acme",
       repo: "infra",
       host: "github.com",
+      envFrom: [],
     })
   })
 
-  it("follows the auth block's GITHUB_HOST output (GitHub Enterprise)", async () => {
+  it("follows the auth block's GITHUB_HOST output (GitHub Enterprise), and names it in envFrom", async () => {
     blockOutputs = {
       gitauth: {
         values: { __AUTHENTICATED: "true", GIT_PROVIDER: "github", GITHUB_HOST: "GHES.corp" },
@@ -397,19 +406,35 @@ describe("useGitClone — GitHub host of the linked auth block", () => {
     }
     testApi.handle("github:orgs", () => [])
     testApi.handle("github:repos", () => [])
-    const { result } = renderGitClone({ id: "clone", gitAuthId: "gitauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["gitauth"] })
     expect(result.current.githubHost).toBe("ghes.corp")
     await act(async () => {
       await result.current.checkGitHubToken()
       await result.current.fetchRepos("acme")
     })
-    expect(testApi.invoke).toHaveBeenCalledWith("github:orgs", { host: "ghes.corp" })
-    expect(testApi.invoke).toHaveBeenCalledWith("github:repos", { org: "acme", host: "ghes.corp" })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:orgs", {
+      host: "ghes.corp",
+      envFrom: ["gitauth"],
+    })
+    expect(testApi.invoke).toHaveBeenCalledWith("github:repos", {
+      org: "acme",
+      host: "ghes.corp",
+      envFrom: ["gitauth"],
+    })
+  })
+
+  it("follows the last named block that has a GITHUB_HOST output", () => {
+    blockOutputs = {
+      dotcom: { values: { __AUTHENTICATED: "true", GITHUB_HOST: "github.com" } },
+      ghes: { values: { __AUTHENTICATED: "true", GITHUB_HOST: "ghes.corp" } },
+    }
+    const { result } = renderGitClone({ id: "clone", envFrom: ["dotcom", "ghes"] })
+    expect(result.current.githubHost).toBe("ghes.corp")
   })
 
   it("ignores an unparseable GITHUB_HOST output (falls back to github.com)", () => {
     blockOutputs = { ghauth: { values: { __AUTHENTICATED: "true", GITHUB_HOST: "ftp://nope" } } }
-    const { result } = renderGitClone({ id: "clone", githubAuthId: "ghauth" })
+    const { result } = renderGitClone({ id: "clone", envFrom: ["ghauth"] })
     expect(result.current.githubHost).toBe("github.com")
   })
 })

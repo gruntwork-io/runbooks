@@ -68,7 +68,6 @@ export type AzureSignInResultIpc =
       subscriptionName?: string | undefined
       configDir: string
       env: Record<string, string>
-      sessionEnvWarning?: string
     }
   | {
       status: "select_context"
@@ -182,7 +181,13 @@ export interface IpcChannelMap {
   // Session
   "session:get": { params: void; result: SessionMetadata }
   "session:reset": { params: void; result: { ok: true } }
-  "session:set-env": { params: { env: Record<string, string> }; result: { ok: true } }
+  /** An <AwsAuth> block's sign-in, as its export: AWS variables only. */
+  "session:set-env-export": {
+    params: { componentId: string; env: Record<string, string> }
+    result: { ok: true }
+  }
+  /** Drop an auth block's export, as when it signs out. */
+  "session:clear-env-export": { params: { componentId: string }; result: { ok: true } }
   /**
    * Rename the open runbook's session. Resolves to the name it now has, and
    * rejects with a sentence for the user when the name is not allowed (see
@@ -432,8 +437,8 @@ export interface IpcChannelMap {
   //
   // custody: mirrors github:* — the renderer may SEND a secret the user pasted
   // (`keyJson`), but no google:* result ever returns credential material.
-  // `registerSession: true` makes MAIN materialise the credential file and write
-  // the session env; the renderer never calls session:set-env for Google.
+  // `registerSession: true` makes MAIN materialise the credential file and
+  // record the block's export.
   "google:validate-credentials": {
     params: {
       /**
@@ -451,7 +456,7 @@ export interface IpcChannelMap {
       projectId?: string
       region?: string
       zone?: string
-      /** true => materialise + write session env. false/absent => read-only validation. */
+      /** true => materialise + record the block's export. false/absent => read-only validation. */
       registerSession?: boolean
       /** Author `scopes` prop — required of user credentials when set (SA exempt). */
       scopes?: string[]
@@ -467,7 +472,6 @@ export interface IpcChannelMap {
       /** Populated on registerSession with every project the credential can see. */
       projects?: GoogleProjectIpc[]
       error?: string
-      sessionEnvWarning?: string
       /** Present when the credential validated but lacks author-required scopes. */
       insufficientScopes?: boolean
       missingScopes?: string[]
@@ -505,7 +509,7 @@ export interface IpcChannelMap {
   "google:oauth-poll": {
     // METADATA-ONLY. On "complete" MAIN has already exchanged the code,
     // registered the secrets for redaction, materialised the ADC file and
-    // written the session env. No token crosses IPC.
+    // recorded the block's export. No token crosses IPC.
     params: { flowId: string; blockId?: string; region?: string; zone?: string }
     result: {
       status: "pending" | "complete" | "expired" | "failed"
@@ -518,7 +522,6 @@ export interface IpcChannelMap {
       region?: string
       zone?: string
       error?: string
-      sessionEnvWarning?: string
     }
   }
   // A loopback listener is a real OS resource — cancel must reach main.
@@ -558,7 +561,6 @@ export interface IpcChannelMap {
       region?: string
       zone?: string
       error?: string
-      sessionEnvWarning?: string
       /** Present when the credential validated but lacks author-required scopes. */
       insufficientScopes?: boolean
       missingScopes?: string[]
@@ -599,7 +601,7 @@ export interface IpcChannelMap {
       grantedScopes?: string[]
     }
   }
-  // Same detection, but MAIN writes the session env. Returns metadata only —
+  // Same detection, but MAIN records the export. Returns metadata only —
   // unlike aws:env-credentials-confirm, which returns the raw keys.
   "google:env-credentials-confirm": {
     params: {
@@ -627,24 +629,21 @@ export interface IpcChannelMap {
       region?: string
       zone?: string
       error?: string
-      sessionEnvWarning?: string
       insufficientScopes?: boolean
       missingScopes?: string[]
       grantedScopes?: string[]
     }
   }
   // The project picker. The credential is resolved MAIN-side (pending flow,
-  // then the CALLING BLOCK's own credential, then the session env) — never
-  // passed in. `blockId` is what keeps a second GoogleAuth block from listing
+  // then the CALLING BLOCK's own credential) — never passed in. `blockId` is what keeps a second GoogleAuth block from listing
   // the first block's projects.
   "google:projects": {
     params: { blockId?: string; flowId?: string; query?: string; pageSize?: number }
     result: { projects: GoogleProjectIpc[]; error?: string }
   }
-  // Project selection happens after auth; MAIN owns the session-env write,
-  // which re-points the session at the CALLING block's credential, account
-  // and new project together. Keys that credential does not carry can survive
-  // from another block; see google-session-env.ts.
+  // Project selection happens after auth; MAIN re-exports the CALLING
+  // block's credential, account and new project together; see
+  // google-env-export.ts.
   "google:set-project": {
     params: { blockId?: string; projectId: string; region?: string; zone?: string }
     result: {
@@ -657,7 +656,6 @@ export interface IpcChannelMap {
       region?: string
       zone?: string
       error?: string
-      sessionEnvWarning?: string
     }
   }
   // <- aws:check-region, and it fails OPEN like one: `enabled: false` only for
@@ -671,9 +669,9 @@ export interface IpcChannelMap {
   // The renderer has published `credentialsPath` as this block's
   // GOOGLE_APPLICATION_CREDENTIALS output, so any file the block superseded on
   // the way here is finally safe to zero. MAIN cannot infer this moment: it
-  // materialises during the auth call, but the renderer keeps handing the OLD
-  // path to `<Command googleAuthId>` steps until the flow reaches
-  // `completeAuthentication` — potentially several clicks later.
+  // materialises during the auth call, but the renderer keeps publishing the
+  // OLD path until the flow reaches `completeAuthentication` — potentially
+  // several clicks later.
   "google:credential-committed": {
     params: { blockId?: string; credentialsPath?: string }
     result: { ok: true }
@@ -758,7 +756,7 @@ export interface IpcChannelMap {
     result: {
       hosts: Array<{
         host: string
-        sources: Array<"gh" | "env" | "session" | "recent">
+        sources: Array<"gh" | "env" | "recent">
         /** Offline-only: credential FOUND (not yet validated). */
         hasCredential: boolean
       }>
@@ -768,11 +766,17 @@ export interface IpcChannelMap {
   // Persist an explicit dropdown pick so it survives restart.
   "github:host-picked": { params: { host: string }; result: { ok: true } }
   "github:validate": {
-    // custody: `useSessionToken` validates the provider's SESSION credential
-    // for `host` (the {block:'GitAuth-id'} chaining mode — no token crosses
-    // IPC); `registerSession` makes MAIN write the session env on success
-    // (the PAT path); the renderer never writes session credentials.
-    params: { token?: string; host?: string; registerSession?: boolean; useSessionToken?: boolean }
+    // `fromBlock` validates that auth block's sign-in for `host` instead of a
+    // token (a {block:'GitAuth-id'} source, or a restored sign-in), so no
+    // token crosses IPC. `registerSession` makes MAIN save the credential as
+    // block `componentId`'s export on success; the renderer never does.
+    params: {
+      token?: string
+      host?: string
+      componentId?: string
+      registerSession?: boolean
+      fromBlock?: string
+    }
     result: {
       valid: boolean
       user?: GitHubUser
@@ -802,9 +806,10 @@ export interface IpcChannelMap {
     }
   }
   "github:oauth-poll": {
-    // the completion result is METADATA-ONLY — no access token crosses
-    // IPC; main writes the session env before reporting completion.
-    params: { clientId?: string; deviceCode: string; host?: string }
+    // The completion result is metadata only: no access token crosses IPC.
+    // Main saves it as block `componentId`'s export before reporting
+    // completion.
+    params: { clientId?: string; deviceCode: string; host?: string; componentId?: string }
     result: {
       status?: string
       pending?: boolean
@@ -818,14 +823,12 @@ export interface IpcChannelMap {
       /** With slowDown: the minimum interval GitHub now requires, in seconds. */
       interval?: number
       error?: string
-      /** The session-env write failed AFTER the token validated. */
-      sessionEnvWarning?: string
     }
   }
   // detection results are METADATA-ONLY (outcome/source/user/scopes/
   // tokenType — never the raw token).
   "github:env-credentials": {
-    params: { envVar?: string; prefix?: string; githubAuthId?: string; host?: string }
+    params: { envVar?: string; prefix?: string; host?: string; componentId?: string }
     result: {
       found: boolean
       valid?: boolean
@@ -839,7 +842,7 @@ export interface IpcChannelMap {
     } & VcsDetectionMeta
   }
   "github:cli-credentials": {
-    params: { host?: string }
+    params: { host?: string; componentId?: string }
     result: {
       found: boolean
       user?: GitHubUser
@@ -851,13 +854,22 @@ export interface IpcChannelMap {
       host?: string
     } & VcsDetectionMeta
   }
-  // API queries use the session credential for `host` (omitted: the
-  // session's GitHub host) and call that host's API.
-  "github:orgs": { params: { host?: string } | void; result: GitHubOrg[] }
-  "github:repos": { params: { org: string; host?: string }; result: GitHubRepo[] }
-  "github:refs": { params: { owner: string; repo: string; host?: string }; result: GitHubRef[] }
+  // API queries use the credential of the GitHub Auth blocks `envFrom`
+  // names, for `host` (omitted: that block's host), and call that host's API.
+  "github:orgs": {
+    params: { host?: string; envFrom?: readonly string[] } | void
+    result: GitHubOrg[]
+  }
+  "github:repos": {
+    params: { org: string; host?: string; envFrom?: readonly string[] }
+    result: GitHubRepo[]
+  }
+  "github:refs": {
+    params: { owner: string; repo: string; host?: string; envFrom?: readonly string[] }
+    result: GitHubRef[]
+  }
   "github:labels": {
-    params: { owner: string; repo: string; host?: string }
+    params: { owner: string; repo: string; host?: string; envFrom?: readonly string[] }
     result: { labels?: string[] }
   }
 
@@ -873,7 +885,7 @@ export interface IpcChannelMap {
     result: {
       hosts: Array<{
         host: string
-        sources: Array<"glab" | "env" | "session" | "recent">
+        sources: Array<"glab" | "env" | "recent">
         /** Offline-only: credential FOUND (not yet validated). */
         hasCredential: boolean
       }>
@@ -887,13 +899,14 @@ export interface IpcChannelMap {
     // The GitLab instance to validate against (default gitlab.com). `host` is a
     // bare host from the picker (or an authored `host` prop); `instanceUrl` is a
     // manually-entered instance URL that overrides `host` when present.
-    // registerSession/useSessionToken per github:validate (custody).
+    // componentId/registerSession/fromBlock as for github:validate.
     params: {
       token?: string
       host?: string
       instanceUrl?: string
+      componentId?: string
       registerSession?: boolean
-      useSessionToken?: boolean
+      fromBlock?: string
     }
     result: {
       valid: boolean
@@ -907,14 +920,14 @@ export interface IpcChannelMap {
   "gitlab:env-credentials": {
     // Param keys mirror github:env-credentials so the shared useGitAuth hook can
     // call either channel with one payload shape; the gitlab handler ignores
-    // envVar/githubAuthId. `host` (picker) or `instanceUrl` (manual field,
-    // overrides `host`) selects the instance to validate against.
+    // envVar. `host` (picker) or `instanceUrl` (manual field, overrides
+    // `host`) selects the instance to validate against.
     params: {
       envVar?: string
       prefix?: string
-      githubAuthId?: string
       host?: string
       instanceUrl?: string
+      componentId?: string
     }
     result: {
       found: boolean
@@ -930,7 +943,7 @@ export interface IpcChannelMap {
   "gitlab:cli-credentials": {
     // `host` selects which glab-configured instance to detect (default: glab's
     // own default host); `instanceUrl` (manual field) overrides it when present.
-    params: { host?: string; instanceUrl?: string }
+    params: { host?: string; instanceUrl?: string; componentId?: string }
     result: {
       found: boolean
       user?: GitHubUser
@@ -944,7 +957,7 @@ export interface IpcChannelMap {
   // `host` is the GitLab instance host the repo lives on (self-hosted or
   // gitlab.com), derived by the renderer from the repo's remote URL.
   "gitlab:labels": {
-    params: { owner: string; repo: string; host?: string }
+    params: { owner: string; repo: string; host?: string; envFrom?: readonly string[] }
     result: { labels?: string[] }
   }
 
@@ -978,11 +991,21 @@ export interface IpcChannelMap {
     result: GitLocalRepoResponse
   }
   "git:push": {
-    params: { worktreePath: string; branchName: string; provider?: "github" | "gitlab" }
+    params: {
+      worktreePath: string
+      branchName: string
+      provider?: "github" | "gitlab"
+      envFrom?: readonly string[]
+    }
     result: { ok: true } | { error: string }
   }
   "git:init-default-branch": {
-    params: { worktreePath: string; branch: string; provider?: "github" | "gitlab" }
+    params: {
+      worktreePath: string
+      branch: string
+      provider?: "github" | "gitlab"
+      envFrom?: readonly string[]
+    }
     result: { branch: string } | { error: string }
   }
   "git:pull-request": {
@@ -1174,12 +1197,6 @@ export interface IpcEventMap {
   "menu:find": { action: FindAction }
   "menu:open-command-palette": void
   "registry:updated": void
-  // Pushed by main on every VCS session-env write:
-  // the session holds a single GITLAB_TOKEN/GITLAB_HOST pair, so a
-  // second GitLab block authenticating a different host silently replaces the
-  // first block's credential — its AuthSuccess card renders a stale-session
-  // warning off this event instead of implying its credential is still active.
-  "vcs:session-changed": { provider: "github" | "gitlab"; host: string; source?: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -1332,12 +1349,6 @@ export interface VcsDetectionMeta {
   hint?: string
   /** Both-set-and-differ visibility hint, rendered on the success card / manual UI. */
   divergenceHint?: string
-  /**
-   * The credential validated but MAIN's session-env write failed (e.g. no
-   * active session) — auth still succeeded; the success card shows this
-   * warning instead of the whole IPC call rejecting.
-   */
-  sessionEnvWarning?: string
 }
 
 /** Install/version status of a provider CLI (vcs:cli-status). */
@@ -1396,6 +1407,8 @@ export interface GitLocalRepoRequest {
    * numeric GitHub org/repo IDs can be resolved, exactly as in a clone.
    */
   provider?: "github" | "gitlab"
+  /** The auth blocks whose GitHub sign-in looks up those IDs. */
+  envFrom?: readonly string[]
 }
 
 /** Result of selecting a local checkout (mirrors the git:clone result shape). */
@@ -1429,13 +1442,18 @@ export interface GitCloneRequest {
    * "." clones the whole repository.
    */
   repo_path?: string
-  credentials?: { token: string }
+  /**
+   * The auth blocks whose sign-in authenticates a private clone, in the order
+   * they apply (a later one wins). Their token is used only when its block
+   * signed in to the clone URL's host. Without one, Runbooks sends no token
+   * and git uses the user's own credential helpers.
+   */
+  envFrom?: readonly string[]
   /**
    * Provider of the linked Git Auth block ("github" | "gitlab"). Selects which
-   * session token authenticates a private clone, independent of the remote
-   * hostname — required for self-hosted instances. Omitted by callers with no
-   * linked auth block, in which case the backend falls back to the well-known
-   * SaaS hostnames.
+   * provider's sign-in authenticates a private clone, independent of the
+   * remote hostname — required for self-hosted instances. Omitted, the
+   * backend falls back to the well-known SaaS hostnames.
    */
   provider?: "github" | "gitlab"
   force?: boolean
@@ -1443,6 +1461,8 @@ export interface GitCloneRequest {
 
 export interface PullRequestRequest {
   worktreePath: string
+  /** The auth blocks whose sign-in pushes the branch and opens the request. */
+  envFrom?: readonly string[]
   owner: string
   repo: string
   title: string

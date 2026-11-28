@@ -90,7 +90,6 @@ export interface UseApiExecReturn {
   execute: (
     executableId: string,
     variables?: Record<string, unknown>,
-    envVars?: Record<string, string>,
     usePty?: boolean,
     timeoutMs?: number,
   ) => void
@@ -213,7 +212,6 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     async (payload: {
       executableId: string
       templateVarValues: Record<string, unknown>
-      envVarsOverride?: Record<string, string>
       usePty?: boolean
       timeoutMs?: number
     }) => {
@@ -362,7 +360,6 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
     (
       executableId: string,
       templateVarValues: Record<string, unknown> = {},
-      envVarsOverride?: Record<string, string>,
       usePty?: boolean,
       timeoutMs?: number,
     ) => {
@@ -370,7 +367,6 @@ export function useApiExec(options?: UseApiExecOptions): UseApiExecReturn {
         omitUndefined({
           executableId,
           templateVarValues,
-          envVarsOverride,
           usePty,
           timeoutMs,
         }),

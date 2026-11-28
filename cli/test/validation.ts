@@ -31,6 +31,7 @@ import {
 import type { BoilerplateConfig, BoilerplateVariable } from "../../src/types.ts"
 import { AUTH_BLOCK_TYPES, BLOCK_TYPES, PR_BLOCK_TYPES } from "./blockTypes.ts"
 import { errorMessage } from "../../src/errors/message.ts"
+import { parseBlockEnvFrom, replacedAuthPropError } from "../../src/domain/exec/blockEnv.ts"
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,30 +58,6 @@ export interface InputsBlockSchema {
 // ---------------------------------------------------------------------------
 
 const KNOWN_BLOCK_TYPES = new Set<string>(BLOCK_TYPES)
-
-// ---------------------------------------------------------------------------
-// Auth block dependency types
-// ---------------------------------------------------------------------------
-
-const AUTH_DEPENDENT_TYPES = ["Check", "Command", "Finish", "GitClone", ...PR_BLOCK_TYPES] as const
-
-const AUTH_PROP_NAME_OVERRIDES: Record<string, string> = {
-  GitHubAuth: "githubAuthId",
-  // GitAuth (generic) and GitLabAuth are referenced by the provider-agnostic
-  // `gitAuthId`. GitAuth's computed default is already `gitAuthId`; GitLabAuth's
-  // would be `gitLabAuthId`, so it needs an explicit override.
-  GitLabAuth: "gitAuthId",
-}
-
-function authBlockRefPropName(blockType: string): string {
-  return AUTH_PROP_NAME_OVERRIDES[blockType] ?? lowercaseFirst(blockType) + "Id"
-}
-
-export interface AuthDependency {
-  blockId: string
-  authBlockId: string
-  authBlockType: string
-}
 
 // ---------------------------------------------------------------------------
 // InputValidator
@@ -116,9 +93,12 @@ export class InputValidator {
     for (const authType of AUTH_BLOCK_TYPES) {
       components.push(...this.parseAuthBlocks(elements, authType))
     }
-    components.push(...this.parseAuthBlocks(elements, "GitClone"))
+    const authIds = new Set(
+      AUTH_BLOCK_TYPES.flatMap((type) => findComponents(elements, type).map((comp) => comp.id)),
+    )
+    components.push(...this.parseGitBlocks(elements, "GitClone", authIds))
     for (const prType of PR_BLOCK_TYPES) {
-      components.push(...this.parseAuthBlocks(elements, prType))
+      components.push(...this.parseGitBlocks(elements, prType, authIds))
     }
     // Only an Iframe with an id can set outputs, so only those are steps.
     components.push(...findComponents(elements, "Iframe").filter((comp) => comp.hasExplicitId))
@@ -372,6 +352,33 @@ export class InputValidator {
     return components
   }
 
+  /**
+   * A GitClone or pull request block, with an error for a missing id and, as
+   * the app has, for an envFrom that isn't valid or names a block that isn't
+   * an auth block (`authIds`), or a prop such as githubAuthId.
+   */
+  private parseGitBlocks(
+    elements: readonly MdxElement[],
+    componentType: string,
+    authIds: ReadonlySet<string>,
+  ): ParsedComponent[] {
+    const components = this.parseAuthBlocks(elements, componentType)
+    for (const comp of components) {
+      const envFrom = parseBlockEnvFrom(comp.props.envFrom)
+      const unknownSource = envFrom.ok ? envFrom.envFrom.find((id) => !authIds.has(id)) : undefined
+      const message =
+        replacedAuthPropError(comp.props) ??
+        (envFrom.ok ? null : envFrom.error) ??
+        (unknownSource === undefined
+          ? null
+          : `envFrom names "${unknownSource}", which isn't an auth block in this runbook.`)
+      if (message !== null) {
+        this.configErrors.push({ componentType, componentId: comp.id, message })
+      }
+    }
+    return components
+  }
+
   private parseAuthBlocks(
     elements: readonly MdxElement[],
     componentType: string,
@@ -388,32 +395,6 @@ export class InputValidator {
     }
     return components
   }
-}
-
-// ---------------------------------------------------------------------------
-// Auth dependency parsing
-// ---------------------------------------------------------------------------
-
-export function parseAuthDependencies(runbookPath: string): Map<string, AuthDependency> {
-  const elements = readRunbookElements(runbookPath)
-  const deps = new Map<string, AuthDependency>()
-
-  for (const blockType of AUTH_DEPENDENT_TYPES) {
-    for (const comp of findComponents(elements, blockType)) {
-      if (!comp.hasExplicitId) continue
-
-      for (const authType of AUTH_BLOCK_TYPES) {
-        const propName = authBlockRefPropName(authType)
-        const authId = stringProp(comp.props, propName)
-        if (authId) {
-          deps.set(comp.id, { blockId: comp.id, authBlockId: authId, authBlockType: authType })
-          break
-        }
-      }
-    }
-  }
-
-  return deps
 }
 
 // ---------------------------------------------------------------------------

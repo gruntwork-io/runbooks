@@ -42,7 +42,7 @@ describe("GitLabMergeRequest — instruction mode", () => {
     render(
       <TestWrapper>
         <Seed id="auth" values={{ GIT_PROVIDER: "github", GITHUB_TOKEN: "tok" }} />
-        <GitLabMergeRequest id="mr" gitAuthId="auth" prefilledPullRequestTitle="Add VPC" />
+        <GitLabMergeRequest id="mr" envFrom={["auth"]} prefilledPullRequestTitle="Add VPC" />
       </TestWrapper>,
     )
     expect(await screen.findByText("Wrong authentication provider")).toBeInTheDocument()

@@ -43,7 +43,8 @@ beforeEach(() => {
   testApi = makeTestApi({
     "aws:profiles": () => profilesReply(),
     "aws:profile-auth": () => PROFILE_AUTH,
-    "session:set-env": () => ({ ok: true }),
+    "session:set-env-export": () => ({ ok: true }),
+    "session:clear-env-export": () => ({ ok: true }),
     "aws:check-region": () => ({ enabled: true }),
   })
 })
