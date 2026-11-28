@@ -714,17 +714,53 @@ tests:
   })
 
   it("fails a test that uses a key this build does not run yet, never passing it", async () => {
+    runbook(BUILD, `${BUILD_TEST}    cleanup:\n      - command: rm -f out.txt\n`)
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    expect(code).toBe(1)
+    const [test] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
+    expect(test!.message).toBe(
+      "cleanup is not built yet: runbooks test runs no command of its own.",
+    )
+    expect(seen.runs).toBe(0)
+  })
+
+  /** BUILD_TEST with `config.region` drawn as `fuzz` says, and the step checking it as `assertion` says. */
+  const fuzzed = (fuzz: string, assertion: string) =>
+    BUILD_TEST.replace(
+      "      config.region: us-west-2\n",
+      `      config.region:\n        fuzz: ${fuzz}\n`,
+    ).replace("{ type: output_equals, block: config, output: region, value: us-west-2 }", assertion)
+
+  it("draws a fuzz input within its settings, and enters it", async () => {
     runbook(
       BUILD,
-      BUILD_TEST.replace(
-        "      config.region: us-west-2\n",
-        "      config.region:\n        fuzz: { type: string }\n",
+      fuzzed(
+        "{ type: string, length: 6, prefix: us- }",
+        '{ type: output_matches, block: config, output: region, pattern: "^us-[A-Za-z0-9]{6}$" }',
+      ),
+    )
+    const { code, stdout } = await runTest(["rb", "--output", "json"])
+    const [test] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
+    expect([test!.outcome, test!.message]).toEqual(["passed", undefined])
+    expect(code).toBe(0)
+    expect(seen.runs).toBe(2)
+  })
+
+  it("fails a test case whose fuzz settings draw nothing, naming the input, and runs nothing", async () => {
+    runbook(
+      BUILD,
+      fuzzed(
+        "{ type: string, minLength: 5, maxLength: 3 }",
+        "{ type: output_exists, block: config, output: region }",
       ),
     )
     const { code, stdout } = await runTest(["rb", "--output", "json"])
     expect(code).toBe(1)
     const [test] = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests
-    expect(test!.message).toBe("The fuzz input config.region is not built yet: give it a value.")
+    expect(test!.message).toBe(
+      "inputs config.region: fuzz string: maxLength (3) is less than minLength (5)",
+    )
+    expect(test!.steps).toEqual([])
     expect(seen.runs).toBe(0)
   })
 

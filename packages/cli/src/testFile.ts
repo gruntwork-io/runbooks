@@ -163,6 +163,7 @@ export const FuzzConfig = Schema.Struct({
   maxCount: mayBeEmpty(Count),
   schema: mayBeEmpty(Schema.Array(Schema.String)),
 })
+export type FuzzConfig = typeof FuzzConfig.Type
 
 /**
  * A value as written: text, a number, true or false, a list or a map. A map

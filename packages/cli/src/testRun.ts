@@ -4,10 +4,11 @@
  * temporary folder, which holds the session's working folder and its
  * credential state and is removed when the test case ends, however it ends.
  *
- * A test case opens the runbook, trusts it, enters its inputs, then runs
- * each step in order: a task or form through `RunBlock`, a credential by
- * waiting for its state, a display block by its configuration. The first
- * step that does not end as it expects ends the test case, as today.
+ * A test case draws its fuzz inputs (`fuzz.ts`), opens the runbook, trusts
+ * it, enters its inputs, then runs each step in order: a task or form
+ * through `RunBlock`, a credential by waiting for its state, a display
+ * block by its configuration. The first step that does not end as it
+ * expects ends the test case, as today.
  *
  * The caller is a person (`Origin` "person"): the person running
  * `runbooks test` chose these runbooks on the command line, which is how the
@@ -22,6 +23,7 @@ import {
   Fiber,
   Layer,
   Option,
+  Result,
   Schema,
   type Scope,
   Stream,
@@ -38,6 +40,7 @@ import { NoSavedSessions } from "@runbooks/core/sessionStore"
 import type { AssertionReport, ExpectedStatus, StepReport, TestCaseReport } from "./contract.ts"
 
 type AssertionResult = typeof AssertionReport.Type
+import { fuzzValue } from "./fuzz.ts"
 import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
 import {
   type Assertion,
@@ -115,10 +118,6 @@ function notBuiltForFile(file: TestFile): string | undefined {
 }
 
 function notBuiltForCase(test: TestCase): string | undefined {
-  const fuzzed = Object.entries(test.inputs ?? {}).find(
-    ([, value]) => typeof value === "object" && value !== null && "fuzz" in value,
-  )
-  if (fuzzed !== undefined) return `The fuzz input ${fuzzed[0]} is not built yet: give it a value.`
   const asserts = [
     ...(test.assertions ?? []),
     ...(test.steps ?? []).flatMap((s) => s.assertions ?? []),
@@ -138,6 +137,29 @@ const toBlockId = Schema.decodeSync(BlockId)
 const isBlockId = Schema.is(Schema.NonEmptyString)
 /** A decoded input is a fuzz configuration exactly when it has the `fuzz` key, which no value has. */
 const isFuzzInput = Schema.is(FuzzInput)
+
+/**
+ * The values the test's inputs give each block, by its id, a fuzz input
+ * drawn: or the first input whose fuzz settings draw nothing, and why. An
+ * input left empty gives none.
+ */
+const answersOf = (test: TestCase) =>
+  Effect.gen(function* () {
+    const answers = new Map<string, Record<string, FieldValue>>()
+    for (const [key, input] of Object.entries(test.inputs ?? {})) {
+      if (input === null) continue
+      const value = isFuzzInput(input)
+        ? yield* fuzzValue(input.fuzz).pipe(
+            Effect.mapError(({ message }) => `inputs ${key}: ${message}`),
+          )
+        : input
+      const dot = key.indexOf(".")
+      const values = answers.get(key.slice(0, dot)) ?? {}
+      values[key.slice(dot + 1)] = value
+      answers.set(key.slice(0, dot), values)
+    }
+    return answers
+  })
 
 interface Ended {
   readonly actual: string
@@ -649,6 +671,9 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
     const started = yield* Clock.currentTimeMillis
     const notBuilt = notBuiltForFile(loaded.testFile) ?? notBuiltForCase(test)
     if (notBuilt !== undefined) return yield* failedCase(test.name, started, notBuilt)
+    // As today's runner: every input is drawn before anything runs.
+    const answers = yield* Effect.result(answersOf(test))
+    if (Result.isFailure(answers)) return yield* failedCase(test.name, started, answers.failure)
 
     const fs = yield* FileSystem
     const folder = yield* Effect.acquireRelease(fs.mkdtemp("runbooks-test-"), (dir) =>
@@ -689,16 +714,7 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
         stop: options.stop,
       }
 
-      const answers = new Map<string, Record<string, FieldValue>>()
-      for (const [key, value] of Object.entries(test.inputs ?? {})) {
-        // A fuzz input has failed the test case above, as not built yet.
-        if (value === null || isFuzzInput(value)) continue
-        const dot = key.indexOf(".")
-        const values = answers.get(key.slice(0, dot)) ?? {}
-        values[key.slice(dot + 1)] = value
-        answers.set(key.slice(0, dot), values)
-      }
-      for (const [id, values] of answers) {
+      for (const [id, values] of answers.success) {
         const { rejected } = yield* client.SetValues({ session, block: toBlockId(id), values })
         const refused = Object.entries(rejected)
         if (refused.length > 0)
