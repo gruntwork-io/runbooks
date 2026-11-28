@@ -3,7 +3,9 @@
  * app-build`), each launch on a user data folder of the test's own
  * (`--user-data-dir`), so no spec reads or writes the real one, and with
  * Chromium's sandbox kept (`chromiumSandbox: true`), so the renderer runs
- * as it does for a user.
+ * as it does for a user. Every launch passes `--use-mock-keychain`
+ * (`MOCK_KEYCHAIN`), so the app's safeStorage never opens the macOS
+ * Keychain, whose prompt would block main.
  */
 import { spawn } from "node:child_process"
 import fs from "node:fs"
@@ -16,6 +18,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test"
+import { MOCK_KEYCHAIN } from "../electron/e2e/launch.ts"
 import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
 
 export { expect }
@@ -104,7 +107,9 @@ export const test = base.extend<{
       const added = { ...defaultUserData?.env, ...env }
       // On Linux, Playwright adds --no-sandbox unless it's told to keep Chromium's sandbox.
       const app = await electron.launch({
-        args: defaultUserData ? [MAIN, ...args] : [MAIN, `--user-data-dir=${userDataDir}`, ...args],
+        args: defaultUserData
+          ? [MAIN, MOCK_KEYCHAIN, ...args]
+          : [MAIN, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, ...args],
         ...(Object.keys(added).length > 0 && { env: { ...definedEnvironment(), ...added } }),
         ...(cwd !== undefined && { cwd }),
         chromiumSandbox: true,
@@ -128,11 +133,15 @@ export const test = base.extend<{
       (args, options = {}) =>
         new Promise((resolve, reject) => {
           // Chromium's sandbox stays on: nothing here passes --no-sandbox.
-          const child = spawn(electronBinary(), [MAIN, `--user-data-dir=${userDataDir}`, ...args], {
-            stdio: ["ignore", "pipe", "pipe"],
-            env: definedEnvironment(),
-            ...(options.cwd !== undefined && { cwd: options.cwd }),
-          })
+          const child = spawn(
+            electronBinary(),
+            [MAIN, MOCK_KEYCHAIN, `--user-data-dir=${userDataDir}`, ...args],
+            {
+              stdio: ["ignore", "pipe", "pipe"],
+              env: definedEnvironment(),
+              ...(options.cwd !== undefined && { cwd: options.cwd }),
+            },
+          )
           let output = ""
           child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()))
           child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()))

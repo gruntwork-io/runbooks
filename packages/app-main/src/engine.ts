@@ -5,12 +5,20 @@
  *
  * - `settings.json`, the settings store's file. It never reads the old
  *   app's folder: there is no import of today's settings.
+ * - `v0/sessions/db/sessions.db`, the sessions database
+ *   (`nodeSessionDatabase`): what each session saves, so that opening its
+ *   runbook again resumes it. Each payload is encrypted with the cipher the
+ *   entry point passes in (`sessionCipher.ts`), and none is saved where it
+ *   gives none. Where the file cannot be used, this run's sessions are kept
+ *   in memory, with a warning. It is never today's app's database, which
+ *   is in today's user data folder.
  * - `v0/sessions/dirs` and `v0/sessions/state`: each session's working
- *   folder and credential provider state, by session id.
+ *   folder and credential provider state, by session id. At each start the
+ *   engine drops, with their folders, the sessions retention names
+ *   (`SessionStore.expired`): unused for `MAX_SESSION_AGE_MILLIS`, or past
+ *   the `MAX_KEPT_SESSIONS` used last.
  *
- * Until the sessions database is wired (row 3n), it keeps no session, so it
- * resumes none, and retention never drops a session's folders. Until the
- * plugin transport, no real credential provider opens. In dev mode
+ * Until the plugin transport, no real credential provider opens. In dev mode
  * (`fakeCredentialsOn`), credential blocks sign in against the fakes
  * (`@runbooks/blocks/fakes`), which run in memory and start no binary.
  */
@@ -24,10 +32,12 @@ import { fakeCredentialProviders } from "@runbooks/core/credential/fake"
 import { CredentialProviders } from "@runbooks/core/credential/provider"
 import { serveEngine } from "@runbooks/core/handlers"
 import type { EngineCommand } from "@runbooks/core/protocol"
-import { NoSavedSessions } from "@runbooks/core/sessionStore"
+import type { SessionCipher } from "@runbooks/core/services/SessionCipher"
+import { SessionStore } from "@runbooks/core/sessionStore"
 import { SettingsStore } from "@runbooks/core/settings"
 import { ChildProcessSpawnerLive } from "@runbooks/platform-node/layers/ChildProcessSpawner"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
+import { nodeSessionDatabase } from "@runbooks/platform-node/layers/NodeSessionDatabase"
 import { nodeSettingsFile } from "@runbooks/platform-node/layers/NodeSettingsFile"
 
 export interface AppEngineOptions {
@@ -39,6 +49,8 @@ export interface AppEngineOptions {
   readonly processEnvironment: Readonly<Record<string, string>>
   /** Whether credential blocks sign in against the fake providers: `fakeCredentialsOn`. */
   readonly fakeCredentials: boolean
+  /** What encrypts each saved session's payloads: in the app, `safeStorageCipher`. */
+  readonly sessionCipher: Layer.Layer<SessionCipher>
 }
 
 /** The variable that asks an app that is not packaged for the fake credential providers. */
@@ -78,6 +90,15 @@ export const appEngine = (options: AppEngineOptions): Layer.Layer<Rpc.ToHandler<
     Layer.provide(
       options.fakeCredentials ? fakeCredentialProviders(fakeScripts) : NoCredentialProviders,
     ),
-    Layer.provide(NoSavedSessions),
+    Layer.provide(
+      SessionStore.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            nodeSessionDatabase(path.join(options.userData, "v0", "sessions", "db")),
+            options.sessionCipher,
+          ),
+        ),
+      ),
+    ),
     Layer.provide(Layer.mergeAll(NodeFileSystemLive, ChildProcessSpawnerLive)),
   )

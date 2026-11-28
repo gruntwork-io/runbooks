@@ -3,9 +3,12 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import os from "node:os"
 import path from "node:path"
 import { Effect, Schema } from "effect"
+import { TestClock } from "effect/testing"
 import { BlockId } from "@runbooks/blocks-core/contract"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
 import type { EngineClient } from "@runbooks/core/protocol"
+import { MAX_SESSION_AGE_MILLIS } from "@runbooks/core/sessionStore"
+import { testSessionCipher } from "@runbooks/core/test-utils/TestSessionCipher"
 import { appEngine, fakeCredentialsOn } from "./engine.ts"
 
 // The app's engine over a real user data folder, the real Node layers and
@@ -50,26 +53,76 @@ const stoppedIn = (session: string) =>
     file.startsWith("stopped-"),
   )
 
+interface ClientOptions {
+  /** Added to the engine's process environment. */
+  readonly env?: Readonly<Record<string, string>>
+  readonly fakeCredentials?: boolean
+  /** The test cipher's key: 1 unless given. */
+  readonly cipherKey?: number
+  /** When the engine starts, on a test clock, in milliseconds since the epoch. The real clock unless given. */
+  readonly startsAt?: number
+}
+
+/** Runs `use` with a client of an app engine on the user data folder, which closes once it is done. */
 const withClient = <A>(
   use: (client: EngineClient) => Effect.Effect<A, unknown>,
-  env: Record<string, string> = {},
-  fakeCredentials = false,
-): Promise<A> =>
-  Effect.runPromise(
-    Effect.scoped(Effect.flatMap(makeInProcessClient("person"), use)).pipe(
-      Effect.provide(
-        appEngine({
-          userData: userData(),
-          appVersion: "0.31.0",
-          processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...env },
-          fakeCredentials,
-        }),
-      ),
+  options: ClientOptions = {},
+): Promise<A> => {
+  const { env = {}, fakeCredentials = false, cipherKey = 1, startsAt } = options
+  const program = Effect.scoped(Effect.flatMap(makeInProcessClient("person"), use)).pipe(
+    Effect.provide(
+      appEngine({
+        userData: userData(),
+        appVersion: "0.31.0",
+        processEnvironment: { PATH: process.env["PATH"] ?? "/usr/bin:/bin", ...env },
+        fakeCredentials,
+        sessionCipher: testSessionCipher({ key: cipherKey }),
+      }),
     ),
   )
+  return Effect.runPromise(
+    startsAt === undefined
+      ? program
+      : Effect.andThen(TestClock.setTime(startsAt), program).pipe(
+          Effect.provide(TestClock.layer()),
+        ),
+  )
+}
 
 /** AwsAuth's testdata: `aws` looks in the environment for the fake's secret key. */
 const AWS_FIXTURE = path.resolve(import.meta.dirname, "../../../blocks/aws-auth/testdata/detect")
+
+/** Inputs' testdata: `config` is a form whose required Name starts empty. */
+const INPUTS_FIXTURE = path.resolve(
+  import.meta.dirname,
+  "../../../blocks/inputs/testdata/end-to-end",
+)
+const CONFIG = Schema.decodeSync(BlockId)("config")
+
+/** Opens the runbook in `fixture`, and trusts it as a person does. */
+const openTrusted = (client: EngineClient, fixture: string) =>
+  Effect.gen(function* () {
+    const result = yield* client.OpenSession({ path: path.join(fixture, "runbook.mdx") })
+    if (result._tag !== "Opened") throw new Error(result.errors.map((e) => e.message).join())
+    const { session, trust } = result.session
+    yield* client.TrustSession({ session, hash: trust.hash })
+    return session
+  })
+
+/** Opens Inputs' runbook: the session it gets, whether it is trusted, what its resume did not restore, and config's Name. */
+const reopen = (client: EngineClient) =>
+  Effect.gen(function* () {
+    const result = yield* client.OpenSession({ path: path.join(INPUTS_FIXTURE, "runbook.mdx") })
+    if (result._tag !== "Opened") throw new Error(result.errors.map((e) => e.message).join())
+    const { session, trust, resumed } = result.session
+    const { fields } = yield* client.GetBlock({ session, block: CONFIG })
+    return {
+      session,
+      trusted: trust.trusted,
+      problems: resumed?.problems,
+      name: fields?.find((field) => field.name === "Name")?.value,
+    }
+  })
 
 describe("the app's engine", () => {
   it("signs credential blocks in against the fakes only unpackaged, when RUNBOOKS_FAKE_CREDENTIALS=1 asks", () => {
@@ -98,8 +151,7 @@ describe("the app's engine", () => {
               if (block.status?._tag !== "Running") return block.credential
             }
           }),
-        { AWS_SECRET_ACCESS_KEY: "fake-aws-secret-0001" },
-        fakeCredentials,
+        { env: { AWS_SECRET_ACCESS_KEY: "fake-aws-secret-0001" }, fakeCredentials },
       )
     expect(await stateOf(true)).toMatchObject({ _tag: "Found", source: "env" })
     expect(await stateOf(false)).toMatchObject({
@@ -119,6 +171,54 @@ describe("the app's engine", () => {
     )
     expect(shown).toBe(file)
     expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ settings: { theme: "dark" } })
+  })
+
+  it("keeps a session in v0/sessions/db/sessions.db, and resumes it, trusted and with its values, once the engine starts again", async () => {
+    const before = await withClient((client) =>
+      Effect.gen(function* () {
+        const session = yield* openTrusted(client, INPUTS_FIXTURE)
+        yield* client.SetValues({ session, block: CONFIG, values: { Name: "web" } })
+        return session
+      }),
+    )
+    expect(existsSync(path.join(userData(), "v0", "sessions", "db", "sessions.db"))).toBe(true)
+    expect(await withClient(reopen)).toEqual({
+      session: before,
+      trusted: true,
+      problems: [],
+      name: { _tag: "Shown", value: "web" },
+    })
+    // The cipher it is given encrypted them: one with another key reads neither form's.
+    expect(await withClient(reopen, { cipherKey: 2 })).toEqual({
+      session: before,
+      trusted: true,
+      problems: [{ _tag: "Unreadable", blocks: [CONFIG, Schema.decodeSync(BlockId)("who")] }],
+      name: undefined,
+    })
+  })
+
+  it("drops a session unused for MAX_SESSION_AGE_MILLIS, with its working folder, when the engine starts", async () => {
+    const before = await withClient((client) =>
+      Effect.gen(function* () {
+        const session = yield* openTrusted(client, FIXTURE)
+        const target = { session, block: Schema.decodeSync(BlockId)("setup") }
+        yield* client.RunBlock(target)
+        yield* client.WaitForBlock({ ...target, timeoutMillis: 10_000 })
+        return session
+      }),
+    )
+    const working = path.join(userData(), "v0", "sessions", "dirs", before)
+    expect(readdirSync(working)).toContain("generated")
+    const after = await withClient(
+      (client) =>
+        Effect.map(client.OpenSession({ path: path.join(FIXTURE, "runbook.mdx") }), (result) =>
+          result._tag === "Opened" ? result.session.session : undefined,
+        ),
+      { startsAt: Date.now() + MAX_SESSION_AGE_MILLIS + 60_000 },
+    )
+    expect(existsSync(working)).toBe(false)
+    expect(after).toBeString()
+    expect(after).not.toBe(before)
   })
 
   it("runs a session's tasks in its working folder, under v0/sessions/dirs in the user data folder", async () => {
@@ -164,7 +264,7 @@ describe("the app's engine", () => {
             status: (yield* client.GetBlock(target)).status,
           }
         }),
-      { CLEANUP_RUNS_FOR: "300" },
+      { env: { CLEANUP_RUNS_FOR: "300" } },
     )
     expect(stopped.status).toMatchObject({ _tag: "Failed", error: { _tag: "TaskCancelled" } })
     for (let waited = 0; !existsSync(stopped.trapRan) && waited < 10_000; waited += 50)
@@ -188,7 +288,7 @@ describe("the app's engine", () => {
           yield* client.CloseSession({ session })
           return { session, took: Date.now() - began }
         }),
-      { CLOSE_RUNS_FOR: "300" },
+      { env: { CLOSE_RUNS_FOR: "300" } },
     )
     expect(stoppedIn(closed.session)).toHaveLength(3)
     expect(closed.took).toBeLessThan(4000)
@@ -206,7 +306,7 @@ describe("the app's engine", () => {
           began = Date.now()
           return opened
         }),
-      { CLOSE_RUNS_FOR: "300" },
+      { env: { CLOSE_RUNS_FOR: "300" } },
     )
     const took = Date.now() - began
     for (const session of sessions) expect(stoppedIn(session)).toHaveLength(1)
