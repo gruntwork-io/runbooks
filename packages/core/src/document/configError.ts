@@ -142,7 +142,8 @@ export const ConfigWarningCode = Schema.Literals([
   "unknownProp",
   /**
    * A `{{ .inputs }}` or `{{ .outputs }}` reference in a display block's
-   * text, which nothing fills in: the text shows it as written.
+   * text or a credential block's props, which nothing fills in: the block
+   * uses it as written.
    */
   "unfilledReference",
 ])

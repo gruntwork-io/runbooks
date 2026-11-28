@@ -792,6 +792,31 @@ describe("parseRunbook", () => {
       expect(doc.edges).toEqual([])
     })
 
+    it("ignores a credential block's inputsId, and keeps its title as written: nothing fills in a credential block's props", () => {
+      const doc = parsed(
+        '<GitLogin id="git" title="Sign in as {{ .inputs.name }}" description="For {{ .inputs.name }} and {{ .inputs.team }}" inputsId="config" />\n\n<Form id="config">\n```yaml\n- name: name\n  type: string\n```\n</Form>',
+      )
+      expect(brief(doc.warnings)).toEqual([
+        [
+          "unfilledReference",
+          1,
+          '`title` on <GitLogin id="git"> reads {{ .inputs.name }}, which nothing fills in: a credential block\'s props are used as written.',
+        ],
+        [
+          "unfilledReference",
+          1,
+          '`description` on <GitLogin id="git"> reads {{ .inputs.name }}, {{ .inputs.team }}, which nothing fills in: a credential block\'s props are used as written.',
+        ],
+        ["unknownProp", 1, "<GitLogin> has no `inputsId` prop, so it is ignored."],
+      ])
+      expect(doc.blocks[0]?.shared).toEqual({
+        title: "Sign in as {{ .inputs.name }}",
+        description: "For {{ .inputs.name }} and {{ .inputs.team }}",
+      })
+      expect(doc.blocks[0]?.inputs).toEqual([])
+      expect(doc.edges).toEqual([])
+    })
+
     it("gives a shared prop to the block as well when the block has its own", () => {
       const doc = parsed('<Note title="Careful" />')
       expect(doc.blocks[0]?.props).toEqual({ title: "Careful" })

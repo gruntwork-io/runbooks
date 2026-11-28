@@ -485,6 +485,27 @@ describe("detecting a credential", () => {
     expect(callsOf("cloud")).not.toContain("env")
   })
 
+  it("starts at trust though its props name a block's outputs and a form's values: nothing fills them in, so it waits for neither", async () => {
+    await withCloud(
+      runbookOf(
+        KEYS,
+        '<Form id="config">\n```yaml\n- name: role\n  type: string\n```\n</Form>',
+        '<CloudLogin id="cloud" account="{{ .outputs.keys.accessKey }}" role="{{ .inputs.role }}" inputsId="config" />',
+      ),
+      { cloud: cloud() },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.until("cloud", "SignedOut")
+          expect(yield* rb.status("cloud")).toEqual({ _tag: "Idle" })
+        }),
+    )
+    // Its request takes its props as written.
+    const [, constraints] = argsOf("cloud", "detect")[0] ?? []
+    expect(constraints).toMatchObject({
+      pins: { account: "{{ .outputs.keys.accessKey }}", role: "{{ .inputs.role }}" },
+    })
+  })
+
   // useGoogleAuth.test.ts
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
     await withCloud(
