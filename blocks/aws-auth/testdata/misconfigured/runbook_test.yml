@@ -13,3 +13,6 @@ tests:
       - block: no_detection
         expect: config_error
         error_contains: "detectCredentials"
+      - block: misspelled
+        expect: config_error
+        error_contains: 'names "asume_role", and no block has that id'

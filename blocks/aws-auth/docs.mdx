@@ -98,7 +98,7 @@ By default, the block looks for credentials in the standard AWS environment vari
 |--------|----------------|
 | `'env'` | The standard AWS environment variables |
 | `{ env: { prefix: 'PROD_' } }` | The same variables under a prefix: `PROD_AWS_ACCESS_KEY_ID`, and so on |
-| `{ block: 'block-id' }` | The outputs of an earlier block, such as a Command that assumes a role. One per AwsAuth block |
+| `{ block: 'block-id' }` | The outputs of a block that runs, such as a Command that assumes a role. One per AwsAuth block |
 
 `detectCredentials={false}` turns detection off: the user always signs in.
 
@@ -111,7 +111,11 @@ The block looks once the runbook is trusted, at each source in order, and offers
 
 If no source has credentials that work, the user signs in, and the block says why the first credentials it found didn't work. Once the block has found credentials, or asks the user to sign in, a later run of the source's block changes nothing. **Check again** looks at every source again, from the first.
 
-Two `{ block }` sources are a configuration error, which shows in the block's place.
+Each of these is a configuration error, which shows in the block's place:
+
+- a `{ block }` source whose id no block has, such as a misspelled one. The error names the nearest id.
+- a `{ block }` source that names a block that doesn't run.
+- two `{ block }` sources.
 
 ### Confirming detected credentials
 
