@@ -15,8 +15,8 @@
  *   it.
  */
 import { Effect, Result, Schema, SchemaIssue } from "effect"
-import { parseYaml, yamlData } from "@runbooks/core/document/yamlData"
-import { isMap, isScalar, isSeq, type LineCounter, type Node } from "yaml"
+import { nodeAt, parseYaml, yamlData } from "@runbooks/core/document/yamlData"
+import type { LineCounter, Node } from "yaml"
 import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
 import { resolveTag } from "@runbooks/blocks-core/registry"
@@ -444,28 +444,6 @@ const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1()
 
 /** What Effect says of a key a struct does not have. */
 const EXCESS = "Expected no excess property"
-
-/**
- * The YAML node a decode issue at `path` points at: for a key, the key
- * itself, so an unexpected key's line is its own; for a key that is
- * missing, the map that lacks it.
- */
-function nodeAt(root: Node | null, path: ReadonlyArray<PropertyKey>): Node | null {
-  let node = root
-  for (const [i, key] of path.entries()) {
-    if (isMap(node)) {
-      const pair = node.items.find((p) => isScalar(p.key) && String(p.key.value) === String(key))
-      if (pair === undefined) return node
-      if (i === path.length - 1) return pair.key as Node
-      node = pair.value as Node | null
-    } else if (isSeq(node)) {
-      const item = typeof key === "number" ? node.items[key] : undefined
-      if (item === undefined) return node
-      node = item as Node
-    } else return node
-  }
-  return node
-}
 
 /** A decode path as a person reads it: `tests[0].inputs["form.region"]`. */
 export function pathText(keys: ReadonlyArray<PropertyKey>): string {
