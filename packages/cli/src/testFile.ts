@@ -18,6 +18,7 @@ import { Effect, Result, Schema, SchemaIssue } from "effect"
 import { nodeAt, parseYaml, yamlData } from "@runbooks/core/document/yamlData"
 import type { LineCounter, Node } from "yaml"
 import { isIdWord, type MachineEffect } from "@runbooks/blocks-core/contract"
+import { FieldValue } from "@runbooks/blocks-core/form"
 import type { AnyBlock, Registry } from "@runbooks/blocks-core/registry"
 import { resolveTag } from "@runbooks/blocks-core/registry"
 import type { RunbookDocument } from "@runbooks/core/document/document"
@@ -156,23 +157,30 @@ export const FuzzConfig = Schema.Struct({
 })
 
 /**
- * A value as written: text, a number, true or false, empty, a list or a map.
- * A map with a `fuzz` key is a fuzz configuration, never a value, so one
- * that is wrong is an error rather than a map passed on as written.
+ * A value as written: text, a number, true or false, a list or a map. A map
+ * with a `fuzz` key is a fuzz configuration, never a value, so one that is
+ * wrong is an error rather than a map passed on as written. It is spelled
+ * out here, where `FieldValue` checks its depth by a walk, so the editor's
+ * JSON Schema has its shape.
  */
-const LiteralValue: Schema.Codec<unknown> = Schema.Union([
+const LiteralShape: Schema.Codec<FieldValue> = Schema.Union([
   Schema.String,
   Schema.Finite,
   Schema.Boolean,
-  Schema.Null,
-  Schema.Array(Schema.suspend((): Schema.Codec<unknown> => LiteralValue)),
+  Schema.Array(Schema.suspend((): Schema.Codec<FieldValue> => LiteralShape)),
   Schema.Record(
     Schema.String.check(Schema.isPattern(/^(?!fuzz$)/u)),
-    Schema.suspend((): Schema.Codec<unknown> => LiteralValue),
+    Schema.suspend((): Schema.Codec<FieldValue> => LiteralShape),
   ),
-]) as Schema.Codec<unknown>
+])
 
-export const InputValue = Schema.Union([Schema.Struct({ fuzz: FuzzConfig }), LiteralValue])
+/** A value as written, decoded as the form value `SetValues` enters, so one no form holds is an error at its line. */
+const LiteralValue = LiteralShape.pipe(Schema.decodeTo(FieldValue))
+
+export const FuzzInput = Schema.Struct({ fuzz: FuzzConfig })
+
+/** An input's answer: a fuzz configuration, a value, or nothing, written `key:` alone, which gives none. */
+export const InputValue = Schema.Union([FuzzInput, Schema.Null, LiteralValue])
 
 /** `inputsID.varName`: the block whose fields it answers, and the field. */
 export const InputKey = Schema.String.check(Schema.isPattern(/^[^.\s]+\.[^.\s]+$/u))
