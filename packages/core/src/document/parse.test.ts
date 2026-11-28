@@ -775,12 +775,27 @@ describe("parseRunbook", () => {
       expect(doc.warnings[0]).not.toHaveProperty("suggestion")
     })
 
-    it("gives a shared prop to the block as well when the block has its own", () => {
+    it("ignores a display block's inputsId: nothing fills in a display block's text", () => {
       const doc = parsed(
-        '<Note title="Careful" inputsId={["config"]} />\n\n<Form id="config">\n```yaml\n[]\n```\n</Form>',
+        '<Note title="Hello {{ .inputs.name }}" inputsId="config" />\n\n<Form id="config">\n```yaml\n- name: name\n  type: string\n```\n</Form>',
       )
+      // In file order: `title` is written before `inputsId`.
+      expect(brief(doc.warnings)).toEqual([
+        [
+          "unfilledReference",
+          1,
+          "`title` on <Note> reads {{ .inputs.name }}, which nothing fills in: a display block's text shows as written.",
+        ],
+        ["unknownProp", 1, "<Note> has no `inputsId` prop, so it is ignored."],
+      ])
+      expect(doc.blocks[0]?.shared).toEqual({ title: "Hello {{ .inputs.name }}" })
+      expect(doc.edges).toEqual([])
+    })
+
+    it("gives a shared prop to the block as well when the block has its own", () => {
+      const doc = parsed('<Note title="Careful" />')
       expect(doc.blocks[0]?.props).toEqual({ title: "Careful" })
-      expect(doc.blocks[0]?.shared).toEqual({ title: "Careful", inputsId: [id("config")] })
+      expect(doc.blocks[0]?.shared).toEqual({ title: "Careful" })
     })
 
     // The docs give inputsId and dependsOn as string | string[], and most

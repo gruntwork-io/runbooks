@@ -61,9 +61,30 @@ describe("the reference graph", () => {
     ])
   })
 
-  it("lets a display block without an id read forms", () => {
+  it("makes no edge for a display block's inputsId, which it does not take", () => {
     const doc = parsed(['<Note inputsId={["config"]} />', INPUTS])
-    expect(edges(doc)).toEqual([[0, 1, { _tag: "Prop", prop: "inputsId", capability: "values" }]])
+    expect(edges(doc)).toEqual([])
+    expect(doc.warnings.map((w) => w.code)).toEqual(["unknownProp"])
+  })
+
+  it("makes no edge for an output a display block's text names, and warns that nothing fills it in", () => {
+    const doc = parsed([
+      '<Run id="build" command="make" outputs={["path"]} />',
+      '<Note title="Built {{ .outputs.build.path }}" description="See {{ .outputs.build.path }}" />',
+    ])
+    expect(edges(doc)).toEqual([])
+    expect(doc.warnings.map((w) => [w.code, w.message, w.location.prop])).toEqual([
+      [
+        "unfilledReference",
+        "`title` on <Note> reads {{ .outputs.build.path }}, which nothing fills in: a display block's text shows as written.",
+        "title",
+      ],
+      [
+        "unfilledReference",
+        "`description` on <Note> reads {{ .outputs.build.path }}, which nothing fills in: a display block's text shows as written.",
+        "description",
+      ],
+    ])
   })
 
   it("names the prop an *AuthId edge was written as", () => {

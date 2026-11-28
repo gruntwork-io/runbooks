@@ -140,6 +140,11 @@ export const ConfigWarningCode = Schema.Literals([
   "envConflict",
   /** A prop the block does not take. It is ignored, as today. */
   "unknownProp",
+  /**
+   * A `{{ .inputs }}` or `{{ .outputs }}` reference in a display block's
+   * text, which nothing fills in: the text shows it as written.
+   */
+  "unfilledReference",
 ])
 export type ConfigWarningCode = typeof ConfigWarningCode.Type
 
