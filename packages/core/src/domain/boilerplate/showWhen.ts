@@ -139,29 +139,47 @@ export function withHiddenDefaults<T extends ShowWhenVariable>(
 }
 
 /**
+ * A configuration error in a field's `x-show-when`: the field it is on, the
+ * condition at fault (none for a cycle), and what is wrong, naming the field.
+ */
+export interface ShowWhenProblem {
+  readonly variable: string
+  readonly condition?: string
+  /** A clause, lowercase, with no closing period. */
+  readonly message: string
+}
+
+/**
  * The configuration errors in the form's `x-show-when` conditions: a
  * condition on a variable the form doesn't have, a value that isn't one of
  * the variable's options, and conditions that depend on each other in a
- * cycle.
+ * cycle, which is on the first variable in it.
  */
-export function showWhenProblems(variables: readonly ShowWhenVariable[]): string[] {
+export function showWhenProblems(variables: readonly ShowWhenVariable[]): ShowWhenProblem[] {
   const byName = new Map(variables.map((variable) => [variable.name, variable]))
-  const problems: string[] = []
+  const problems: ShowWhenProblem[] = []
 
   for (const variable of variables) {
     for (const [name, accepted] of Object.entries(variable.showWhen ?? {})) {
       const other = byName.get(name)
+      const on = `the \`x-show-when\` of the field "${variable.name}"`
       if (!other) {
-        problems.push(`${variable.name}: x-show-when names ${name}, which isn't a variable here.`)
+        problems.push({
+          variable: variable.name,
+          condition: name,
+          message: `${on} names "${name}", which is no field here`,
+        })
         continue
       }
       const options = other.options?.map(String)
       if (!options || options.length === 0) continue
       for (const value of accepted) {
         if (!options.includes(value)) {
-          problems.push(
-            `${variable.name}: x-show-when gives ${name} the value "${value}", which isn't one of its options (${options.join(", ")}).`,
-          )
+          problems.push({
+            variable: variable.name,
+            condition: name,
+            message: `${on} gives "${name}" the value "${value}", which is not one of its options (${options.join(", ")})`,
+          })
         }
       }
     }
@@ -174,9 +192,11 @@ export function showWhenProblems(variables: readonly ShowWhenVariable[]): string
     if (done.has(name)) return
     const start = path.indexOf(name)
     if (start >= 0) {
-      problems.push(
-        `x-show-when conditions depend on each other in a cycle: ${[...path.slice(start), name].join(" → ")}.`,
-      )
+      const cycle = [...path.slice(start), name]
+      problems.push({
+        variable: cycle[0]!,
+        message: `the \`x-show-when\` conditions of these fields depend on each other in a cycle: ${cycle.join(" → ")}`,
+      })
       return
     }
     path.push(name)
