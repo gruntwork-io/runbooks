@@ -254,6 +254,67 @@ const KEYS =
 const pinned = '<CloudLogin id="cloud" account="111" role="Admin" />'
 const ready = cloud({ detect: () => found(who("111")) })
 
+/** What a block source's outputs hold for `walking`: keys it takes, keys it refuses, none, or keys from a failed run. */
+const KEYS_REFUSED =
+  '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=bad-SECRET"]} declares={["accessKey", "secretKey"]} />'
+const NO_KEYS = '<Script id="keys" label="keys" writesOutput={["note=none"]} declares={["note"]} />'
+const KEYS_FAIL =
+  '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} ends={[1]} />'
+
+const WAITING_FOR_KEYS: BlockStatus = {
+  _tag: "Blocked",
+  by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
+}
+
+type Holds = "none" | "login" | "refused"
+
+/** What a values source holds: a login under `keys-SECRET`, a refused one under any other secret key. */
+const heldIn = (source: Extract<ResolvedSource, { readonly kind: "values" }>): Holds => {
+  const key = Object.hasOwn(source.values, "secretKey") ? source.values.secretKey : undefined
+  if (key === undefined) return "none"
+  return Redacted.value(key.value) === "keys-SECRET" ? "login" : "refused"
+}
+
+/**
+ * A cloud provider that answers the sources it is given in order, as a
+ * provider does: the environment as `env` says now, a block's outputs as
+ * `heldIn` reads them. It finds 111 in the environment and 222 in a block's
+ * outputs, and fails at the first source whose login it refuses.
+ */
+const walking = (env: () => Holds) =>
+  cloud({
+    detect: (sources) =>
+      Effect.gen(function* () {
+        for (const source of sources) {
+          const name = source.kind === "values" ? source.from : source.kind
+          const holds =
+            source.kind === "env" ? env() : source.kind === "values" ? heldIn(source) : "none"
+          if (holds === "login")
+            return Option.some({
+              identity: who(source.kind === "env" ? "111" : "222"),
+              source: name,
+            })
+          if (holds === "refused")
+            return yield* credentialError("accessDenied", `The login in ${name} is not valid.`)
+        }
+        return Option.none()
+      }),
+  })
+
+/** The sources `block`'s provider was asked to detect from, over all its calls: `env`, or the block a values source read. */
+const askedOf = (block: string) =>
+  argsOf(block, "detect").flatMap(([sources]) =>
+    (sources as ReadonlyArray<ResolvedSource>).map((source) =>
+      source.kind === "values" ? source.from : source.kind,
+    ),
+  )
+
+/** The statuses `block` went through, as the session logged them. */
+const statusesOf = (block: string) =>
+  log.flatMap(({ event }) =>
+    event._tag === "BlockStatusChanged" && event.block === block ? [event.status] : [],
+  )
+
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
@@ -506,25 +567,21 @@ describe("detecting a credential", () => {
     })
   })
 
-  // useGoogleAuth.test.ts
+  // useGoogleAuth.test.ts. The environment comes first, and holds no login.
   it("pauses on a block source that has not executed, then resumes when it has", async () => {
     await withCloud(
       runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),
-      { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
+      { cloud: walking(() => "none") },
       (rb) =>
         Effect.gen(function* () {
-          expect(yield* rb.status("cloud")).toEqual({
-            _tag: "Blocked",
-            by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
-          })
-          expect(calls).toEqual([])
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect(askedOf("cloud")).toEqual(["env"])
           expect(yield* rb.run("keys")).toEqual(done)
           yield* rb.until("cloud", "Found")
         }),
     )
-    const [sources] = argsOf("cloud", "detect")[0] ?? []
+    const [sources] = argsOf("cloud", "detect")[1] ?? []
     expect(sources).toEqual([
-      { kind: "env", prefix: Option.none() },
       {
         kind: "values",
         from: "keys",
@@ -534,7 +591,7 @@ describe("detecting a credential", () => {
         },
       },
     ])
-    const source = (sources as ReadonlyArray<ResolvedSource>)[1]
+    const source = (sources as ReadonlyArray<ResolvedSource>)[0]
     const values = source?.kind === "values" ? Object.values(source.values) : []
     expect(values.every(({ value }) => Redacted.isRedacted(value))).toBe(true)
     expect(values.map(({ value }) => Redacted.value(value))).toEqual(["AKIAKEYS", "keys-SECRET"])
@@ -546,10 +603,7 @@ describe("detecting a credential", () => {
       { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
       (rb) =>
         Effect.gen(function* () {
-          expect(yield* rb.status("cloud")).toEqual({
-            _tag: "Blocked",
-            by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
-          })
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
           expect(calls).toEqual([])
           expect(yield* rb.run("keys")).toEqual(done)
           yield* rb.until("cloud", "Found")
@@ -557,7 +611,6 @@ describe("detecting a credential", () => {
     )
     const [sources] = argsOf("cloud", "detect")[0] ?? []
     expect(sources).toEqual([
-      { kind: "env", prefix: Option.none() },
       {
         kind: "values",
         from: "keys",
@@ -588,6 +641,270 @@ describe("detecting a credential", () => {
         Effect.gen(function* () {
           yield* rb.run("keys")
           expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "keys" })
+        }),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Master plan problem 6: a credential block's sources are walked in order
+// ---------------------------------------------------------------------------
+
+describe("walking a credential block's detection sources in order", () => {
+  // testdata/feature-demos/aws-auth: "Check env first; wait for block only if env has no creds".
+  it("takes a login the environment holds before a block source that has not run, and never waits for that block", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual({ _tag: "Idle" })
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({
+            identity: who("111"),
+            source: "env",
+          })
+          expect(yield* rb.status("keys")).toEqual({ _tag: "Idle" })
+        }),
+    )
+    expect(statusesOf("cloud")).not.toContainEqual(WAITING_FOR_KEYS)
+    expect(askedOf("cloud")).toEqual(["env"])
+  })
+
+  it("waits for a block source once the environment before it holds no login, then detects from that block's outputs", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      { cloud: walking(() => "none") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect((yield* rb.view("cloud")).credential).toBeUndefined()
+          expect(askedOf("cloud")).toEqual(["env"])
+          expect(yield* rb.run("keys")).toEqual(done)
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({
+            identity: who("222"),
+            source: "keys",
+          })
+          expect(yield* rb.status("cloud")).toEqual({ _tag: "Idle" })
+        }),
+    )
+    // It goes on from the block's source: the environment is not asked again.
+    expect(askedOf("cloud")).toEqual(["env", "keys"])
+  })
+
+  // testdata/feature-demos/aws-auth: "Wait for block first; fall back to env if block fails".
+  it("waits at a block source listed first, and asks of no source after it before that block has run", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={[{ block: "keys" }, "env"]} />'),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect(askedOf("cloud")).toEqual([])
+          expect(yield* rb.run("keys")).toEqual(done)
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({
+            identity: who("222"),
+            source: "keys",
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["keys"])
+  })
+
+  it("passes over a block source whose block failed, reading none of its outputs, and finds the login in a source after it", async () => {
+    await withCloud(
+      runbookOf(KEYS_FAIL, '<CloudLogin id="cloud" sources={[{ block: "keys" }, "env"]} />'),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect((yield* rb.run("keys"))?._tag).toBe("Failed")
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({
+            identity: who("111"),
+            source: "env",
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env"])
+  })
+
+  it("goes on past a block source whose block ran and published no login, as past a failed one", async () => {
+    await withCloud(
+      runbookOf(NO_KEYS, '<CloudLogin id="cloud" sources={[{ block: "keys" }, "env"]} />'),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.run("keys")).toEqual(done)
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({
+            identity: who("111"),
+            source: "env",
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["keys", "env"])
+  })
+
+  it("goes on past a source whose login the provider refuses, a block's outputs or the environment", async () => {
+    await withCloud(
+      runbookOf(KEYS_REFUSED, '<CloudLogin id="cloud" sources={[{ block: "keys" }, "env"]} />'),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "env" })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["keys", "env"])
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      { cloud: walking(() => "refused") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "keys" })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env", "keys"])
+  })
+
+  it("is signed out with the first refusal when no source after it holds a login", async () => {
+    await withCloud(
+      runbookOf(KEYS_REFUSED, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      { cloud: walking(() => "refused") },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "SignedOut")).toMatchObject({
+            lastError: { kind: "accessDenied", message: "The login in env is not valid." },
+          })
+        }),
+    )
+  })
+
+  it("stops at an error that means the provider cannot serve the block, asking of no source after it", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      {
+        cloud: cloud({
+          detect: () => Effect.fail(credentialError("toolMissing", "Install the cloud CLI.")),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "Unavailable")).toMatchObject({
+            error: { kind: "toolMissing" },
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env"])
+  })
+
+  it("stops at a login that lacks what the block requires, asking of no source after it", async () => {
+    const unmet = [{ kind: "scopes" as const, scopes: ["repo"] }]
+    await withCloud(
+      runbookOf(
+        KEYS,
+        '<CloudLogin id="cloud" scopes={["repo"]} sources={["env", { block: "keys" }]} />',
+      ),
+      {
+        cloud: cloud({
+          // The environment's login lacks the scope; the block's outputs hold one that has it.
+          detect: (sources) =>
+            sources[0]?.kind === "env"
+              ? Effect.fail(credentialError("requirementNotMet", "No repo scope.", { unmet }))
+              : Effect.succeed(Option.some({ identity: who("222"), source: "keys" })),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "RequirementNotMet")).toEqual({
+            _tag: "RequirementNotMet",
+            unmet,
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env"])
+  })
+
+  it("stays Ready while the block source it found its login in runs again, and so does a run that names it", async () => {
+    await withCloud(
+      runbookOf(
+        '<Script id="keys" label="keys" writesOutput={["accessKey=AKIAKEYS", "secretKey=keys-SECRET"]} declares={["accessKey", "secretKey"]} ends={[0, "never"]} />',
+        '<CloudLogin id="cloud" account="222" role="Admin" sources={[{ block: "keys" }]} />',
+        DEPLOY,
+      ),
+      { cloud: walking(() => "none") },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          yield* rb.until("cloud", "Ready")
+          yield* rb.start("keys")
+          expect(yield* rb.status("keys")).toEqual({ _tag: "Running" })
+          expect(yield* rb.status("cloud")).toEqual(done)
+          expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+          expect((yield* rb.stop("keys"))?._tag).toBe("Failed")
+          expect(yield* rb.status("cloud")).toEqual(done)
+        }),
+    )
+    const statuses = statusesOf("cloud")
+    expect(statuses.slice(statuses.findIndex((status) => status._tag === "Done"))).toEqual([done])
+  })
+
+  it("starts its walk over on Check again while it waits, and takes no other action then", async () => {
+    let env: Holds = "none"
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />'),
+      { cloud: walking(() => env) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect((yield* rb.view("cloud")).actions).toEqual(["credential"])
+          expect(yield* rb.act("cloud", { _tag: "SignIn", method: "sso", fields: {} })).toEqual({
+            _tag: "NotAllowed",
+            state: "Blocked",
+          })
+          env = "login"
+          expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({ _tag: "Accepted" })
+          expect(yield* rb.until("cloud", "Found")).toMatchObject({ source: "env" })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env", "env"])
+  })
+
+  // An engine block has no skipped end: a block the test CLI skips, or one
+  // behind a `dependsOn` that never ran, has not run, as today counts it.
+  it("waits on a block source that never runs, naming it, and Check again starts the walk over", async () => {
+    await withCloud(
+      runbookOf(
+        '<Script id="setup" label="setup" />',
+        '<Script id="keys" label="keys" dependsOn={["setup"]} />',
+        '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />',
+      ),
+      { cloud: walking(() => "none") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+          expect(yield* rb.act("cloud", { _tag: "CheckAgain" })).toEqual({ _tag: "Accepted" })
+          expect(yield* rb.wait("cloud")).toEqual(WAITING_FOR_KEYS)
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env", "env"])
+  })
+
+  it("leaves a task's edges waits: a task that depends on a block a credential block walks waits for it", async () => {
+    await withCloud(
+      runbookOf(
+        KEYS,
+        '<CloudLogin id="cloud" sources={["env", { block: "keys" }]} />',
+        '<Run id="after" command="after" dependsOn={["keys"]} />',
+      ),
+      { cloud: walking(() => "login") },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.wait("cloud")).toEqual({ _tag: "Idle" })
+          expect(yield* rb.status("after")).toEqual(WAITING_FOR_KEYS)
         }),
     )
   })
@@ -2243,7 +2560,8 @@ describe("the credential store", () => {
               if (state?._tag === "Ready") becameReady()
               return result
             }),
-          outputsOf: () => undefined,
+          sourceRun: () => ({ _tag: "Pending" }),
+          sourceEnded: () => Effect.never,
           scope,
           stateFolder: "/state/s1",
           environment: () => new Map(),

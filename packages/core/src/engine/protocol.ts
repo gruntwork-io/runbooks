@@ -340,6 +340,11 @@ export const BlockView = Schema.Struct({
    * which its fields give (`FieldView.section`), and whether it starts folded.
    */
   sections: Schema.optionalKey(Schema.Array(Section)),
+  /**
+   * A credential block's state: absent until its lifecycle starts, and
+   * while its detection waits for the block a source names, which its
+   * status says.
+   */
   credential: Schema.optionalKey(CredentialState),
   /**
    * The files the block's latest run wrote, changed or removed: one entry
@@ -625,7 +630,8 @@ export type RunResult = typeof RunResult.Type
  * - A credential state's tag: the block is in that state, and that state
  *   does not take the action.
  * - `Blocked`: its lifecycle has not started, because the session is not
- *   trusted or a block it waits for is not done.
+ *   trusted or a block it waits for is not done; or its detection waits for
+ *   the block one of its sources names, and it takes only CheckAgain.
  * - `Misconfigured`: its configuration has errors (its document node's
  *   `errors`), so it has no lifecycle and takes no action.
  */

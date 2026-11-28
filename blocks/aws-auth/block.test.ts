@@ -259,7 +259,7 @@ describe("AwsAuth against the fake", () => {
     expect(states.other.credential?._tag).not.toBe("Ready")
   })
 
-  it("reads a block source's outputs at trust, and again on Check again once that block has run", async () => {
+  it("waits for the block a source names, then reads its outputs once that block is done, with no Check again", async () => {
     const states = await trusted(
       [
         [
@@ -275,21 +275,22 @@ describe("AwsAuth against the fake", () => {
       ].join("\n\n"),
       (s) =>
         Effect.gen(function* () {
-          // It waits for no block: keys has not run, so there is nothing to find.
-          const before = yield* once(s, "aws", "SignedOut")
-          const keys = { session: s.session, block: blockId("keys") }
-          // A form's submit makes its outputs.
-          yield* s.client.RunBlock(keys)
-          yield* s.client.ActOnCredential({
-            ...keys,
+          const { block: before } = yield* s.client.WaitForBlock({
+            session: s.session,
             block: blockId("aws"),
-            action: { _tag: "CheckAgain" },
+            timeoutMillis: 5_000,
           })
+          // A form's submit makes its outputs.
+          yield* s.client.RunBlock({ session: s.session, block: blockId("keys") })
           const after = yield* once(s, "aws", "Found")
           return { before, after }
         }),
     )
-    expect(states.before.status).toEqual({ _tag: "Idle" })
+    expect(states.before.status).toEqual({
+      _tag: "Blocked",
+      by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
+    })
+    expect(states.before.credential).toBeUndefined()
     expect(states.after.credential).toMatchObject({
       _tag: "Found",
       source: "keys",

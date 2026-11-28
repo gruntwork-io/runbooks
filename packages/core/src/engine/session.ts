@@ -131,6 +131,7 @@ import {
   type OpenProvider,
   type ProviderNetwork,
   savedLoginOf,
+  type SourceRun,
 } from "./credentials.ts"
 import { makeCredentialStore } from "./credentialStore.ts"
 import {
@@ -655,10 +656,11 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
   }
   return document.blocks.flatMap((node) => {
     if (node.id === undefined) return []
+    const walked = walkedBy(node, registry)
     const waits: Wait[] = []
     for (const edge of document.edges) {
       const target = ids.get(edge.to)
-      if (edge.from !== node.index || target === undefined) continue
+      if (edge.from !== node.index || target === undefined || walked.has(target)) continue
       // Reading a block's outputs needs it to have run, as `dependsOn` does.
       const capability = edge.source._tag === "Prop" ? edge.source.capability : "run"
       const seen = waits.some(
@@ -693,6 +695,24 @@ function slotsOf(document: RunbookDocument, registry: Registry): ReadonlyArray<S
       },
     ]
   })
+}
+
+/**
+ * The blocks a credential block's detection sources name: its detection
+ * walks them in order (`makeCredentials`), so its edges to them are not
+ * waits. None for any other block, or one with configuration errors.
+ */
+function walkedBy(node: BlockNode, registry: Registry): ReadonlySet<BlockId> {
+  if (node.class !== "credential" || node.errors.length > 0) return new Set()
+  const block: AnyBlock | undefined = resolveTag(registry, node.tag)?.block
+  // The parser resolved this tag against the same registry, so it resolves here.
+  if (block?.class !== "credential")
+    throw new Error(`<${node.tag}> does not resolve to a credential block`)
+  return new Set(
+    block
+      .request(node.props)
+      .detect.flatMap((source) => (source.kind === "outputs" ? [source.from] : [])),
+  )
 }
 
 /** The credential blocks with no configuration errors, and the request each one's props make. */
@@ -1536,11 +1556,18 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
   /**
    * A credential block's lifecycle decides its status once it has started,
-   * which it does once nothing blocks it.
+   * which it does once nothing blocks it, unless its detection waits for
+   * the block a source names.
    */
   const credentialStatusOf = (slot: Slot): BlockStatus => {
     if (slot.node.errors.length > 0) return { _tag: "Misconfigured" }
-    const by = blockersOf(slot)
+    const waiting = credentials.waitingFor(slot.index)
+    const by: ReadonlyArray<Blocker> = [
+      ...blockersOf(slot),
+      ...(waiting === undefined
+        ? []
+        : [{ _tag: "WaitingFor" as const, block: waiting, capability: "run" as const }]),
+    ]
     if (by.length > 0) return { _tag: "Blocked", by }
     const state = credentials.stateOf(slot.index)
     return state === undefined ? { _tag: "Idle" } : credentialStatus(state)
@@ -1678,13 +1705,30 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       Effect.map(({ result, last }) => ({ result, ...last })),
     )
 
+  /** Where the block an `outputs` detection source names stands, by its status. */
+  const sourceRunOf = (block: BlockId): SourceRun => {
+    const slot = slots.find((candidate) => candidate.id === block)
+    const status = slot === undefined ? undefined : statusOf(slot)
+    if (slot !== undefined && status?._tag === "Done")
+      return { _tag: "Done", outputs: doneOutputs(slot) ?? new Map() }
+    return status?._tag === "Failed" ? { _tag: "Failed" } : { _tag: "Pending" }
+  }
+
   const store = makeCredentialStore(credentialSlots.map((slot) => slot.id))
   const credentials = makeCredentials(credentialSlots, {
     update,
-    outputsOf: (block) => {
-      const slot = slots.find((candidate) => candidate.id === block)
-      return slot === undefined ? undefined : doneOutputs(slot)
-    },
+    sourceRun: sourceRunOf,
+    sourceEnded: (block) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const wake = yield* PubSub.subscribe(changed)
+          for (;;) {
+            const run = sourceRunOf(block)
+            if (run._tag !== "Pending") return run
+            yield* PubSub.take(wake)
+          }
+        }),
+      ),
     scope,
     stateFolder: options.stateFolder,
     environment: options.providerEnvironment,
@@ -2144,9 +2188,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     const run = runs.get(slot.index)
     const form = forms.get(slot.index)
     const outputs = doneOutputs(slot)
-    const credential = credentialSlotAt.has(slot.index)
-      ? credentials.stateOf(slot.index)
-      : undefined
+    // A block whose detection waits for a source's block shows no state: its status says what it waits for.
+    const credential =
+      credentialSlotAt.has(slot.index) && credentials.waitingFor(slot.index) === undefined
+        ? credentials.stateOf(slot.index)
+        : undefined
     const instruction = instructionOf(slot)
     const shown = onDisk.get(slot.id)
     const sections = form === undefined ? [] : sectionsOf(form)

@@ -235,8 +235,9 @@ const CloudSource = Schema.Union([Schema.Literal("env"), Schema.Struct({ block: 
  * (off with `detect={false}`) and from an earlier block's outputs, `account`
  * and `role` pins, required scopes, a region setting, a default method and
  * per-method field defaults. Its provider is named "cloud". `keysFrom` names
- * a block directly; `sources` lists more sources after it, and names its
- * blocks inside its entries, as AwsAuth's `detectCredentials` does.
+ * a block directly, a source after the environment. `sources` lists the
+ * sources in place of the environment, naming its blocks inside its
+ * entries, as AwsAuth's `detectCredentials` does.
  */
 const cloudLogin = defineCredential({
   name: "CloudLogin",
@@ -276,13 +277,12 @@ const cloudLogin = defineCredential({
       p.detect === false
         ? []
         : [
-            { kind: "env", prefix: Option.fromUndefinedOr(p.prefix) },
-            ...(p.keysFrom === undefined ? [] : [{ kind: "outputs" as const, from: p.keysFrom }]),
-            ...(p.sources ?? []).map((source) =>
+            ...(p.sources?.map((source) =>
               source === "env"
                 ? { kind: "env" as const, prefix: Option.none() }
                 : { kind: "outputs" as const, from: source.block },
-            ),
+            ) ?? [{ kind: "env" as const, prefix: Option.fromUndefinedOr(p.prefix) }]),
+            ...(p.keysFrom === undefined ? [] : [{ kind: "outputs" as const, from: p.keysFrom }]),
           ],
     pins: {
       ...(p.account === undefined ? {} : { account: p.account }),

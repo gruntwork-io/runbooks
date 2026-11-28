@@ -108,10 +108,13 @@ export interface NestedReference<V> {
  * A block's own reference props. A prop whose decoded value is a
  * `ReferenceValue` may give the capability alone; any prop may give a
  * `NestedReference`. Each block a reference prop names is an edge, as a
- * `{{ .outputs.<id>.<key> }}` is: the block waits for it, and an id no
- * block has is a configuration error. The props every block of a class
- * shares (`dependsOn`, `envFrom`, `inputsId`) are the host's and are not
- * listed here.
+ * `{{ .outputs.<id>.<key> }}` is, and an id no block has is a
+ * configuration error. The block waits for it, unless it is a credential
+ * block and its request's `detect` names that block in an `outputs`
+ * source: detection walks those sources in order and waits at that one
+ * only if the sources before it hold no login. The props every block of a
+ * class shares (`dependsOn`, `envFrom`, `inputsId`) are the host's and are
+ * not listed here.
  */
 export type References<P> = {
   readonly [K in keyof P & string]?:
@@ -508,7 +511,11 @@ export interface CredentialRequest {
 
 export type DetectSource =
   | { readonly kind: "env"; readonly prefix: Option.Option<string> }
-  /** An earlier block's outputs. The engine reads them and passes the values. */
+  /**
+   * An earlier block's outputs. The engine reads them and passes the
+   * values once that block is done, passes over the source once it has
+   * failed, and until then waits there.
+   */
   | { readonly kind: "outputs"; readonly from: BlockId }
   /** A source the provider names itself: "cli", "adc", "gcloud". */
   | { readonly kind: "named"; readonly name: string }

@@ -4,9 +4,20 @@
  * its provider only answers calls.
  *
  * - A block's lifecycle starts, at Detecting, once the session is trusted
- *   and the blocks it waits for are done. Its provider is opened then, and
- *   only through the trusted session's `Runner`, so nothing runs before
- *   trust.
+ *   and the blocks it waits for are done: not the blocks its detection
+ *   sources name, which detection walks. Its provider is opened at the
+ *   first call it needs, and only through the trusted session's `Runner`,
+ *   so nothing runs before trust.
+ * - Detection tries the block's sources in order, each in a provider call
+ *   of its own, and takes the first login found (`walk`). A source that
+ *   reads a block's outputs is read once that block is done and passed
+ *   over once it has failed; until then the block waits for it, Blocked by
+ *   it, and takes only CheckAgain, which starts the walk over. A source
+ *   whose login the provider refuses is passed over too, and the first
+ *   refusal is why the block is signed out if no later source has a login.
+ *   A login that lacks what the block requires ends the walk:
+ *   RequirementNotMet, not a later source's login.
+ *   Once the walk ends, a later run of a source's block changes nothing.
  * - Open decision 7: a login detected for a block that pins nothing waits
  *   in Found for the person; one detected for a block that pins its
  *   targets is used with no click if they match. Ready always means every
@@ -56,6 +67,7 @@ import {
   CredentialError,
   type CredentialErrorKind,
   type CredentialRequest,
+  type DetectSource,
   type OutputDecls,
 } from "@runbooks/blocks-core/contract"
 import {
@@ -71,6 +83,7 @@ import type {
   Constraints,
   CredentialEnv,
   CredentialProvider,
+  Detected,
   Identity,
   Level,
   ProviderConfig,
@@ -127,12 +140,26 @@ export type OpenProvider = (
   config: ProviderConfig,
 ) => Effect.Effect<CredentialProvider, CredentialError, Scope.Scope>
 
+/**
+ * Where the block an `outputs` detection source names stands: done, with
+ * its outputs; failed; or neither yet, as one that has not run, is running
+ * or never runs.
+ */
+export type SourceRun =
+  | { readonly _tag: "Done"; readonly outputs: ReadonlyMap<string, Held<string>> }
+  | { readonly _tag: "Failed" }
+  | { readonly _tag: "Pending" }
+
 /** What the credential blocks need from their session. */
 export interface CredentialHost {
   /** The session's one mutation path: applies `change` and logs what it emits, in one step. */
   readonly update: <A>(change: (emit: (event: EngineEvent) => void) => A) => Effect.Effect<A>
-  /** A done block's outputs, for an `outputs` detection source. */
-  readonly outputsOf: (block: BlockId) => ReadonlyMap<string, Held<string>> | undefined
+  /** Where the block an `outputs` detection source names stands now. */
+  readonly sourceRun: (block: BlockId) => SourceRun
+  /** Where that block stands once it is done or has failed. */
+  readonly sourceEnded: (
+    block: BlockId,
+  ) => Effect.Effect<Exclude<SourceRun, { readonly _tag: "Pending" }>>
   /** Holds each block's provider and calls; closing it, when the session closes, ends them. */
   readonly scope: Scope.Scope
   /** The session's folder of provider state: each block's provider keeps its files in `<it>/<block>`. */
@@ -198,6 +225,8 @@ interface Credential {
   choosing: Option.Option<Choosing>
   /** Opened by the block's next move, so a watch waiting on its expiry looks again. */
   moved: Latch.Latch
+  /** The block a detection source names that detection waits for, while it waits. */
+  waiting: BlockId | undefined
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +284,15 @@ function isUnavailable(kind: CredentialErrorKind): boolean {
       return false
   }
 }
+
+/**
+ * Whether an error a detection source gives ends the walk: the provider
+ * cannot serve the block, or the source holds a login that lacks what the
+ * block requires. That login is the person's to fix (RequirementNotMet),
+ * not one to pass over for a later source's.
+ */
+const endsWalk = (kind: CredentialErrorKind): boolean =>
+  isUnavailable(kind) || kind === "requirementNotMet"
 
 /** The pinned levels whose target, in `identity`, is not the pin. */
 const unmetPins = (pins: CredentialRequest["pins"], identity: Identity) =>
@@ -454,6 +492,8 @@ const expiringError = (block: BlockId) =>
 export interface Credentials {
   /** The block's state, or none until its lifecycle starts. */
   readonly stateOf: (index: number) => CredentialState | undefined
+  /** The block a detection source names that the block's detection waits for, while it waits. */
+  readonly waitingFor: (index: number) => BlockId | undefined
   /**
    * Starts, at Detecting, the lifecycle of each block `startable` allows that
    * has none yet, in the caller's step. `begin` then opens their providers.
@@ -505,6 +545,7 @@ export function makeCredentials(
     turn: 0,
     choosing: Option.none(),
     moved: Latch.makeUnsafe(false),
+    waiting: undefined,
   })
   const credentials = new Map<number, Credential>(slots.map((slot) => [slot.index, fresh(slot)]))
   const at = (index: number): Credential => {
@@ -645,27 +686,82 @@ export function makeCredentials(
         }),
     })
 
-  /** The detection sources, an `outputs` one read now from the block it names. */
-  const resolve = (request: CredentialRequest): ReadonlyArray<ResolvedSource> =>
-    request.detect.map((source): ResolvedSource => {
-      switch (source.kind) {
-        case "env":
-        case "named":
-          return source
-        case "outputs": {
-          const outputs = host.outputsOf(source.from) ?? new Map<string, Held<string>>()
-          return {
+  /**
+   * Where the block `from` names stands once it is done or has failed.
+   * Until then the block waits for it, if no action came since `turn`.
+   */
+  const ended = (credential: Credential, turn: number, from: BlockId) =>
+    Effect.gen(function* () {
+      const now = host.sourceRun(from)
+      if (now._tag !== "Pending") return now
+      yield* host.update(() => {
+        if (credential.turn === turn) credential.waiting = from
+      })
+      const run = yield* host.sourceEnded(from)
+      yield* host.update(() => {
+        if (credential.turn === turn) credential.waiting = undefined
+      })
+      return run
+    })
+
+  /** `source` as the provider reads it: an `outputs` one from its block once done, none once it failed. */
+  const resolve = (
+    credential: Credential,
+    turn: number,
+    source: DetectSource,
+  ): Effect.Effect<Option.Option<ResolvedSource>> => {
+    if (source.kind !== "outputs") return Effect.succeed(Option.some(source))
+    return Effect.map(ended(credential, turn, source.from), (run) =>
+      run._tag === "Failed"
+        ? Option.none()
+        : Option.some({
             kind: "values",
             from: source.from,
             values: Object.fromEntries(
-              Array.from(outputs, ([key, held]) => [
+              Array.from(run.outputs, ([key, held]) => [
                 key,
                 { value: redacted(held), secret: held.sensitive },
               ]),
             ),
-          }
-        }
+          }),
+    )
+  }
+
+  /**
+   * The first login the request's detection sources hold, asking of each
+   * in order in a call of its own: no source after a block's outputs is
+   * asked before that block is done or has failed. A source whose login
+   * the provider refuses is passed over; if no later one has a login, the
+   * walk fails with the first refusal. An error that ends the walk
+   * (`endsWalk`) fails it at once.
+   */
+  const walk = (
+    credential: Credential,
+    opening: Effect.Effect<Opened, CredentialError>,
+    turn: number,
+  ): Effect.Effect<Option.Option<Detected>, CredentialError> =>
+    Effect.gen(function* () {
+      const { request } = credential.slot
+      let refused: CredentialError | undefined
+      for (const source of request.detect) {
+        const resolved = yield* resolve(credential, turn, source)
+        if (Option.isNone(resolved)) continue
+        const { provider } = yield* opening
+        const found = yield* bounded(
+          provider.detect([resolved.value], constraintsOf(request)),
+        ).pipe(
+          Effect.catchIf(
+            (error) => !endsWalk(error.kind),
+            (error) => {
+              refused ??= error
+              return Effect.succeed(Option.none<Detected>())
+            },
+          ),
+        )
+        if (Option.isSome(found)) return found
       }
+      if (refused !== undefined) return yield* refused
+      return Option.none<Detected>()
     })
 
   const constraintsOf = (request: CredentialRequest): Constraints => ({
@@ -819,9 +915,12 @@ export function makeCredentials(
   /**
    * The block's saved login, found again. A block that names another
    * provider now does not try it, and one not found leaves the block to
-   * detect as it would.
+   * detect as it would. Its provider is opened only to try one.
    */
-  const resumed = (credential: Credential, opened: Opened): Effect.Effect<Option.Option<Move>> => {
+  const resumed = (
+    credential: Credential,
+    opening: Effect.Effect<Opened, CredentialError>,
+  ): Effect.Effect<Option.Option<Move>, CredentialError> => {
     const { id, block } = credential.slot
     const saved = resuming.get(id)
     resuming.delete(id)
@@ -833,7 +932,9 @@ export function makeCredentials(
         { value: Redacted.make(value), secret },
       ]),
     )
-    return foundAgain(credential, opened, values, saved.source, saved.targets)
+    return Effect.flatMap(opening, (opened) =>
+      foundAgain(credential, opened, values, saved.source, saved.targets),
+    )
   }
 
   /**
@@ -892,19 +993,17 @@ export function makeCredentials(
     })
 
   const detect = (credential: Credential, open: OpenProvider) =>
-    start(credential, () =>
+    start(credential, (turn) =>
       Effect.gen(function* () {
-        const opened = yield* openFor(credential, open)
-        const login = yield* resumed(credential, opened)
+        // Opened at the first call that needs it: a block waiting at its first source holds none.
+        const opening = Effect.suspend(() => openFor(credential, open))
+        const login = yield* resumed(credential, opening)
         if (Option.isSome(login)) return login.value
-        const { request } = credential.slot
-        if (request.detect.length === 0) return signedOut(credential, opened)
-        const found = yield* bounded(
-          opened.provider.detect(resolve(request), constraintsOf(request)),
-        )
+        const found = yield* walk(credential, opening, turn)
+        const opened = yield* opening
         if (Option.isNone(found)) return signedOut(credential, opened)
         const { identity, source } = found.value
-        if (confirmsDetected(request)) return { _tag: "Found", identity, source }
+        if (confirmsDetected(credential.slot.request)) return { _tag: "Found", identity, source }
         return yield* accept(credential, opened, identity, source)
       }),
     )
@@ -1113,7 +1212,12 @@ export function makeCredentials(
         yield* Scope.close(opened.value.scope, Exit.void)
         credential.opened = Option.none()
       }
-      yield* host.update((emit) => move(credential, { _tag: "Detecting" }, emit))
+      yield* host.update((emit) => {
+        const waited = credential.waiting !== undefined
+        credential.waiting = undefined
+        // A block that waited for a source's block is Detecting still: its walk starts over.
+        if (!waited) move(credential, { _tag: "Detecting" }, emit)
+      })
       yield* detect(credential, open)
       return accepted
     })
@@ -1127,6 +1231,8 @@ export function makeCredentials(
   return {
     stateOf: (index) => at(index).state,
 
+    waitingFor: (index) => at(index).waiting,
+
     enter: (startable, emit) =>
       slots.flatMap((slot) => {
         const credential = at(slot.index)
@@ -1139,7 +1245,9 @@ export function makeCredentials(
       Effect.forEach(started, (index) => detect(at(index), open), { discard: true }),
 
     acts: (index) => {
-      const { state, slot } = at(index)
+      const { state, slot, waiting } = at(index)
+      // Waiting for a source's block, it takes CheckAgain.
+      if (waiting !== undefined) return true
       return state !== undefined && ACTIONS.some((action) => takes(state, action, slot.request))
     },
 
@@ -1147,6 +1255,11 @@ export function makeCredentials(
       Effect.gen(function* () {
         const credential = at(index)
         const { state, opened } = credential
+        // Waiting for a source's block, it shows no state, as a block that has not started.
+        if (credential.waiting !== undefined)
+          return action._tag === "CheckAgain"
+            ? yield* checkAgain(credential, open)
+            : ({ _tag: "NotAllowed", state: "Blocked" } as const)
         if (state === undefined || !takes(state, action._tag, credential.slot.request))
           return { _tag: "NotAllowed", state: state?._tag ?? "Blocked" } as const
         if (action._tag === "CheckAgain") return yield* checkAgain(credential, open)
