@@ -15,6 +15,7 @@ import {
   type TaskInput,
 } from "@runbooks/blocks-core/contract"
 import { templateText } from "@runbooks/blocks-core/form"
+import type { BlockStatus } from "@runbooks/blocks-core/status"
 import {
   type CredentialEnv,
   CredentialProviders,
@@ -332,6 +333,33 @@ describe("a form's first Submit, across a reload", () => {
         expect(yield* readOut).toEqual({ out: { _tag: "Shown", value: "eu-north-1" } })
       }),
       { scripts: { ...SCRIPTS, echo: echoesRegion } },
+    ))
+})
+
+describe("reloading a runbook with two blocks of one id", () => {
+  it("keeps the first, whose id it is, when it is as it was", () =>
+    withEngine(
+      runbookOf(
+        formOf("form", ["region"]),
+        formOf("form", ["zone"]),
+        '<Run id="other" command="kept" />',
+      ),
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.set("form", { region: "eu-west-1" })
+        yield* rb.run("form")
+        const done: BlockStatus = { _tag: "Done", outcome: "success" }
+        expect((yield* rb.block("form")).status).toEqual(done)
+        yield* rb.save(
+          runbookOf(
+            formOf("form", ["region"]),
+            formOf("form", ["zone"]),
+            '<Run id="other" command="kept" args={["--now"]} />',
+          ),
+        )
+        expect((yield* rb.block("form")).status).toEqual(done)
+      }),
     ))
 })
 

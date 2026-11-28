@@ -587,6 +587,30 @@ describe("a session's watcher", () => {
     expect(watching.calls).toEqual([{ paths: ["/rb"], depth: 0 }])
   })
 
+  it("shows the first block of an id how its files differ on disk, whatever a later block of that id names", async () => {
+    const runbook = runbookOf(
+      '<Run id="deploy" path="deploy.sh" />',
+      '<Run id="deploy" path="other.sh" />',
+    )
+    const { result } = await withWatch(
+      Effect.gen(function* () {
+        const rb = yield* opened("runbook")
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* tick(DEBOUNCE)
+        const saved = (yield* rb.block("deploy")).filesOnDisk
+        // A reload sets every block's files again.
+        yield* rb.write(RUNBOOK, `${runbook}\n\nSaved.`)
+        yield* tick(DEBOUNCE)
+        const reloaded = (yield* rb.block("deploy")).filesOnDisk
+        yield* rb.close
+        return { saved, reloaded }
+      }),
+      { runbook, files: { "/rb/deploy.sh": "echo deploy\n", "/rb/other.sh": "echo other\n" } },
+    )
+    expect(result.saved?.files).toMatchObject([{ path: "deploy.sh", change: "modified" }])
+    expect(result.reloaded?.files).toMatchObject([{ path: "deploy.sh", change: "modified" }])
+  })
+
   it("watches the folder of a file a block names that is missing, so creating it gives the notice", async () => {
     const { result, watching } = await withWatch(
       Effect.gen(function* () {

@@ -22,6 +22,7 @@ import {
   MAX_SAVED_LOG_LINES,
   MAX_SAVED_PAYLOAD_CHARS,
   MAX_SESSION_AGE_MILLIS,
+  fileHashesOf,
   resumeOf,
   SAVED_SESSION_VERSION,
   SEQUENCE_RESERVE,
@@ -534,6 +535,20 @@ describe("resuming a saved session", () => {
       savedSession([readEvent(textChanged, "form", values({}))], trusted),
     )
     expect(untouched.resumed.problems).toEqual([{ _tag: "RunbookChanged", blocks: [] }])
+  })
+
+  it("takes back the run of the first of two blocks with one id, by its own files", async () => {
+    // The second is misconfigured (duplicateId) and names no file; the id is the first's.
+    const document = await documentOf(
+      `${RESUMED_RUNBOOK}\n\n<Run id="deploy" command="echo again" />`,
+    )
+    expect(fileHashesOf(document, TOY_REGISTRY).get(blockId("deploy"))).toEqual(document.hash.files)
+    const resume = resumeOf(
+      document,
+      TOY_REGISTRY,
+      savedSession([readEvent(document, "deploy", DONE)], Option.some(document.hash.combined)),
+    )
+    expect(resume.runs).toEqual(new Map([[blockId("deploy"), DONE.payload]]))
   })
 
   it("takes nothing a newer version saved, nothing it cannot read, and nothing for a block the runbook lacks", async () => {

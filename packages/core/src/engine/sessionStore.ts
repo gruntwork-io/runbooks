@@ -215,14 +215,20 @@ export interface Resume {
   readonly resumed: Resumed
 }
 
-/** The hash of each file each block names, by path, as `document` holds them. A misconfigured block names none. */
+/**
+ * The hash of each file each block names, by path, as `document` holds them.
+ * A misconfigured block names none. An id is the first block's that has it:
+ * a later one is a duplicateId error.
+ */
 export function fileHashesOf(
   document: RunbookDocument,
   registry: Registry,
 ): ReadonlyMap<BlockId, Readonly<Record<string, string>>> {
+  const seen = new Set<BlockId>()
   return new Map(
     document.blocks.flatMap((node) => {
-      if (node.id === undefined) return []
+      if (node.id === undefined || seen.has(node.id)) return []
+      seen.add(node.id)
       const block = node.errors.length > 0 ? undefined : resolveTag(registry, node.tag)?.block
       const files = block?.runbookFiles(node.props) ?? []
       const hashes = files.flatMap((file) => {
