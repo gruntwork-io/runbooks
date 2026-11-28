@@ -3,7 +3,7 @@ import { Effect, Fiber, Queue, Schema } from "effect"
 import { DocumentView, type Instruction, SessionId, Settings } from "@runbooks/core/protocol"
 import { makeEngineClient } from "./engine.ts"
 import { dies, type FakeMain, fails, fakeMain } from "./fakeMain.ts"
-import { follow, type Live } from "./live.ts"
+import { EVENTS_AHEAD, follow, type Live } from "./live.ts"
 import { makeSettingsStore, type SettingsStore } from "./settings.ts"
 
 // The window following a session, against a main that answers the engine's
@@ -166,6 +166,20 @@ const blocksRead = (main: FakeMain) =>
     tag === "GetBlock" ? [(payload as { block: string }).block] : [],
   )
 
+/** What `count` gives once it has given the same number five times running, 10 ms apart. */
+const steady = (count: () => number) =>
+  Effect.gen(function* () {
+    let last = count()
+    let same = 0
+    while (same < 5) {
+      yield* Effect.sleep("10 millis")
+      const now = count()
+      same = now === last ? same + 1 : 0
+      last = now
+    }
+    return last
+  })
+
 const code = (text: string): Instruction => [{ kind: "code", language: "bash", code: text }]
 
 describe("the window following a session", () => {
@@ -299,6 +313,40 @@ describe("the window following a session", () => {
         const log = (yield* next).blocks.get("greet")?.log
         expect(log?.offset).toBe(300)
         expect(log?.lines.at(-1)).toEqual({ stream: "stdout", text: "line 500" })
+      }),
+    )
+  })
+
+  it("takes the session's events only a bounded way ahead of a read that waits, so main's stream waits on the acks", async () => {
+    const engine: Engine = { greet: task("greet", { status: { _tag: "Running" } }) }
+    let readsAnswer = true
+    const main = fakeMain((tag, payload) =>
+      // Once the follower is reading, a block's read waits, as a slow engine's does.
+      !readsAnswer && tag === "GetBlock" ? undefined : answering(engine)(tag, payload),
+    )
+    const logLine = (offset: number) =>
+      event({
+        _tag: "LogLines",
+        block: "greet",
+        run: "r-1",
+        offset,
+        lines: [{ stream: "stdout", text: `line ${offset + 1}` }],
+      })
+    const SENT = 2000
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        yield* next
+        readsAnswer = false
+        // The first chunk starts a round of reads that waits; the rest arrive meanwhile.
+        for (let offset = 0; offset < SENT; offset++) main.stream("Events", [logLine(offset)])
+        // Each chunk here is one event, and each place an event can wait takes all
+        // the one before it holds: the client's buffer (effect's default, 16), the
+        // piece taken from it, the window's queue, the piece the merge holds, and
+        // the batch being read.
+        const CLIENT_BUFFER = 16
+        expect(yield* steady(() => main.acked("Events"))).toBeLessThanOrEqual(
+          2 * CLIENT_BUFFER + 3 * EVENTS_AHEAD,
+        )
       }),
     )
   })
@@ -478,6 +526,34 @@ describe("the window following a session", () => {
             )
           }),
         { settings },
+      )
+    })
+
+    it("ends in the mode the settings last give, however many changes come while it reads", async () => {
+      const engine = instructed()
+      const settings = makeSettingsStore(settingsWith(false))
+      let flipping = false
+      const main = fakeMain((tag, payload) => {
+        // While the window reads for the mode turning on, the person turns it off and on again.
+        if (flipping && tag === "GetBlock") {
+          flipping = false
+          settings.set(settingsWith(false))
+          settings.set(settingsWith(true))
+        }
+        return answering(engine)(tag, payload)
+      })
+      let latest: Live | undefined
+      await following(
+        main,
+        (next) =>
+          Effect.gen(function* () {
+            yield* next
+            flipping = true
+            settings.set(settingsWith(true))
+            yield* Effect.sleep("100 millis")
+            expect(latest?.instructionMode).toBe(true)
+          }),
+        { settings, shown: (live) => (latest = live) },
       )
     })
 

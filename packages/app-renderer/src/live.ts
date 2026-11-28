@@ -42,7 +42,9 @@
  *   can't be reached, the window says so (`ended`) and stops following.
  *
  * Reads run in turn, a few at a time, and the next batch, or change of the
- * mode, waits for them.
+ * mode, waits for them. The window's queue of events holds `EVENTS_AHEAD`,
+ * and while it is full the client stops acking, so events that main sends
+ * faster than the window reads wait in main, not in the window's memory.
  */
 import { Cause, Effect, Queue, Stream } from "effect"
 import {
@@ -106,6 +108,9 @@ interface Stale {
 }
 
 const READS_AT_ONCE = 4
+
+/** The events the window's queue holds: enough for a round of reads to gather a burst, such as a command's log lines. */
+export const EVENTS_AHEAD = 256
 
 const CLOSED = "This runbook's session closed, so the window shows it as it was left."
 
@@ -185,14 +190,14 @@ type Events = ReturnType<EngineClient["Events"]>
 type Change = Stream.Success<Events> | boolean
 
 /**
- * Offers to `changes` the instruction mode each time `settings` change it
+ * Offers to `modes` the instruction mode each time `settings` change it
  * from `shown`, the mode the window shows, until the scope closes: first
  * the mode now, if they changed it before.
  */
-const offerInstructionModes = <E>(
+const offerInstructionModes = (
   settings: SettingsStore,
   shown: boolean,
-  changes: Queue.Queue<Change, E>,
+  modes: Queue.Queue<boolean>,
 ) =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -201,7 +206,7 @@ const offerInstructionModes = <E>(
         const now = instructionModeOf(settings)
         if (now === last) return
         last = now
-        Queue.offerUnsafe(changes, now)
+        Queue.offerUnsafe(modes, now)
       }
       offer()
       return settings.subscribe(offer)
@@ -257,7 +262,9 @@ export const follow = (
     unwatched = view.unwatched
     if (view.trust.hash !== document.hash) document = yield* engine.GetDocument({ session })
     yield* read(withLifecycle(view))
-    const changes = yield* Queue.unbounded<Change, Stream.Error<Events> | Cause.Done>()
+    const events = yield* Queue.bounded<Stream.Success<Events>, Stream.Error<Events> | Cause.Done>(
+      EVENTS_AHEAD,
+    )
     // Started at once, so the window follows the events by the time it shows the session.
     yield* Effect.forkScoped(
       Stream.runIntoQueue(
@@ -265,14 +272,22 @@ export const follow = (
           session,
           ...(view.sequence === undefined ? {} : { after: view.sequence }),
         }),
-        changes,
+        events,
       ),
       { startImmediately: true },
     )
-    yield* offerInstructionModes(settings, instructionMode, changes)
+    // Only the latest mode matters, and the settings' listener never waits.
+    const modes = yield* Queue.sliding<boolean>(1)
+    yield* offerInstructionModes(settings, instructionMode, modes)
     show()
     let closed = false
-    yield* Stream.runForEachArray(Stream.fromQueue(changes), (batch) =>
+    const changes: Stream.Stream<Change, Stream.Error<Events>> = Stream.merge(
+      Stream.fromQueue(events),
+      Stream.fromQueue(modes),
+      // The modes never end; the session's events do.
+      { haltStrategy: "left" },
+    )
+    yield* Stream.runForEachArray(changes, (batch) =>
       Effect.gen(function* () {
         const stale: Stale = {
           blocks: new Set(),

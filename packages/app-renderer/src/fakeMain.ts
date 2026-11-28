@@ -44,6 +44,8 @@ export interface FakeMain {
   readonly bridge: EngineBridge
   /** Every command the client sent, in order. */
   readonly asked: ReadonlyArray<Asked>
+  /** How many chunks the client has acked on the open streams of `tag`: one for each it has taken in. */
+  readonly acked: (tag: string) => number
   /** Sends `values`, encoded, as one chunk down each open stream of `tag`. */
   readonly stream: (tag: string, values: ReadonlyArray<unknown>) => void
   /** Ends each open stream of `tag`: done, or failed with `failure` (`fails`, `dies`). */
@@ -62,6 +64,7 @@ export function fakeMain(
   const listeners = new Set<(message: string) => void>()
   const asked: Asked[] = []
   const opened: Opened[] = []
+  const acks = new Map<string, number>()
   const reply = (message: unknown) => {
     const text = JSON.stringify(message)
     setTimeout(() => {
@@ -70,10 +73,21 @@ export function fakeMain(
   }
   return {
     asked,
+    acked: (tag) =>
+      opened
+        .filter((open) => open.tag === tag)
+        .reduce((n, open) => n + (acks.get(open.requestId) ?? 0), 0),
     bridge: {
       send: (text) => {
-        const sent: { _tag: string; id?: string; tag?: string; payload?: unknown } =
-          JSON.parse(text)
+        const sent: {
+          _tag: string
+          id?: string
+          requestId?: string
+          tag?: string
+          payload?: unknown
+        } = JSON.parse(text)
+        if (sent._tag === "Ack" && sent.requestId !== undefined)
+          acks.set(sent.requestId, (acks.get(sent.requestId) ?? 0) + 1)
         if (sent._tag !== "Request" || sent.id === undefined || sent.tag === undefined) return
         asked.push({ tag: sent.tag, payload: sent.payload })
         if (streams.has(sent.tag)) {
