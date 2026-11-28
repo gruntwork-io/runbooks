@@ -13,7 +13,7 @@
  * `Cancelled` and exit 1.
  */
 import path from "node:path"
-import { Clock, Console, Deferred, Effect, Result, type Scope } from "effect"
+import { Clock, Console, Deferred, Effect, Option, Random, Result, type Scope } from "effect"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { loadRunbook } from "@runbooks/core/document/load"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
@@ -27,7 +27,7 @@ import type {
   TestReport,
 } from "./contract.ts"
 import { findRunbooks } from "./runbookPaths.ts"
-import { boundTestFile, readTestFile, targetsOf, type TestFile } from "./testFile.ts"
+import { boundTestFile, isFuzzInput, readTestFile, targetsOf, type TestFile } from "./testFile.ts"
 import { renderTestReport } from "./testReport.ts"
 import { type Loaded, runTests } from "./testRun.ts"
 
@@ -154,6 +154,11 @@ export const test = <R extends Registry>(
   Effect.gen(function* () {
     const runbooks: RunbookTestReport[] = []
     let failure: CliFailure | undefined
+    // Reported when a test case chosen draws from it, so its values can be drawn again.
+    const fuzzSeed = Option.isSome(args.fuzzSeed)
+      ? args.fuzzSeed.value
+      : String(yield* Random.nextIntBetween(0, 2 ** 32 - 1))
+    let fuzzed = false
 
     const prepared = yield* Effect.result(
       Effect.gen(function* () {
@@ -188,6 +193,11 @@ export const test = <R extends Registry>(
       if (wanted !== undefined && chosen.length === 0)
         failure = { _tag: "TestCaseNotFound", name: wanted, runbooks: prepared.success.length }
       else {
+        fuzzed = chosen.some((found) =>
+          found.tests.some((t) =>
+            Object.values(t.inputs ?? {}).some((input) => isFuzzInput(input)),
+          ),
+        )
         const verbose = args.verbose
         const run = (found: (typeof chosen)[number]) =>
           Effect.gen(function* () {
@@ -205,6 +215,7 @@ export const test = <R extends Registry>(
                       verbose,
                       log: (line) => Console.error(line),
                       stop: options.stop,
+                      fuzzSeed,
                     },
                     { ...found, document, testFile: testFile.success },
                     found.tests,
@@ -248,6 +259,7 @@ export const test = <R extends Registry>(
         skipped: count("skipped"),
         warnings: runbooks.reduce((n, r) => n + r.warnings.length, 0),
       },
+      ...(fuzzed ? { fuzzSeed } : {}),
       ...(failure === undefined ? {} : { failure }),
     }
     if (failure !== undefined) yield* Console.error(describeFailure(failure))

@@ -56,6 +56,10 @@ function text(report: TestReport, cwd: string, verbose: boolean): string {
     "",
     `Results: ${passed} passed, ${failed} failed, ${skipped} skipped${warnings > 0 ? `, ${warnings} ${warnings === 1 ? "warning" : "warnings"}` : ""} (total: ${seconds(total)})`,
   )
+  if (report.fuzzSeed !== undefined)
+    lines.push(
+      `Fuzz seed: ${report.fuzzSeed} (--fuzz-seed ${report.fuzzSeed} draws the same values)`,
+    )
   if (report.failure !== undefined) lines.push(describeFailure(report.failure))
   return lines.join("\n")
 }
@@ -91,6 +95,12 @@ const xml = (value: string) =>
     .replace(/'/gu, "&apos;")
 
 function junit(report: TestReport): string {
+  const properties =
+    report.fuzzSeed === undefined
+      ? []
+      : [
+          `    <properties>\n      <property name="fuzzSeed" value="${xml(report.fuzzSeed)}"/>\n    </properties>`,
+        ]
   const suites = report.runbooks.map((runbook) => {
     const className = path.basename(path.dirname(runbook.path))
     const cases = runbook.tests.map((test) => {
@@ -109,7 +119,7 @@ function junit(report: TestReport): string {
     if (problems.length > 0) cases.push(`    <system-err>${xml(problems.join("\n"))}</system-err>`)
     const failures = runbook.tests.filter((t) => t.outcome === "failed").length
     const skipped = runbook.tests.filter((t) => t.outcome === "skipped").length
-    return `  <testsuite name="${xml(runbook.path)}" tests="${runbook.tests.length}" failures="${failures}" skipped="${skipped}" time="${(runbook.durationMillis / 1000).toFixed(3)}">\n${cases.join("\n")}\n  </testsuite>`
+    return `  <testsuite name="${xml(runbook.path)}" tests="${runbook.tests.length}" failures="${failures}" skipped="${skipped}" time="${(runbook.durationMillis / 1000).toFixed(3)}">\n${[...properties, ...cases].join("\n")}\n  </testsuite>`
   })
   const { passed, failed, skipped } = report.summary
   const time = report.runbooks.reduce((n, r) => n + r.durationMillis, 0)

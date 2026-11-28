@@ -187,6 +187,8 @@ const LiteralShape: Schema.Codec<FieldValue> = Schema.Union([
 const LiteralValue = LiteralShape.pipe(Schema.decodeTo(FieldValue))
 
 export const FuzzInput = Schema.Struct({ fuzz: FuzzConfig })
+/** A decoded input is a fuzz configuration exactly when it has the `fuzz` key, which no value has. */
+export const isFuzzInput = Schema.is(FuzzInput)
 
 /** An input's answer: a fuzz configuration, a value, or nothing, written `key:` alone, which gives none. */
 export const InputValue = Schema.Union([FuzzInput, Schema.Null, LiteralValue])

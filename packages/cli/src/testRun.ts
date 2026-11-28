@@ -23,6 +23,7 @@ import {
   Fiber,
   Layer,
   Option,
+  Random,
   Result,
   Schema,
   type Scope,
@@ -45,7 +46,7 @@ import { DefaultSettings, NoCredentialProviders } from "./testIsolation.ts"
 import {
   type Assertion,
   DEFAULT_EXPECT,
-  FuzzInput,
+  isFuzzInput,
   type Step,
   type Target,
   type TestCase,
@@ -63,6 +64,8 @@ interface RunOptions<R extends Registry> {
   readonly log: (line: string) => Effect.Effect<void>
   /** Completes on the first Ctrl-C or SIGTERM. */
   readonly stop: Deferred.Deferred<void>
+  /** What fuzz inputs are drawn from. */
+  readonly fuzzSeed: string
 }
 
 /** A runbook ready to test: its document, and its blocks as the test file binds them. */
@@ -135,21 +138,24 @@ function notBuiltForCase(test: TestCase): string | undefined {
 
 const toBlockId = Schema.decodeSync(BlockId)
 const isBlockId = Schema.is(Schema.NonEmptyString)
-/** A decoded input is a fuzz configuration exactly when it has the `fuzz` key, which no value has. */
-const isFuzzInput = Schema.is(FuzzInput)
-
 /**
  * The values the test's inputs give each block, by its id, a fuzz input
  * drawn: or the first input whose fuzz settings draw nothing, and why. An
  * input left empty gives none.
+ *
+ * Each fuzz input draws from the run's seed with the runbook, as the
+ * report shows its path, the test case and the input, so it draws the
+ * same value whatever else runs, and runbooks and test cases with the same
+ * inputs draw their own.
  */
-const answersOf = (test: TestCase) =>
+const answersOf = (fuzzSeed: string, loaded: Loaded, test: TestCase) =>
   Effect.gen(function* () {
     const answers = new Map<string, Record<string, FieldValue>>()
     for (const [key, input] of Object.entries(test.inputs ?? {})) {
       if (input === null) continue
       const value = isFuzzInput(input)
         ? yield* fuzzValue(input.fuzz).pipe(
+            Random.withSeed(JSON.stringify([fuzzSeed, loaded.label, test.name, key])),
             Effect.mapError(({ message }) => `inputs ${key}: ${message}`),
           )
         : input
@@ -672,7 +678,7 @@ const runCase = <R extends Registry>(options: RunOptions<R>, loaded: Loaded, tes
     const notBuilt = notBuiltForFile(loaded.testFile) ?? notBuiltForCase(test)
     if (notBuilt !== undefined) return yield* failedCase(test.name, started, notBuilt)
     // As today's runner: every input is drawn before anything runs.
-    const answers = yield* Effect.result(answersOf(test))
+    const answers = yield* Effect.result(answersOf(options.fuzzSeed, loaded, test))
     if (Result.isFailure(answers)) return yield* failedCase(test.name, started, answers.failure)
 
     const fs = yield* FileSystem

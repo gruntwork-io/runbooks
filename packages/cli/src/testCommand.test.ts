@@ -764,6 +764,74 @@ tests:
     expect(seen.runs).toBe(0)
   })
 
+  /** Two test cases, each drawing `config.region`. */
+  const TWO_FUZZED = ["first", "second"]
+    .map(
+      (name) =>
+        `  - name: ${name}\n    inputs:\n      config.region:\n        fuzz: { type: string, length: 12 }\n    steps:\n      - block: config\n`,
+    )
+    .join("")
+
+  /** The seed the json report names, and the region each test case of each runbook drew. */
+  const drawnWith = async (args: ReadonlyArray<string>) => {
+    const { code, stdout } = await runTest(["--output", "json", ...args])
+    expect(code).toBe(0)
+    const report = decodeReport(JSON.parse(stdout))
+    const regions = report.runbooks.map((r) =>
+      Object.fromEntries(r.tests.map((t) => [t.name, t.steps[0]!.outputs["region"]])),
+    )
+    return { seed: report.fuzzSeed, regions }
+  }
+
+  it("draws fuzz inputs from a seed it reports, and the same seed draws them again", async () => {
+    runbook(BUILD, `version: 1\ntests:\n${TWO_FUZZED}`)
+    const drawn = await drawnWith(["rb"])
+    expect(drawn.seed).toMatch(/^\d+$/u)
+    const { first, second } = drawn.regions[0]!
+    expect(first).toEqual({ _tag: "Shown", value: expect.stringMatching(/^\w{12}$/u) })
+    expect(second).not.toEqual(first)
+    expect(await drawnWith(["rb", "--fuzz-seed", drawn.seed!])).toEqual(drawn)
+    // One test case alone draws what it drew among the others.
+    expect(await drawnWith(["rb", "--fuzz-seed", drawn.seed!, "--test", "second"])).toEqual({
+      seed: drawn.seed,
+      regions: [{ second }],
+    })
+    const other = await drawnWith(["rb", "--fuzz-seed", "other"])
+    expect(other.seed).toBe("other")
+    expect(other.regions[0]!["first"]).not.toEqual(first)
+    // With no seed given, each run draws its own.
+    expect((await drawnWith(["rb"])).seed).not.toBe(drawn.seed)
+  })
+
+  it("draws its own value for each input, test case and runbook, from one seed", async () => {
+    runbook(BUILD, `version: 1\ntests:\n${TWO_FUZZED}`, "one")
+    runbook(BUILD, `version: 1\ntests:\n${TWO_FUZZED}`, "two")
+    const { regions } = await drawnWith(["one", "two", "--fuzz-seed", "7"])
+    expect(regions[0]!["first"]).not.toEqual(regions[1]!["first"])
+    // Two inputs with the same settings, in one test case.
+    runbook(
+      '<Form id="config">\n```yaml\n- name: region\n  type: string\n- name: zone\n  type: string\n```\n</Form>',
+      "version: 1\ntests:\n  - name: both\n    inputs:\n      config.region:\n        fuzz: { type: string, length: 12 }\n      config.zone:\n        fuzz: { type: string, length: 12 }\n    steps:\n      - block: config\n",
+      "pair",
+    )
+    const { stdout } = await runTest(["pair", "--output", "json", "--fuzz-seed", "7"])
+    const { outputs } = decodeReport(JSON.parse(stdout)).runbooks[0]!.tests[0]!.steps[0]!
+    expect(outputs["region"]).toEqual({ _tag: "Shown", value: expect.stringMatching(/^\w{12}$/u) })
+    expect(outputs["zone"]).not.toEqual(outputs["region"])
+  })
+
+  it("reports no seed when no test case it runs has a fuzz input", async () => {
+    runbook(BUILD, BUILD_TEST)
+    runbook(BUILD, `version: 1\ntests:\n${TWO_FUZZED}`, "fuzzed")
+    const { stdout } = await runTest(["rb", "--output", "json"])
+    expect(JSON.parse(stdout)).not.toHaveProperty("fuzzSeed")
+    const text = await runTest(["rb", "--fuzz-seed", "7"])
+    expect(text.stdout).not.toContain("Fuzz seed")
+    expect((await runTest(["fuzzed", "--fuzz-seed", "7"])).stdout).toContain(
+      "Fuzz seed: 7 (--fuzz-seed 7 draws the same values)",
+    )
+  })
+
   it("writes nothing in the runbook's folder or the working directory", async () => {
     runbook(BUILD, BUILD_TEST)
     const before = readdirSync(folder.path, { recursive: true }).map(String).sort()

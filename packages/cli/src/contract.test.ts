@@ -93,6 +93,7 @@ describe("runbooks test", () => {
           output: "junit",
           outputFile: Option.some("results.xml"),
           maxParallel: 1,
+          fuzzSeed: Option.none(),
         },
       },
     ])
@@ -124,6 +125,18 @@ describe("runbooks test", () => {
     })
     expect((await run(["test", "./x", "--output", "text"], env)).calls[0]?.args).toMatchObject({
       output: "text",
+    })
+  })
+
+  it("takes --fuzz-seed, or RUNBOOKS_FUZZ_SEED, the flag winning", async () => {
+    const args = async (argv: ReadonlyArray<string>, env?: Record<string, string>) =>
+      (await run(["test", "./x", ...argv], env)).calls[0]?.args
+    const env = { RUNBOOKS_FUZZ_SEED: "from-env" }
+    expect(await args([])).toMatchObject({ fuzzSeed: Option.none() })
+    expect(await args(["--fuzz-seed", "4 2"])).toMatchObject({ fuzzSeed: Option.some("4 2") })
+    expect(await args([], env)).toMatchObject({ fuzzSeed: Option.some("from-env") })
+    expect(await args(["--fuzz-seed", "flag"], env)).toMatchObject({
+      fuzzSeed: Option.some("flag"),
     })
   })
 })

@@ -119,6 +119,14 @@ const maxParallel = Flag.Int("max-parallel").pipe(
   Flag.withDefault(1),
 )
 
+const fuzzSeed = Flag.String("fuzz-seed").pipe(
+  Flag.withDescription(
+    "Draw fuzz inputs from this seed: the seed a report names draws its values again. Each run draws its own when none is given.",
+  ),
+  withEnv(Config.String("RUNBOOKS_FUZZ_SEED")),
+  Flag.optional,
+)
+
 const source = Argument.String("source").pipe(
   Argument.withDescription(
     "A runbook file or folder, or a git URL such as github.com/org/repo//path",
@@ -162,6 +170,7 @@ export const testConfig = {
   output: testOutput,
   outputFile,
   maxParallel,
+  fuzzSeed,
 }
 
 export const validateConfig = { paths, output: validateOutput }
@@ -307,6 +316,11 @@ export const TestReport = Schema.Struct({
     skipped: Count,
     warnings: Count,
   }),
+  /**
+   * The seed the fuzz inputs were drawn from, when a test case chosen has
+   * one: `--fuzz-seed` with it draws the same values again.
+   */
+  fuzzSeed: Schema.optionalKey(Schema.String),
   failure: Schema.optionalKey(CliFailure),
 })
 export type TestReport = typeof TestReport.Type
