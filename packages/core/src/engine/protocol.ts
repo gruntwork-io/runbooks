@@ -699,6 +699,25 @@ const Host = Schema.NonEmptyString.check(
 const RecentHosts = Schema.Array(Host).check(Schema.isMaxLength(MAX_RECENT_HOSTS))
 
 /**
+ * The bounds of `Settings.hiddenInRunbooks`: the most runbooks it keeps, the
+ * most keys for one runbook, a key's longest, and the longest runbook path.
+ * At its bounds, with every other setting at its longest, the settings stay
+ * within the settings file's size for paths in ASCII.
+ */
+export const HIDDEN_LIMITS = { runbooks: 16, keys: 16, keyLength: 64, runbookPath: 1024 } as const
+
+/** A name a display block hides itself under, within its runbook. */
+export const HiddenKey = Schema.NonEmptyString.check(Schema.isMaxLength(HIDDEN_LIMITS.keyLength))
+
+const HiddenInRunbooks = Schema.Array(
+  Schema.Struct({
+    runbook: AbsolutePath.check(Schema.isMaxLength(HIDDEN_LIMITS.runbookPath)),
+    /** The key hidden last first. */
+    keys: Schema.NonEmptyArray(HiddenKey).check(Schema.isMaxLength(HIDDEN_LIMITS.keys)),
+  }),
+).check(Schema.isMaxLength(HIDDEN_LIMITS.runbooks))
+
+/**
  * An HTTP or HTTPS proxy, as `http://proxy.example.com:3128`. It may hold no
  * user name or password: every client is shown the settings, and the
  * settings file is not a secret store.
@@ -749,6 +768,13 @@ export const Settings = Schema.Struct({
   /** GitLab hosts the person typed in, newest first. */
   recentGitLabHosts: RecentHosts,
   lastSelectedGitLabHost: Schema.NullOr(Host),
+  /**
+   * What the person asked a runbook's display blocks not to show again, as
+   * "Don't show me this again" asks: by runbook file, the runbook hidden in
+   * last first, each with the keys hidden in it. A key hides only in its
+   * own runbook.
+   */
+  hiddenInRunbooks: HiddenInRunbooks,
 })
 export type Settings = typeof Settings.Type
 

@@ -89,6 +89,7 @@ function page(view: BlockView, instructionMode = false, said?: string) {
         lastSelectedGitHubHost: null,
         recentGitLabHosts: [],
         lastSelectedGitLabHost: null,
+        hiddenInRunbooks: [],
       }),
     ),
     trusting: makeTrustingStore(),

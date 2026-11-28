@@ -7,6 +7,7 @@ import { type CredentialStateTag, TRANSITIONS } from "../credential/lifecycle.ts
 import { ConfigError } from "../document/configError.ts"
 import { ContentHash } from "../document/document.ts"
 import { RUNBOOK_FILE_LIMITS } from "../document/files.ts"
+import { MAX_SETTINGS_BYTES } from "../services/SettingsFile.ts"
 import {
   ActResult,
   BASELINE_MCP_TOOLS,
@@ -26,6 +27,7 @@ import {
   type Instruction,
   type FileChange,
   Forbidden,
+  HIDDEN_LIMITS,
   LIMITS,
   OpenSession,
   type Origin,
@@ -805,6 +807,49 @@ describe("engine protocol", () => {
     )
   })
 
+  it("keeps what a runbook's display blocks were hidden under, by runbook, within bounds", () => {
+    const hidden = (value: unknown) =>
+      Schema.decodeUnknownSync(Settings.fields.hiddenInRunbooks)(value, { errors: "all" })
+    const runbook = (n: number) => `/runbooks/r${n}/runbook.mdx`
+    const kept = [{ runbook: runbook(1), keys: ["welcome", "billing"] }]
+    expect<unknown>(hidden(kept)).toEqual(kept)
+    expect(hidden([])).toEqual([])
+    const full = Array.from({ length: HIDDEN_LIMITS.runbooks }, (_, n) => ({
+      runbook: runbook(n),
+      keys: [...Array(HIDDEN_LIMITS.keys).keys()].map((k) =>
+        `k${k}`.padEnd(HIDDEN_LIMITS.keyLength, "x"),
+      ),
+    }))
+    expect<unknown>(hidden(full)).toEqual(full)
+    expect(() => hidden([...full, { runbook: runbook(99), keys: ["a"] }])).toThrow()
+    expect(() => hidden([{ runbook: runbook(1), keys: [...full[0]!.keys, "one-more"] }])).toThrow()
+    expect(() =>
+      hidden([{ runbook: runbook(1), keys: ["x".repeat(HIDDEN_LIMITS.keyLength + 1)] }]),
+    ).toThrow()
+    expect(() => hidden([{ runbook: runbook(1), keys: [""] }])).toThrow()
+    expect(() => hidden([{ runbook: runbook(1), keys: [] }])).toThrow()
+    expect(() => hidden([{ runbook: "r1/runbook.mdx", keys: ["a"] }])).toThrow(
+      /Expected an absolute path/,
+    )
+    // At its bounds, with every other setting at its longest, it fits in the settings file.
+    const longest = JSON.stringify({
+      version: 1,
+      settings: {
+        hiddenInRunbooks: full.map((entry, n) => ({
+          ...entry,
+          runbook: `/${"r".repeat(HIDDEN_LIMITS.runbookPath - 6)}${String(n).padStart(4, "0")}`,
+        })),
+        caBundleFile: `/${"c".repeat(4095)}`,
+        proxy: `http://${"p".repeat(2033)}:1`,
+        recentGitHubHosts: Array(5).fill("h".repeat(255)),
+        recentGitLabHosts: Array(5).fill("h".repeat(255)),
+        lastSelectedGitHubHost: "h".repeat(255),
+        lastSelectedGitLabHost: "h".repeat(255),
+      },
+    })
+    expect(longest.length).toBeLessThan(MAX_SETTINGS_BYTES)
+  })
+
   it("takes a proxy only as an http or https URL with no user name or password, and does not echo one", () => {
     const proxy = (value: string) =>
       Schema.decodeUnknownSync(Settings.fields.proxy)(value, { errors: "all" })
@@ -839,6 +884,7 @@ describe("engine protocol", () => {
         lastSelectedGitHubHost: null,
         recentGitLabHosts: [],
         lastSelectedGitLabHost: "gitlab.example.com:8443",
+        hiddenInRunbooks: [{ runbook: "/runbooks/deploy/runbook.mdx", keys: ["welcome"] }],
       },
       file: "/data/settings.json",
       problems: [{ _tag: "Newer", version: 2 }],

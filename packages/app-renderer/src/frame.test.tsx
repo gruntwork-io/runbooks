@@ -44,6 +44,7 @@ const SETTINGS = {
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 }
 
 /** The runbook the window opened, for a follower: the hash each session below has. */
