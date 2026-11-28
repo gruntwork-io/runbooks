@@ -13,6 +13,7 @@ import {
 } from "@runbooks/blocks-core/contract"
 import { templateText } from "@runbooks/blocks-core/form"
 import { byPlace, ConfigError, ConfigWarning, Span } from "./configError.ts"
+import type { FileFact } from "./files.ts"
 import { parseValueTemplate } from "./valueTemplate.ts"
 
 // ---------------------------------------------------------------------------
@@ -261,6 +262,13 @@ export type ParseResult =
        * reads a file again.
        */
       readonly texts: ReadonlyMap<number, RunbookTexts>
+      /** The runbook's text, as parsed. */
+      readonly source: string
+      /**
+       * What was at each path a block names, as parsing was given it. The
+       * same source parsed with other facts is the runbook with other files.
+       */
+      readonly files: ReadonlyMap<RunbookPath, FileFact>
     }
   | {
       readonly _tag: "Invalid"

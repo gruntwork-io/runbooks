@@ -7,10 +7,16 @@
 import path from "node:path"
 import { Clock, Context, Effect, Layer, Option, Schema, Scope, Stream } from "effect"
 import type { Rpc } from "effect/rpc"
-import { type TaskError, type TaskEvent, TaskTimedOut } from "@runbooks/blocks-core/contract"
+import {
+  type RunbookPath,
+  type TaskError,
+  type TaskEvent,
+  TaskTimedOut,
+} from "@runbooks/blocks-core/contract"
 import type { Registry, ServicesOf } from "@runbooks/blocks-core/registry"
 import { CredentialProviders } from "../credential/provider.ts"
 import { prepareStateDir } from "../credential/stateDir.ts"
+import { type FileFact, readRunbookFile } from "../document/files.ts"
 import { loadRunbook } from "../document/load.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
@@ -103,6 +109,16 @@ export interface EngineShape {
    * from disk again, and reloads the session with them (`Session.reload`).
    */
   readonly reloadRunbook: (session: SessionId) => Effect.Effect<RunbookReload, UnknownSession>
+  /**
+   * Not a protocol command, and no client reaches it (`serveEngine`): what
+   * a session's watcher does when files its runbook names change on disk.
+   * Reads each of `paths` from the runbook's folder, once, and gives the
+   * session what it read (`Session.filesChanged`).
+   */
+  readonly filesChanged: (
+    session: SessionId,
+    paths: ReadonlyArray<RunbookPath>,
+  ) => Effect.Effect<void, UnknownSession>
 }
 
 /** What reloading a session's runbook from disk did, or why the session holds the runbook it had. */
@@ -295,8 +311,8 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
           // A resumed session keeps its id, and with it its working and state folders.
           const session = yield* makeSession({
             id,
-            document,
-            texts: loaded.texts,
+            runbook: loaded,
+            appVersion,
             roots: sessionRoots(file, workingFolders, id),
             baseEnvironment: base,
             registry,
@@ -473,6 +489,18 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
               case "Parsed":
                 return yield* found.reload(loaded)
             }
+          }),
+
+          filesChanged: Effect.fn("Engine.filesChanged")(function* (session, paths) {
+            const found = yield* lookup(session)
+            const folder = path.dirname(found.summary().path)
+            const facts = new Map<RunbookPath, FileFact>()
+            for (const named of paths)
+              facts.set(
+                named,
+                yield* readRunbookFile(folder, named).pipe(Effect.provideContext(fileSystem)),
+              )
+            yield* found.filesChanged(facts)
           }),
         })
       }),

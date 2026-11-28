@@ -52,6 +52,7 @@ import type {
   RepositoryRef,
   RootedPath,
   Roots,
+  RunbookPath,
   RunbookTexts,
   RunEnv,
   TaskError,
@@ -69,8 +70,9 @@ import type { CredentialState } from "../credential/lifecycle.ts"
 import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, ParseResult, RunbookDocument } from "../document/document.ts"
+import type { FileFact } from "../document/files.ts"
 import { nearest } from "../document/nearest.ts"
-import { SHOWN_SHARED_PROPS } from "../document/parse.ts"
+import { SHOWN_SHARED_PROPS, startParse } from "../document/parse.ts"
 import {
   type ActResult,
   type BlockAction,
@@ -81,6 +83,7 @@ import {
   type EngineEvent,
   type EventEnvelope,
   FieldView,
+  type FilesOnDisk,
   type Instruction,
   type FileChange,
   type LogLine,
@@ -135,6 +138,7 @@ import {
   taskSource,
   withReserved,
 } from "./env.ts"
+import { filesOnDiskOf, sameFiles } from "./filesOnDisk.ts"
 import { type Held, hold, redacted, reveal, visible } from "./held.ts"
 import type { Copied, CopyFailed, RunFiles, RunWrote } from "./runFiles.ts"
 import type { RunRoots } from "./roots.ts"
@@ -870,15 +874,30 @@ export interface Session {
   /**
    * Takes `next` as the session's document, as `DocumentChanged` says,
    * unless a block runs or it is the document the session holds. Only the
-   * session's watcher and `reloadFiles` call it: a reload keeps trust
-   * while the session is open, and saves none for the new hash.
+   * session's watcher calls it, and `reloadFiles` takes files so: a reload
+   * keeps trust while the session is open. Only `reloadFiles`, a person's
+   * choice, saves it for the new hash, over a document a person trusted or
+   * chose.
    */
   readonly reload: (next: ParsedRunbook) => Effect.Effect<ReloadResult, UnknownSession>
-  /** Takes the files `block` names as they are on disk, if its view shows them at `hash`. */
+  /**
+   * What the session's watcher does when files the runbook names change:
+   * `facts` is what it read at each path. Each block that names one shows
+   * how its files differ from the text the session holds (`filesOnDisk`).
+   * A path no block names is not the watcher's, and is left out.
+   */
+  readonly filesChanged: (
+    facts: ReadonlyMap<RunbookPath, FileFact>,
+  ) => Effect.Effect<void, UnknownSession>
+  /**
+   * Takes the files `block` names, at the bytes its `filesOnDisk` shows at
+   * `hash`: what `filesChanged` was given, never read again. The session
+   * parses the runbook it holds with them, and reloads (`reload`).
+   */
   readonly reloadFiles: (
     block: BlockId,
     hash: ContentHash,
-  ) => Effect.Effect<ReloadFilesResult, UnknownBlock>
+  ) => Effect.Effect<ReloadFilesResult, UnknownSession | UnknownBlock>
   /** The block once it is not running, or as it is after `timeoutMillis`. */
   readonly waitForBlock: (
     block: BlockId,
@@ -901,9 +920,10 @@ export interface Session {
 
 export const makeSession = Effect.fnUntraced(function* (options: {
   readonly id: SessionId
-  readonly document: RunbookDocument
-  /** The text of the files each block names, by block index, as loaded. */
-  readonly texts: ReadonlyMap<number, RunbookTexts>
+  /** The runbook, as loaded. */
+  readonly runbook: ParsedRunbook
+  /** What the session parses its runbook again for, to take files a block names (`reloadFiles`). */
+  readonly appVersion: string
   /** The folders the engine set for the session. */
   readonly roots: Roots
   /** What every run's environment starts from. */
@@ -922,12 +942,23 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   /** The sequence of the session's first event: where a resumed session's earlier one ended. */
   readonly firstSequence: number
 }) {
-  const { id, roots, baseEnvironment, saver, registry } = options
+  const { id, roots, baseEnvironment, saver, registry, appVersion } = options
   const resume = Option.getOrUndefined(options.resume)
-  const opening = yield* readBlocks(options.document, registry, options.texts)
+  const opening = yield* readBlocks(options.runbook.document, registry, options.runbook.texts)
   // What the session holds of its runbook: what it opened, until it reloads (`reload`).
   let document = opening.document
-  let texts = options.texts
+  let texts = options.runbook.texts
+  /** The runbook's text, and what was at each path its blocks name, as the session holds them. */
+  let source = options.runbook.source
+  let heldFiles = options.runbook.files
+  /**
+   * What the watcher last read at each path the runbook names
+   * (`filesChanged`): what a block's `filesOnDisk` shows, and what
+   * `reloadFiles` takes, never read again.
+   */
+  const disk = new Map<RunbookPath, FileFact>()
+  /** Each block's `filesOnDisk`, by id, while it has one. */
+  const onDisk = new Map<BlockId, FilesOnDisk>()
   let documentView = documentViewOf(document, opening.props, registry)
   let slots = slotsOf(document, registry)
   const credentialSlots = credentialSlotsOf(slots, registry)
@@ -982,9 +1013,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     }
   >()
   /**
-   * Whether the trust a person gave is saved. A reload leaves it: the hash
-   * saved as trusted is the one the person trusted, not the reloaded one.
+   * Whether a person trusted the document the session holds
+   * (`TrustSession`, or the trust a resumed session gets back), or chose
+   * it with `ReloadFiles` over one they had. Only such a document's hash is
+   * saved as trusted. A watcher's reload clears it: the person has not read
+   * the runbook it took. Set only as trust is, so it implies trust.
    */
+  let chosen = false
+  /** Whether trust is saved for the document the session holds. */
   let savedTrust = false
   /** The runbook hash the saver records: the one the session opened with, until it reloads. */
   let savedRunbook = document.hash.runbook
@@ -1040,7 +1076,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           savedRunbook = document.hash.runbook
           writes.push(saver.runbookChanged(savedRunbook))
         }
-        if (trust._tag === "Trusted" && !savedTrust) {
+        if (chosen && !savedTrust) {
           savedTrust = true
           writes.push(saver.trust(document.hash.combined))
         }
@@ -1842,6 +1878,32 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return credentialSlotAt.get(slot.index)?.block.instruction(slot.node.props)
   }
 
+  /** The paths a block names, as the parser named them from its props: none when they don't decode. */
+  const pathsOf = (slot: Slot): ReadonlyArray<RunbookPath> =>
+    slot.node.props === undefined
+      ? []
+      : (resolveTag(registry, slot.node.tag)?.block.runbookFiles(slot.node.props) ?? [])
+
+  /**
+   * Sets each block's `filesOnDisk` from the files the session holds and
+   * what the watcher read, and logs `FilesOnDiskChanged` for each whose
+   * changed: every block, or only those that name one of `read`.
+   */
+  const refreshOnDisk = (emit: (event: EngineEvent) => void, read?: ReadonlySet<RunbookPath>) => {
+    const still = new Set(slots.map((slot) => slot.id))
+    for (const block of onDisk.keys()) if (!still.has(block)) onDisk.delete(block)
+    for (const slot of slots) {
+      const paths = pathsOf(slot)
+      if (read !== undefined && !paths.some((named) => read.has(named))) continue
+      const was = onDisk.get(slot.id)
+      const now = filesOnDiskOf(paths, heldFiles, disk)
+      if (now === undefined) onDisk.delete(slot.id)
+      else onDisk.set(slot.id, now)
+      if (JSON.stringify(now) !== JSON.stringify(was))
+        emit({ _tag: "FilesOnDiskChanged", block: slot.id })
+    }
+  }
+
   const viewOf = (
     slot: Slot,
     logOffset = 0,
@@ -1854,6 +1916,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       ? credentials.stateOf(slot.index)
       : undefined
     const instruction = instructionOf(slot)
+    const shown = onDisk.get(slot.id)
     return {
       ...summaryOf(slot),
       ...(instruction === undefined ? {} : { instruction }),
@@ -1865,6 +1928,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         ? {}
         : { files: Array.from(run.files, ([file, change]) => ({ path: file, change })) }),
       ...(run?.filesTruncated === true ? { filesTruncated: true as const } : {}),
+      ...(shown === undefined ? {} : { filesOnDisk: shown }),
     }
   }
 
@@ -1897,12 +1961,21 @@ export const makeSession = Effect.fnUntraced(function* (options: {
    * runbook no longer has goes, with what was saved of it. The blocks that
    * wait for one that starts over keep their own runs, and wait for it
    * again, as after a reset. Trust stays as it was, for the new hash, while
-   * the session is open; what is saved keeps the hash the person trusted.
+   * the session is open. What is saved keeps the hash the person trusted,
+   * unless `by` is the person, choosing the new hash (`ReloadFiles`) over a
+   * document they trusted or chose (`chosen`).
    */
-  const takeDocument = (next: ParsedRunbook): Effect.Effect<ReloadResult> =>
+  const takeDocument = (
+    next: ParsedRunbook,
+    by: "watcher" | "person",
+  ): Effect.Effect<ReloadResult> =>
     Effect.uninterruptible(
       Effect.gen(function* () {
-        if (next.document.hash.combined === document.hash.combined)
+        // A file missing before and outside the folder now hashes the same, and reads differently.
+        if (
+          next.document.hash.combined === document.hash.combined &&
+          sameFiles(next.files, heldFiles)
+        )
           return { _tag: "Unchanged" } as const
         // Approvals are a later work product: a block awaiting one will count as running.
         const [first, ...rest] = inOnePass(() =>
@@ -1971,8 +2044,12 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           moveTo(published, before, nextSlots, () => true)
           moveTo(statuses, before, nextSlots, () => true)
           // What blocks hold is saved again, against the new runbook and its
-          // files. Trust is not: the person trusted the hash saved, not this one.
+          // files. Trust is only when a person chose this hash over one they
+          // trusted or chose: after the watcher reloads, the hash saved stays
+          // the one the person trusted, until they trust the session again.
           saved.clear()
+          savedTrust = false
+          chosen = chosen && by === "person"
           const stopped = credentials.reload(nextCredentialSlots, kept)
           store.useBlocks(nextCredentialSlots.map((slot) => slot.id))
           document = read.document
@@ -1982,6 +2059,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           slotAt = nextSlotAt
           credentialSlotAt = new Map(nextCredentialSlots.map((slot) => [slot.index, slot]))
           fileHashes = nextFileHashes
+          source = next.source
+          heldFiles = next.files
+          // The watcher stops watching a path no block names, so what it read there goes stale.
+          for (const named of disk.keys()) if (!heldFiles.has(named)) disk.delete(named)
           const hash = document.hash.combined
           emit({ _tag: "DocumentChanged", hash })
           emit({ _tag: "TrustChanged", trust: { trusted: trust._tag === "Trusted", hash } })
@@ -1990,6 +2071,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
             if (form !== undefined)
               emit({ _tag: "FieldsChanged", block: slot.id, fields: fieldViews(form) })
           }
+          refreshOnDisk(emit)
           return stopped
         })
         yield* stopping
@@ -2049,6 +2131,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
           trust = { _tag: "Trusted", runner }
           emit({ _tag: "TrustChanged", trust: { trusted: true, hash: current } })
         }
+        // A session trusted through a watcher's reload is trusted for this hash by the person now.
+        chosen = true
         return { _tag: "Trusted" }
       }),
 
@@ -2075,10 +2159,52 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
 
-    reload: (next) => lock.withPermit(Effect.andThen(notClosing, takeDocument(next))),
+    reload: (next) => lock.withPermit(Effect.andThen(notClosing, takeDocument(next, "watcher"))),
 
-    // No block shows `filesOnDisk` until the session watches its files (a later commit).
-    reloadFiles: (block) => Effect.as(byId(block), { _tag: "NotShown" } as const),
+    filesChanged: (facts) =>
+      lock.withPermit(
+        Effect.andThen(
+          notClosing,
+          update((emit) => {
+            const read = new Set<RunbookPath>()
+            for (const [named, fact] of facts) {
+              if (!heldFiles.has(named)) continue
+              disk.set(named, fact)
+              read.add(named)
+            }
+            refreshOnDisk(emit, read)
+          }),
+        ),
+      ),
+
+    reloadFiles: (block, hash) =>
+      lock.withPermit(
+        Effect.gen(function* () {
+          yield* notClosing
+          const slot = yield* byId(block)
+          if (onDisk.get(slot.id)?.hash !== hash) return { _tag: "NotShown" } as const
+          const files = new Map(heldFiles)
+          for (const named of pathsOf(slot)) {
+            const fact = disk.get(named)
+            if (fact !== undefined) files.set(named, fact)
+          }
+          const next = startParse(source, registry, { file: document.file, appVersion }).finish(
+            files,
+          )
+          // Unreachable: only a runbook's own text refuses it (`refusesRunbook`), and
+          // this text parsed when the session took it. A file a block names stops
+          // that block alone (`badFile`).
+          if (next._tag === "Invalid")
+            return yield* Effect.die(
+              new Error(
+                `This is a bug in Runbooks, not in the runbook: the runbook parsed when the session took it, but not with the files a block showed on disk (${next.errors[0].message}).`,
+              ),
+            )
+          const taken = yield* takeDocument(next, "person")
+          // Unreachable: the block showed files that differ from the session's, and took them.
+          return taken._tag === "Unchanged" ? ({ _tag: "NotShown" } as const) : taken
+        }),
+      ),
 
     runBlock: (block, origin) =>
       lock.withPermit(

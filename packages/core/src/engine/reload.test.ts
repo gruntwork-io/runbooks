@@ -9,6 +9,7 @@ import { Deferred, Effect, Fiber, Layer, Option, Redacted, Schema, Stream } from
 import {
   BlockId,
   defineTask,
+  RunbookPath,
   type TaskError,
   type TaskEvent,
   type TaskInput,
@@ -20,6 +21,7 @@ import {
   type ProviderConfig,
   type ProviderInfo,
 } from "../credential/provider.ts"
+import type { ContentHash } from "../document/document.ts"
 import { FileSystem } from "../services/FileSystem.ts"
 import {
   blockOfStateDir,
@@ -40,6 +42,7 @@ import { Caller, type EventEnvelope, type SessionView } from "./protocol.ts"
 
 const RUNBOOK = "/rb/runbook.mdx"
 const blockId = Schema.decodeSync(BlockId)
+const toPath = Schema.decodeSync(RunbookPath)
 
 type Script = (input: TaskInput) => Stream.Stream<TaskEvent<string>, TaskError>
 
@@ -196,6 +199,14 @@ const opened = Effect.gen(function* () {
     save: (text: string) =>
       Effect.andThen(files.writeFile(RUNBOOK, text), engine.reloadRunbook(session)),
     reload: engine.reloadRunbook(session),
+    /** What the session's watcher does when files the runbook names change on disk. */
+    seen: (...paths: ReadonlyArray<string>) =>
+      engine.filesChanged(
+        session,
+        paths.map((path) => toPath(path)),
+      ),
+    reloadFiles: (block: string, hash: ContentHash) =>
+      engine.reloadFiles({ ...target(block), hash }),
     /** Collects the whole event log; join it after `close`. */
     record: Effect.forkChild(Stream.runCollect(engine.events({ session }))),
     close: engine.closeSession({ session }),
@@ -559,4 +570,424 @@ describe("reloading a session's runbook", () => {
       { scripts: SCRIPTS, database },
     )
   })
+
+  it("saves the reloaded runbook's hash as trusted once a person trusts it again, though it stayed trusted", async () => {
+    const database = memorySessionDatabase()
+    const saved = `${BEFORE}\n\nSaved.`
+    await withEngine(
+      BEFORE,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.save(saved)
+        yield* rb.trust
+        yield* rb.close
+      }),
+      { scripts: SCRIPTS, database },
+    )
+    await withEngine(
+      saved,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(true)
+        expect(rb.view.resumed?.problems).toEqual([])
+      }),
+      { scripts: SCRIPTS, database },
+    )
+  })
+})
+
+/** Outputs the text of `path` as the session gave it to the run. */
+const printsFile =
+  (path: string): Script =>
+  (input) =>
+    Stream.make({ _tag: "Output", key: "out", value: input.files.get(path) ?? "(none)" })
+
+const FILES_RUNBOOK = runbookOf(
+  '<Run id="deploy" command="deploy" path="deploy.sh" outputs={["out"]} />',
+  '<Run id="check" command="check" path="check.sh" outputs={["out"]} />',
+)
+const FILES = { "/rb/deploy.sh": "echo deploy\n", "/rb/check.sh": "echo check\n" }
+const FILE_SCRIPTS = { deploy: printsFile("deploy.sh"), check: printsFile("check.sh") }
+
+/** What the block's latest run was given of the file it names. */
+const ranWith = (view: { readonly outputs: Readonly<Record<string, unknown>> }) =>
+  view.outputs["out"]
+
+describe("a block's files on disk", () => {
+  it("shows how a file a block names differs on disk once the watcher reads it, on that block alone, and runs the text the session holds", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        const recording = yield* rb.record
+        yield* rb.trust
+        const { sequence } = yield* rb.session
+        yield* rb.write("/rb/deploy.sh", "echo deploy\necho again\n")
+        yield* rb.seen("deploy.sh")
+
+        expect((yield* rb.block("deploy")).filesOnDisk?.files).toEqual([
+          {
+            _tag: "Changed",
+            path: toPath("deploy.sh"),
+            change: "modified",
+            hunks: [
+              {
+                heldLine: 1,
+                diskLine: 1,
+                lines: [
+                  { kind: "context", text: "echo deploy" },
+                  { kind: "addition", text: "echo again" },
+                ],
+              },
+            ],
+          },
+        ])
+        expect((yield* rb.block("check")).filesOnDisk).toBeUndefined()
+        expect(ranWith((yield* rb.run("deploy")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo deploy\n",
+        })
+        yield* rb.close
+        expect(
+          after(yield* Fiber.join(recording), sequence).filter((tag) =>
+            tag.startsWith("FilesOnDisk"),
+          ),
+        ).toEqual(["FilesOnDiskChanged deploy"])
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("saves no trust for files a person takes over a runbook the watcher reloaded: opening it again asks for trust", async () => {
+    const database = memorySessionDatabase()
+    const edited = `${FILES_RUNBOOK}\n\nEdited.`
+    await withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        // An edit the person never reads: the watcher takes it.
+        yield* rb.save(edited)
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        const { hash } = yield* rb.document
+        expect((yield* rb.session).trust).toEqual({ trusted: true, hash })
+        yield* rb.close
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES, database },
+    )
+    await withEngine(
+      edited,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(false)
+        expect(rb.view.resumed?.problems).toEqual([{ _tag: "RunbookChanged", blocks: [] }])
+      }),
+      { scripts: FILE_SCRIPTS, files: { ...FILES, "/rb/deploy.sh": "echo deploy v2\n" }, database },
+    )
+  })
+
+  it("saves the hash a person chose with ReloadFiles as trusted: opening the runbook again resumes it trusted, with its runs", async () => {
+    const database = memorySessionDatabase()
+    await withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.run("check")
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        yield* rb.close
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES, database },
+    )
+    await withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        expect(rb.view.trust.trusted).toBe(true)
+        expect(rb.view.resumed?.problems).toEqual([])
+        expect((yield* rb.block("check")).status).toEqual(DONE)
+      }),
+      { scripts: FILE_SCRIPTS, files: { ...FILES, "/rb/deploy.sh": "echo deploy v2\n" }, database },
+    )
+  })
+
+  it("takes the files at the hash it showed: the block starts over with them, and the session stays trusted for the new hash", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.run("deploy")
+        yield* rb.run("check")
+        const recording = yield* rb.record
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const { sequence } = yield* rb.session
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+
+        const deploy = yield* rb.block("deploy")
+        expect([deploy.status, deploy.filesOnDisk]).toEqual([{ _tag: "Idle" }, undefined])
+        expect((yield* rb.block("check")).status).toEqual(DONE)
+        const { hash } = yield* rb.document
+        expect(hash).not.toBe(rb.view.trust.hash)
+        expect((yield* rb.session).trust).toEqual({ trusted: true, hash })
+        expect(ranWith((yield* rb.run("deploy")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo deploy v2\n",
+        })
+        yield* rb.close
+        expect(after(yield* Fiber.join(recording), sequence).slice(0, 5)).toEqual([
+          "OutputsWithdrawn deploy",
+          "DocumentChanged",
+          "TrustChanged",
+          "FilesOnDiskChanged deploy",
+          "BlockStatusChanged deploy",
+        ])
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("takes nothing for a block that shows no files on disk, or at a hash it no longer shows", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        expect(yield* rb.reloadFiles("deploy", rb.view.trust.hash)).toEqual({ _tag: "NotShown" })
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const first = (yield* rb.block("deploy")).filesOnDisk?.hash
+        yield* rb.write("/rb/deploy.sh", "echo deploy v3\n")
+        yield* rb.seen("deploy.sh")
+        const latest = (yield* rb.block("deploy")).filesOnDisk?.hash
+        expect(latest).not.toBe(first)
+        if (first === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", first)).toEqual({ _tag: "NotShown" })
+        expect((yield* rb.document).hash).toBe(rb.view.trust.hash)
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("takes the bytes it showed, not what is on disk by the time it takes them", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.write("/rb/deploy.sh", "echo shown\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        // Saved again before the person chose to take it, and not read since.
+        yield* rb.write("/rb/deploy.sh", "echo later\n")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        expect(ranWith((yield* rb.run("deploy")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo shown\n",
+        })
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("takes nothing while a block runs, and names the blocks running", () => {
+    const gate = makeGate()
+    return withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.start("check")
+        yield* Deferred.await(gate.taken)
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({
+          _tag: "Running",
+          blocks: [blockId("check")],
+        })
+        expect((yield* rb.block("deploy")).filesOnDisk).toEqual(shown)
+        yield* Deferred.succeed(gate.open, undefined)
+      }),
+      { scripts: { ...FILE_SCRIPTS, check: gated(gate) }, files: FILES },
+    )
+  })
+
+  it("takes only the files of the block it is asked for: another block keeps showing its own", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.write("/rb/check.sh", "echo check v2\n")
+        yield* rb.seen("deploy.sh", "check.sh")
+        const check = (yield* rb.block("check")).filesOnDisk
+        const deploy = (yield* rb.block("deploy")).filesOnDisk
+        if (deploy === undefined || check === undefined) throw new Error("no files on disk")
+        expect(yield* rb.reloadFiles("deploy", deploy.hash)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        expect((yield* rb.block("check")).filesOnDisk).toEqual(check)
+        expect(ranWith((yield* rb.run("check")).block)).toEqual({
+          _tag: "Shown",
+          value: "echo check\n",
+        })
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("stops showing a file once it is on disk as the session holds it again", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        const recording = yield* rb.record
+        const { sequence } = yield* rb.session
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        // Read again with nothing changed: the block shows what it showed.
+        yield* rb.seen("deploy.sh")
+        yield* rb.write("/rb/deploy.sh", FILES["/rb/deploy.sh"])
+        yield* rb.seen("deploy.sh")
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        yield* rb.close
+        expect(
+          after(yield* Fiber.join(recording), sequence).filter((tag) =>
+            tag.startsWith("FilesOnDisk"),
+          ),
+        ).toEqual(["FilesOnDiskChanged deploy", "FilesOnDiskChanged deploy"])
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("shows a file a block names that was missing when the runbook opened, and taking it configures the block", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        expect((yield* rb.block("deploy")).status).toEqual({ _tag: "Misconfigured" })
+        yield* rb.write("/rb/deploy.sh", "echo deploy\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        expect(shown?.files).toMatchObject([{ path: "deploy.sh", change: "created" }])
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.block("deploy")).status).toEqual({ _tag: "Idle" })
+      }),
+      { scripts: FILE_SCRIPTS, files: { "/rb/check.sh": "echo check\n" } },
+    ))
+
+  it("stops showing a file the reloaded runbook holds as it is on disk", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        const recording = yield* rb.record
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const { sequence } = yield* rb.session
+        // The runbook is saved: the watcher reloads it, reading each file again.
+        yield* rb.save(`${FILES_RUNBOOK}\n\nSaved.`)
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        yield* rb.close
+        expect(after(yield* Fiber.join(recording), sequence)).toContain("FilesOnDiskChanged deploy")
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("forgets what it was given at a path no block names, and what it read at one the runbook stops naming", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        yield* rb.write("/rb/other.sh", "echo other\n")
+        yield* rb.seen("other.sh")
+        yield* rb.write("/rb/other.sh", "echo other v2\n")
+        // Saved naming other.sh in place of deploy.sh, each read as it is now.
+        yield* rb.save(FILES_RUNBOOK.replace('path="deploy.sh"', 'path="other.sh"'))
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        yield* rb.write("/rb/deploy.sh", "echo deploy v3\n")
+        yield* rb.save(FILES_RUNBOOK)
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("takes a file the block could not take before and still cannot, giving it the error opening would", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.write("/rb/deploy.sh", "x".repeat(1024 * 1024 + 1))
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        expect(shown?.files).toMatchObject([{ _tag: "Unreadable", path: "deploy.sh" }])
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.block("deploy")).filesOnDisk).toBeUndefined()
+        const [deploy] = (yield* rb.document).blocks
+        expect(deploy?._tag === "Misconfigured" ? deploy.errors[0]?.message : "").toContain(
+          "is over",
+        )
+      }),
+      { scripts: FILE_SCRIPTS, files: { "/rb/check.sh": "echo check\n" } },
+    ))
+
+  it("takes a file two blocks name for both: the other stops showing it, and starts over", () =>
+    withEngine(
+      runbookOf(
+        '<Run id="deploy" command="deploy" path="deploy.sh" outputs={["out"]} />',
+        '<Run id="again" command="deploy" path="deploy.sh" outputs={["out"]} />',
+      ),
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.run("again")
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        expect((yield* rb.block("again")).filesOnDisk).toEqual(shown)
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        const again = yield* rb.block("again")
+        expect([again.status, again.filesOnDisk]).toEqual([{ _tag: "Idle" }, undefined])
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
+
+  it("takes the files into the runbook as the session last reloaded it", () =>
+    withEngine(
+      FILES_RUNBOOK,
+      Effect.gen(function* () {
+        const rb = yield* opened
+        yield* rb.trust
+        yield* rb.save(
+          runbookOf(FILES_RUNBOOK, '<Run id="added" command="check" path="check.sh" />'),
+        )
+        yield* rb.write("/rb/deploy.sh", "echo deploy v2\n")
+        yield* rb.seen("deploy.sh")
+        const shown = (yield* rb.block("deploy")).filesOnDisk
+        if (shown === undefined) throw new Error("deploy shows no files on disk")
+        expect(yield* rb.reloadFiles("deploy", shown.hash)).toEqual({ _tag: "Reloaded" })
+        expect((yield* rb.document).blocks.map((block) => block.id)).toEqual(
+          ["deploy", "check", "added"].map((block) => blockId(block)),
+        )
+      }),
+      { scripts: FILE_SCRIPTS, files: FILES },
+    ))
 })

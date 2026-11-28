@@ -316,6 +316,8 @@ class Parse {
         warnings: [...this.warnings].sort(order),
       },
       texts,
+      source: this.source,
+      files,
     }
   }
 
@@ -1182,7 +1184,7 @@ const MIB = 1024 * 1024
  * The rest of a `badFile` message, after "names <path>": what is wrong, and
  * what a block may name. `fact` is undefined when the path was not read.
  */
-function fileProblem(named: RunbookPath, fact: BadFileFact | undefined): string {
+export function fileProblem(named: RunbookPath, fact: BadFileFact | undefined): string {
   if (fact === undefined)
     return ", which was not read. Load the runbook with loadRunbook, which reads the files its blocks name."
   const at = (path: string) => (path === named ? ", which" : `, and ${path} in it`)
