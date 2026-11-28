@@ -4,6 +4,8 @@
  * links, which the CSP's style-src 'self' allows; it allows no inline style.
  */
 @import "tailwindcss" source("./");
+/* The blocks' views (blocks/<name>/View.tsx) draw with Tailwind classes too. */
+@source "../../../blocks";
 
 @layer base {
   html,

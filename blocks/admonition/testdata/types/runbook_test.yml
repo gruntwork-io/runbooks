@@ -1,0 +1,17 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: types
+    steps:
+      - block: a_note
+        expect: success
+      - block: an_info
+        expect: success
+      - block: a_warning
+        expect: success
+      - block: a_danger
+        expect: success
+      - block: untitled
+        expect: success

@@ -3,7 +3,8 @@ import { Schema, Stream } from "effect"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { type Alias, defineDisplay, defineTask } from "@runbooks/blocks-core/contract"
-import type { Registry } from "@runbooks/blocks-core/registry"
+import { isAlias, type Registry } from "@runbooks/blocks-core/registry"
+import * as registry from "./index.ts"
 import { type View, type ViewRequest, views, type ViewsFor, viewsFromJson } from "./views.ts"
 
 const NoteProps = Schema.Struct({ title: Schema.String })
@@ -122,7 +123,11 @@ describe("a view map drawing from the props the engine sends", () => {
 })
 
 describe("the app's view map", () => {
-  it("has no views while the registry has no display blocks", () => {
-    expect(views).toEqual({})
+  it("has a view for each display block in the registry", () => {
+    const display = Object.entries(registry as Registry).flatMap(([tag, entry]) =>
+      !isAlias(entry) && entry.class === "display" ? [tag] : [],
+    )
+    expect(display.length).toBeGreaterThan(0)
+    expect(Object.keys(views).sort()).toEqual(display.sort())
   })
 })
