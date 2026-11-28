@@ -442,6 +442,13 @@ export interface TaskBlock<P, K extends string, R, N extends string = never> ext
   /** Its scripts, which run as written (`ScriptSource`). Each `File` source is one of its `runbookFiles`. */
   readonly scripts?: (p: P) => ReadonlyArray<ScriptSource<P>>
   /**
+   * What one of its scripts is written in, given its text: the `language`
+   * its instruction's `code` step gives that script, and the one the engine
+   * gives with a script file's text (`GetScriptFiles`), so the two name one
+   * language. Absent: `text`, read as plain text.
+   */
+  readonly scriptLanguage?: (p: P, text: string) => string
+  /**
    * How long a run may take, in milliseconds. The engine stops a run still
    * going then, as a cancel does, and the task fails with `TaskTimedOut`.
    * Absent, or undefined for these props: no limit.
@@ -632,6 +639,7 @@ export const BEFORE_TRUST = {
   fields: true,
   paths: true,
   scripts: true,
+  scriptLanguage: true,
   timeLimit: true,
   exclusive: true,
   step: true,

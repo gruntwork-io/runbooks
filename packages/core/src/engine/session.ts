@@ -93,6 +93,7 @@ import {
   type OutputView,
   type Refusal,
   RunId,
+  type ScriptFiles,
   type ReloadFilesResult,
   type ReloadHeld,
   type RunResult,
@@ -863,6 +864,8 @@ export interface Session {
     logOffset: number | undefined,
     logLimit: number | undefined,
   ) => Effect.Effect<BlockView, UnknownBlock>
+  /** The text of the files the block runs as scripts, as the session holds them, from the document it holds now. */
+  readonly getScriptFiles: (block: BlockId) => Effect.Effect<ScriptFiles, UnknownBlock>
   /** Runs a task or submits a form. An agent's also waits until every field it reads is reviewed. */
   readonly runBlock: (
     block: BlockId,
@@ -2292,6 +2295,10 @@ export const makeSession = Effect.fnUntraced(function* (options: {
 
     getBlock: (block, logOffset, logLimit) =>
       Effect.map(byId(block), (slot) => viewOf(slot, logOffset, logLimit)),
+
+    // The session gives each script file's text in a later commit.
+    getScriptFiles: (block) =>
+      Effect.map(byId(block), () => ({ document: documentView.hash, files: [] })),
 
     reload: (read, files) =>
       lock.withPermit(

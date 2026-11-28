@@ -28,6 +28,7 @@ export const EngineHandlers: Layer.Layer<
       TrustSession: engine.trustSession,
       Events: engine.events,
       GetBlock: engine.getBlock,
+      GetScriptFiles: engine.getScriptFiles,
       SetValues: engine.setValues,
       ConfirmValues: engine.confirmValues,
       RunBlock: engine.runBlock,
