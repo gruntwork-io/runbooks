@@ -23,7 +23,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import type { Locator, Page, TestInfo } from "@playwright/test"
-import { expect, type Launched, type LaunchOptions, test } from "./fixtures.ts"
+import { expect, type Launched, type LaunchOptions, test, trust } from "./fixtures.ts"
 
 function runbook(heading: string, message: string): string {
   return `# ${heading}\n\n<Command id="greet" command="echo ${message}" />\n`
@@ -45,9 +45,7 @@ async function launchOn(
 ): Promise<Page> {
   const { page } = await launch({ args: [...flags, folder] })
   await expect(page.getByRole("heading", { name: "Before edit" })).toBeVisible()
-  const prompt = page.getByRole("region", { name: "Trust this runbook" })
-  await prompt.getByRole("button", { name: "I trust this runbook" }).click()
-  await expect(prompt).toHaveCount(0)
+  await trust(page)
   return page
 }
 

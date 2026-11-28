@@ -10,18 +10,11 @@
  * Runs against the build in app-out/: `just app-test-e2e` builds it first.
  */
 import path from "node:path"
-import type { Locator, Page } from "@playwright/test"
-import { expect, test } from "./fixtures.ts"
+import type { Locator } from "@playwright/test"
+import { expect, test, trust } from "./fixtures.ts"
 
 const testdata = (name: string) =>
   path.join(import.meta.dirname, "..", "blocks", "inputs", "testdata", name)
-
-/** Trusts the runbook through the trust prompt. */
-async function trust(page: Page) {
-  const prompt = page.getByRole("region", { name: "Trust this runbook" })
-  await prompt.getByRole("button", { name: "I trust this runbook" }).click()
-  await expect(prompt).toHaveCount(0)
-}
 
 /** Runs a task block and waits for it to be done. */
 async function run(block: Locator) {

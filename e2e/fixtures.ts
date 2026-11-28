@@ -16,7 +16,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test"
-import { readFromMain } from "../electron/e2e/main-process.ts"
+import { readFromMain, runInMain } from "../electron/e2e/main-process.ts"
 
 export { expect }
 
@@ -182,4 +182,32 @@ export function runAsPage(app: ElectronApplication, script: string): Promise<unk
     },
     script,
   )
+}
+
+/** Trusts the runbook through the trust prompt. */
+export async function trust(page: Page) {
+  const prompt = page.getByRole("region", { name: "Trust this runbook" })
+  await prompt.getByRole("button", { name: "I trust this runbook" }).click()
+  await expect(prompt).toHaveCount(0)
+}
+
+/** Has main record every message it sends the app's window, and returns a reader of them. */
+export async function recordSentToPage(app: ElectronApplication): Promise<() => Promise<string[]>> {
+  await runInMain(
+    app,
+    ({ BrowserWindow }) => {
+      const [appWindow] = BrowserWindow.getAllWindows()
+      if (!appWindow) throw new Error("the app has no window")
+      const sent: string[] = []
+      Object.assign(globalThis, { sentToPage: sent })
+      const send = appWindow.webContents.send.bind(appWindow.webContents)
+      appWindow.webContents.send = (channel, ...args) => {
+        sent.push(String(args[0]))
+        send(channel, ...args)
+      }
+    },
+    undefined,
+  )
+  return () =>
+    readFromMain(app, () => [...(Reflect.get(globalThis, "sentToPage") as string[])], undefined)
 }
