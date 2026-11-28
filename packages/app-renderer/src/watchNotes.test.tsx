@@ -5,6 +5,7 @@ import { DocumentView, SessionSummary, SessionView } from "@runbooks/core/protoc
 import { FollowingContext } from "./following.ts"
 import { type Live, makeLiveStore } from "./live.ts"
 import { makeReloadingStore } from "./reload.ts"
+import { NO_SCRIPT_FILES } from "./scriptFiles.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
@@ -68,6 +69,7 @@ const page = (
         settings: makeSettingsStore(undefined),
         trusting: makeTrustingStore(),
         reloading: makeReloadingStore(),
+        scriptFiles: NO_SCRIPT_FILES,
         act: () => Effect.succeed(undefined),
         trust: () => Effect.void,
         reload: () => Effect.void,

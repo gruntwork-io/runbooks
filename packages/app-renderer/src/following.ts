@@ -3,7 +3,8 @@
  * prompt read it: the block's view and the session's trust now
  * (`live.ts`), the settings now (`settings.ts`), what came of asking to
  * trust the session (`trust.ts`) or to reload a block's files
- * (`reload.ts`), and a way to ask the engine to act on a block, trust the
+ * (`reload.ts`), the script files of each block whose source view is open
+ * (`scriptFiles.ts`), and a way to ask the engine to act on a block, trust the
  * session, or reload a block's files. The app provides it (`app.tsx`).
  * With none, as a page rendered on its own, no block has a view, no trust
  * or setting is read, and nothing is asked.
@@ -28,6 +29,12 @@ import type {
 import { clientErrorText, defectText } from "./defect.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { askToReload, makeReloadingStore, type Reloading, type ReloadingStore } from "./reload.ts"
+import {
+  makeScriptFilesStore,
+  NO_SCRIPT_FILES,
+  type ScriptFilesShown,
+  type ScriptFilesStore,
+} from "./scriptFiles.ts"
 import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
 import {
   askToTrust,
@@ -44,6 +51,8 @@ export interface Following {
   readonly trusting: TrustingStore
   /** What came of the last ask to reload each block's files. */
   readonly reloading: ReloadingStore
+  /** The script files of each block whose source view is open, which a view opens. */
+  readonly scriptFiles: ScriptFilesStore
   /** Asks the engine for `request` on `block`. It gives what to tell the person about the answer, if anything. */
   readonly act: (
     block: BlockView["block"],
@@ -71,6 +80,7 @@ export const FollowingContext = createContext<Following>({
   settings: makeSettingsStore(undefined),
   trusting: makeTrustingStore(),
   reloading: makeReloadingStore(),
+  scriptFiles: NO_SCRIPT_FILES,
   act: () => Effect.succeed(undefined),
   trust: () => Effect.void,
   reload: () => Effect.void,
@@ -138,6 +148,13 @@ export function useReloading(block: BlockView["block"]): Reloading | undefined {
   return useSyncExternalStore(reloading.subscribe, select, select)
 }
 
+/** What `block`'s open source views show, or nothing while none is open. */
+export function useScriptFiles(block: BlockView["block"]): ScriptFilesShown | undefined {
+  const { scriptFiles } = useContext(FollowingContext)
+  const select = () => scriptFiles.get(block)
+  return useSyncExternalStore(scriptFiles.subscribe, select, select)
+}
+
 /**
  * The window following `session` in `engine`, from its runbook and the
  * settings as the window read them (`opened`). `start` follows the session
@@ -153,11 +170,13 @@ export function followingOf(
   const settingsNow = makeSettingsStore(opened.settings)
   const trusting = makeTrustingStore()
   const reloading = makeReloadingStore()
+  const scriptFiles = makeScriptFilesStore(engine, session, live)
   return {
     live,
     settings: settingsNow,
     trusting,
     reloading,
+    scriptFiles,
     act: (block, request) => ask(engine, session, block, request),
     trust: () => {
       const { document } = live.get()
@@ -180,6 +199,7 @@ export function followingOf(
         )
       }),
     start: () => {
+      const stopReading = scriptFiles.start()
       const fiber = Effect.runFork(
         Effect.all(
           [
@@ -192,7 +212,10 @@ export function followingOf(
           },
         ),
       )
-      return () => fiber.interruptUnsafe()
+      return () => {
+        fiber.interruptUnsafe()
+        stopReading()
+      }
     },
   }
 }

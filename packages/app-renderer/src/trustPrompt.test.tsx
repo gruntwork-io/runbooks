@@ -11,6 +11,7 @@ import {
 import { type Following, FollowingContext } from "./following.ts"
 import { makeLiveStore } from "./live.ts"
 import { makeReloadingStore } from "./reload.ts"
+import { NO_SCRIPT_FILES } from "./scriptFiles.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore, type Trusting } from "./trust.ts"
@@ -105,6 +106,7 @@ const page = (blocks: ReadonlyArray<Record<string, unknown>>, shown: Shown = {})
     ),
     trusting: store,
     reloading: makeReloadingStore(),
+    scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
     reload: () => Effect.void,
