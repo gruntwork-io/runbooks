@@ -435,6 +435,33 @@
   .form-hidden {
     font-style: italic;
   }
+  .form-section {
+    display: grid;
+    gap: calc(var(--spacing) * 4);
+  }
+  .form-section-name {
+    padding-bottom: calc(var(--spacing) * 1);
+    border-bottom: 1px solid var(--color-zinc-200);
+    font-weight: var(--font-weight-semibold);
+  }
+  /* No arrow as generated text: it would join the button's name. */
+  .form-section-name button {
+    color: var(--color-blue-700);
+    cursor: pointer;
+  }
+  .form-section-name button:hover {
+    text-decoration: underline;
+  }
+  .form-section-error {
+    color: var(--color-red-700);
+    font-size: var(--text-sm);
+    font-weight: var(--font-weight-normal);
+  }
+  .form-reset {
+    justify-self: start;
+    color: var(--color-blue-700);
+    font-size: var(--text-sm);
+  }
   .form-check {
     display: flex;
     gap: calc(var(--spacing) * 2);

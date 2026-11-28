@@ -5,13 +5,19 @@
  * global object, so a test file installs it for itself alone. React DOM
  * decides at load whether it has a DOM, so a test file loads it, through
  * Testing Library, only after `installDom`.
+ *
+ * Every test file gets the same window: Testing Library loads once for the
+ * run, and its `screen` keeps the body of the document it loaded with.
  */
 import { JSDOM } from "jsdom"
 
+let shared: (Window & typeof globalThis) | undefined
+
 export function installDom(): () => void {
-  const { window } = new JSDOM("<!doctype html><html><body></body></html>", {
+  shared ??= new JSDOM("<!doctype html><html><body></body></html>", {
     url: "http://localhost/",
-  })
+  }).window
+  const window = shared
   const added = Object.getOwnPropertyNames(window).filter((key) => !(key in globalThis))
   for (const key of added)
     Object.defineProperty(globalThis, key, {
@@ -24,6 +30,5 @@ export function installDom(): () => void {
   return () => {
     for (const key of [...added, "IS_REACT_ACT_ENVIRONMENT"])
       Reflect.deleteProperty(globalThis, key)
-    window.close()
   }
 }

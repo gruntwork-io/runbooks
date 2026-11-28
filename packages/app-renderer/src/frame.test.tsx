@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { Effect, Queue, Schema } from "effect"
+import { Effect, Fiber, Queue, Schema } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { View, ViewRequest } from "@runbooks/blocks/views"
 import {
@@ -121,10 +121,13 @@ describe("a block's frame", () => {
     )
   })
 
-  it("draws a form or a credential block with no view, its markdown, and a line that says so", () => {
-    const form = framed(placed({ id: "config", class: "form" }), text("Your settings."))
-    expect(form).toContain("Your settings.")
-    expect(form).toContain("The window can&#x27;t show this form&#x27;s fields yet.")
+  it("draws a form block's markdown before the engine has sent its view", () => {
+    expect(framed(placed({ id: "config", class: "form" }), text("Your settings."))).toContain(
+      "Your settings.",
+    )
+  })
+
+  it("draws a credential block with no view, its markdown, and a line that says so", () => {
     const credential = framed(placed({ id: "cloud", class: "credential" }), text("Sign in first."))
     expect(credential).toContain("Sign in first.")
     expect(credential).toContain("The window can&#x27;t show this sign-in yet.")
@@ -168,6 +171,19 @@ const view = (
     outputs: {},
     ...fields,
   })
+
+/** A form's field, as the engine sends it. */
+const REGION = {
+  name: "region",
+  type: "string",
+  description: { type: "root", children: [] },
+  required: true,
+  sensitive: false,
+  readOnly: false,
+  validations: [],
+  reviewed: false,
+  unresolved: [],
+}
 
 /** The window following a session the engine holds `views` of, as `follow` would show it. */
 const followingViews = (...views: BlockView[]): Following => {
@@ -410,6 +426,41 @@ describe("a task's default view", () => {
     expect(shown({ _tag: "Blocked", by: [{ _tag: "Untrusted" }] }, [])).not.toContain("<button")
   })
 
+  it("draws a form's fields under its markdown, then Submit and Reset as the engine offers them", () => {
+    const shown = page(
+      followingViews(
+        view(
+          "config",
+          { _tag: "Done", outcome: "success" },
+          {
+            class: "form",
+            actions: ["run", "reset", "setValues", "confirmValues"],
+            fields: [{ ...REGION, value: { _tag: "Shown", value: "eu-west-1" } }],
+          },
+        ),
+      ),
+      placed({ id: "config", class: "form" }),
+    )
+    expect(shown).toContain('<p class="block-status">Done</p>')
+    expect(shown).toContain('value="eu-west-1"')
+    expect(shown).toContain(
+      '<div class="block-actions"><button type="button">Submit</button><button type="button">Undo Submit</button></div>',
+    )
+    expect(shown.indexOf('data-testid="field-region"')).toBeLessThan(shown.indexOf(">Submit<"))
+    const waiting = page(
+      followingViews(
+        view(
+          "config",
+          { _tag: "NeedsInput", fields: ["region"] },
+          { class: "form", actions: ["setValues"], fields: [REGION] },
+        ),
+      ),
+      placed({ id: "config", class: "form" }),
+    )
+    expect(waiting).toContain('<p class="block-status">Needs input: region</p>')
+    expect(waiting).not.toContain("<button")
+  })
+
   it("asks the engine for each action as the view asks for it", () => {
     expect(
       buttonsFor(["run", "cancel", "reset", "setValues", "confirmValues", "credential"]),
@@ -540,8 +591,62 @@ describe("the window asking the engine for a block", () => {
       "It runs once you approve it.",
     ],
     ["notRunning", { _tag: "CancelBlock" }, "It wasn't running, so nothing was cancelled."],
+    // A field's error shows on the field; a value not entered, here.
+    [
+      { errors: { region: "Region is required." }, rejected: {}, unreviewed: [] },
+      { _tag: "SetValues", values: { region: "" } },
+      undefined,
+    ],
+    [
+      { errors: {}, rejected: { owner: "It is read-only." }, unreviewed: [] },
+      { _tag: "SetValues", values: { owner: "me" } },
+      "owner: It is read-only.",
+    ],
   ] as const)("says what the engine answered %j", async (answer, request, line) => {
     expect((await asking(answer, request)).said).toBe(line)
+  })
+
+  it("sends each request once the engine answered the one before, in the order asked", async () => {
+    let answerValues = () => {}
+    const answered: string[] = []
+    const main = fakeMain((tag, payload) => {
+      if (tag === "GetSession" || tag === "GetBlock") return undefined
+      if (tag === "RunBlock") return { _tag: "Submitted" }
+      const values = JSON.stringify(payload)
+      // The first values wait until the test answers them.
+      return answered.length > 0
+        ? (answered.push(values), { errors: {}, rejected: {}, unreviewed: [] })
+        : new Promise((done) => {
+            answerValues = () => {
+              answered.push(values)
+              done({ errors: {}, rejected: {}, unreviewed: [] })
+            }
+          })
+    })
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const engine = yield* makeEngineClient(main.bridge)
+          const following = followingOf(engine, Schema.decodeSync(SessionId)(SESSION), {
+            document: OPENED,
+            settings: Schema.decodeUnknownSync(Settings)(SETTINGS),
+          })
+          const block = Schema.decodeSync(BlockView.fields.block)("config")
+          const asks = [
+            following.act(block, { _tag: "SetValues", values: { region: "e" } }),
+            following.act(block, { _tag: "SetValues", values: { region: "eu" } }),
+            following.act(block, { _tag: "RunBlock" }),
+          ]
+          const all = yield* Effect.forkChild(Effect.all(asks, { concurrency: "unbounded" }))
+          yield* Effect.sleep("50 millis")
+          expect(main.asked.map(({ tag }) => tag)).toEqual(["SetValues"])
+          answerValues()
+          yield* Fiber.join(all)
+        }),
+      ).pipe(Effect.timeout("2 seconds")),
+    )
+    expect(main.asked.map(({ tag }) => tag)).toEqual(["SetValues", "SetValues", "RunBlock"])
+    expect(answered.map((values) => JSON.parse(values).values.region)).toEqual(["e", "eu"])
   })
 
   it("says the engine failed when the call dies, rather than saying nothing", async () => {
@@ -750,7 +855,11 @@ describe("instruction mode", () => {
               ],
             },
           ),
-          view("config", { _tag: "Idle" }, { class: "form" }),
+          view(
+            "config",
+            { _tag: "Idle" },
+            { class: "form", actions: ["run", "setValues"], fields: [REGION] },
+          ),
         ),
       ),
       placed({ id: "cloud", class: "credential" }),
@@ -760,7 +869,9 @@ describe("instruction mode", () => {
     expect(shown).toContain('<a href="https://console.example.com/">The cloud&#x27;s console</a>')
     expect(shown).toContain("A local file (file:///etc/passwd)")
     expect(shown).not.toContain("this sign-in yet")
-    expect(shown).toContain("The window can&#x27;t show this form&#x27;s fields yet.")
+    // A form's fields, which the person fills in for the instructions, and nothing to run.
+    expect(shown).toContain('data-testid="field-region"')
+    expect(shown).not.toContain(">Submit</button>")
   })
 
   it("runs nothing, even when a view asks as it draws", () => {
