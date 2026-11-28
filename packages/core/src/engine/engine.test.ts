@@ -1214,7 +1214,8 @@ describe("Engine values", () => {
         return yield* rb.fields("config")
       }),
     )
-    const [region, count, accounts] = fields ?? []
+    const named = (name: string) => fields?.find((field) => field.name === name)
+    const [region, count, accounts] = [named("region"), named("count"), named("accounts")]
     expect(region?.section).toBe("Where")
     expect(region?.optionLabels).toEqual({ "us-east-1": "N. Virginia", "eu-west-1": "Ireland" })
     expect(count).not.toHaveProperty("section")
@@ -1225,6 +1226,80 @@ describe("Engine values", () => {
       expect(field).not.toHaveProperty("schema")
       expect(field).not.toHaveProperty("schemaInstanceLabel")
     }
+  })
+
+  it("shows a form's fields in section order, with its sections, and a form with none has no sections", async () => {
+    await withEngine(
+      [
+        withFields('<Form id="config">', [
+          "- name: memory",
+          "  type: int",
+          "  section: Advanced",
+          "- name: name",
+          "  type: string",
+          "- name: region",
+          "  type: string",
+          "  section: Where",
+          "- name: timeout",
+          "  type: int",
+          "  section: Advanced",
+        ]),
+        withFields('<Form id="plain">', ["- name: name", "  type: string"]),
+      ].join("\n\n"),
+      {},
+      Effect.gen(function* () {
+        const rb = yield* commandsFor(yield* open)
+        const view = yield* rb.block("config")
+        expect(view.fields?.map((f) => [f.name, f.section])).toEqual([
+          ["name", undefined],
+          ["memory", "Advanced"],
+          ["timeout", "Advanced"],
+          ["region", "Where"],
+        ])
+        expect(view.sections).toEqual([
+          { name: "Advanced", collapsed: false },
+          { name: "Where", collapsed: false },
+        ])
+        expect(yield* rb.block("plain")).not.toHaveProperty("sections")
+      }),
+    )
+  })
+
+  it("refuses a default that reads other values, and options from an output, as not built yet", async () => {
+    await withEngine(
+      [
+        '<Run id="regions" command="ok" outputs={["names"]} />',
+        withFields('<Form id="config">', [
+          "- name: bucket",
+          "  type: string",
+          '  default: "{{ .Project }}-state"',
+          "- name: region",
+          "  type: enum",
+          "  optionsFrom: { block: regions, output: names }",
+        ]),
+      ].join("\n\n"),
+      { ok },
+      Effect.gen(function* () {
+        const view = yield* open
+        const rb = yield* commandsFor(view)
+        const document = yield* (yield* Engine).getDocument({ session: view.session })
+        const config = document.blocks[1]
+        const errors = config?._tag === "Misconfigured" ? config.errors : []
+        expect(errors.map((e) => [e.code, e.location.block?.id, e.message])).toEqual([
+          [
+            "badProp",
+            "config",
+            'The default of the field "bucket" reads other values with {{ }}, which is not built yet: give it a plain value.',
+          ],
+          [
+            "badProp",
+            "config",
+            'The options of the field "region" come from the output "names" of "regions", which is not built yet: list them in its options.',
+          ],
+        ])
+        expect((yield* rb.block("config")).status).toEqual({ _tag: "Misconfigured" })
+      }),
+    )
   })
 
   it("shows each field's description as the tree the window walks, parsed as markdown, not MDX", async () => {
@@ -2146,11 +2221,12 @@ describe("Engine values", () => {
   })
 
   it("never counts as done a form in a loop of forms that wait for each other", async () => {
+    // A default that reads other values is not built yet; any other prop that reads an output still waits for it.
     const reading = (id: string, targets: ReadonlyArray<string>) =>
       withFields(`<Form id="${id}">`, [
         "- name: x",
         "  type: string",
-        `  default: "${targets.map((target) => `{{ .outputs.${target}.x }}`).join(" ")}"`,
+        `  description: "${targets.map((target) => `{{ .outputs.${target}.x }}`).join(" ")}"`,
       ])
     // The parser reports the loop at `a`, the first; `b` and `c` still wait for each other.
     const runbook = [reading("a", ["b"]), reading("b", ["a", "c"]), reading("c", ["b"])]
@@ -2340,6 +2416,87 @@ describe("Engine values", () => {
         }),
       )
     })
+  })
+})
+
+describe("a task's own form", () => {
+  /** A `<Run>` with a form in its markdown children: the form is its own. */
+  const withOwnForm = (lines: ReadonlyArray<string>) =>
+    [
+      '<Run id="deploy" command="ok">',
+      "",
+      withFields('<Form id="opts">', lines),
+      "",
+      "</Run>",
+    ].join("\n")
+
+  it("is no step and has no Submit: it counts as submitted, done while it has no errors", async () => {
+    await withEngine(
+      withOwnForm(["- name: region", "  type: string", "  required: true"]),
+      { ok },
+      Effect.gen(function* () {
+        const view = yield* open
+        const rb = yield* commandsFor(view)
+        const document = yield* (yield* Engine).getDocument({ session: view.session })
+        expect(
+          document.blocks.map((b) => [
+            b.tag,
+            b._tag === "Configured" && b.step,
+            b._tag === "Configured" ? b.nestedIn : "misconfigured",
+          ]),
+        ).toEqual([
+          ["Run", true, undefined],
+          ["Form", false, 0],
+        ])
+        yield* rb.trust
+        const opts = yield* rb.block("opts")
+        expect([opts.status, opts.actions]).toEqual([
+          { _tag: "NeedsInput", fields: ["region"] },
+          ["setValues", "confirmValues"],
+        ])
+        expect(yield* rb.status("deploy")).toEqual({
+          _tag: "Blocked",
+          by: [{ _tag: "WaitingFor", block: blockId("opts"), capability: "values" }],
+        })
+
+        yield* rb.set("opts", { region: "eu-west-1" })
+        expect(yield* rb.status("opts")).toEqual({ _tag: "Done", outcome: "success" })
+        expect(yield* rb.status("deploy")).toEqual({ _tag: "Idle" })
+        // Nothing undoes a submit it never needed.
+        yield* rb.reset("opts")
+        expect(yield* rb.status("opts")).toEqual({ _tag: "Done", outcome: "success" })
+        expect((yield* rb.block("opts")).actions).toEqual(["setValues", "confirmValues"])
+      }),
+    )
+  })
+
+  it("is a step of its own outside a task", async () => {
+    await withEngine(
+      [
+        '<Note title="Outer">',
+        "",
+        withFields('<Form id="opts">', ["- name: region", "  type: string"]),
+        "",
+        "</Note>",
+      ].join("\n"),
+      {},
+      Effect.gen(function* () {
+        const view = yield* open
+        const rb = yield* commandsFor(view)
+        yield* rb.trust
+        const document = yield* (yield* Engine).getDocument({ session: view.session })
+        const opts = document.blocks[1]
+        expect(opts?._tag === "Configured" && [opts.step, "nestedIn" in opts]).toEqual([
+          true,
+          false,
+        ])
+        const block = yield* rb.block("opts")
+        expect([block.status, block.actions]).toEqual([
+          { _tag: "Idle" },
+          ["run", "setValues", "confirmValues"],
+        ])
+      }),
+    )
   })
 })
 

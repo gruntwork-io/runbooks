@@ -7,12 +7,20 @@
  */
 import { Redacted, Result, Schema } from "effect"
 import type { FormOutputDecls, TaskValues } from "@runbooks/blocks-core/contract"
-import { type Field, FieldValue, type FormSpec, templateText } from "@runbooks/blocks-core/form"
+import {
+  type Field,
+  FieldValue,
+  type FormSpec,
+  type Section,
+  templateText,
+} from "@runbooks/blocks-core/form"
 import type { TreeNode } from "../document/document.ts"
 import { markdownTree } from "../document/markdown.ts"
+import { MAX_NESTING } from "../document/mdx.ts"
 import { nearest } from "../document/nearest.ts"
 import { valueAt } from "../document/valueTemplate.ts"
 import { hiddenVariables } from "../domain/boilerplate/showWhen.ts"
+import { isTemplateString } from "../domain/boilerplate/templateString.ts"
 import { validateVariableValue } from "../domain/boilerplate/validators.ts"
 import { type Held, hold, reveal, visible } from "./held.ts"
 import type { FieldView, Origin } from "./protocol.ts"
@@ -21,14 +29,19 @@ interface Entry {
   readonly field: Field
   /** The field's description as the window walks it, parsed once, when the form is made. */
   readonly description: TreeNode
+  /** The section it is in (`Field.section`), as the form's spec lists it. */
+  readonly section: Section | undefined
   /** Absent while the field is empty. */
   readonly value: Held<FieldValue> | undefined
   /** An agent set or confirmed it, and no person has changed it since. */
   readonly reviewed: boolean
 }
 
-/** One entry per field, in the form's order. */
+/** One entry per field, in the order the window draws them (`FormSpec.sections`). */
 export type Form = ReadonlyArray<Entry>
+
+/** A field nobody may change: a locked one, or a hidden one, which is locked too. */
+const isLocked = (field: Field): boolean => field.locked || field.hidden
 
 /**
  * What a field holds: `value`, or nothing for a blank number or choice, as a
@@ -77,21 +90,95 @@ function emptyOf(field: Field): FieldValue {
 const sameValue = Schema.toEquivalence(Schema.UndefinedOr(FieldValue))
 
 /**
- * A form for `spec`, from its defaults, none of them reviewed, or the names
- * of the fields whose description nests too deep for the window to draw
- * (`markdownTree`).
+ * `spec`'s sections in the order the window draws them: as `spec.sections`
+ * lists them, each once, where it is first; then any a field names that it
+ * does not list, in the order of their first field, unfolded.
+ */
+function sectionsIn(spec: FormSpec): ReadonlyArray<Section> {
+  const listed = new Map<string, Section>()
+  for (const section of spec.sections)
+    if (!listed.has(section.name)) listed.set(section.name, section)
+  for (const { section: name } of spec.fields)
+    if (name !== undefined && !listed.has(name)) listed.set(name, { name, collapsed: false })
+  return [...listed.values()]
+}
+
+/** Whether a default reads other values: a `{{ }}` in it, its items, or its keys or values. */
+function readsValues(value: FieldValue): boolean {
+  if (typeof value === "string") return isTemplateString(value)
+  if (typeof value !== "object") return false
+  return Array.isArray(value)
+    ? value.some(readsValues)
+    : Object.entries(value).some(([key, inner]) => isTemplateString(key) || readsValues(inner))
+}
+
+/**
+ * Why the form cannot hold `field` as written: a message for each reason.
+ * None quotes its default, which may be a secret.
+ */
+function problemsOf(field: Field, description: TreeNode | undefined): ReadonlyArray<string> {
+  const named = `the field "${field.name}"`
+  return [
+    ...(description === undefined
+      ? [
+          `The description of ${named} is nested more than ${MAX_NESTING} levels deep. A description may nest its quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`,
+        ]
+      : []),
+    // Linked values and options from outputs land in a row of their own, before Template.
+    ...(field.default !== undefined && readsValues(field.default)
+      ? [
+          `The default of ${named} reads other values with {{ }}, which is not built yet: give it a plain value.`,
+        ]
+      : []),
+    ...(field.optionsFrom === undefined
+      ? []
+      : [
+          `The options of ${named} come from the output "${field.optionsFrom.output}" of "${field.optionsFrom.block}", which is not built yet: list them in its options.`,
+        ]),
+  ]
+}
+
+/**
+ * A form for `spec`, from its defaults, none of them reviewed, its fields
+ * in the order the window draws them, or why it cannot be made: for each
+ * field in `spec`'s order, a description nested too deep for the window to
+ * draw (`markdownTree`), or what is not built yet.
  */
 export function makeForm(spec: FormSpec): Result.Result<Form, ReadonlyArray<string>> {
-  const entries = spec.fields.map((field) => {
-    const description = markdownTree(field.description)
-    return description === undefined
-      ? field.name
-      : { field, description, value: fill(field, startOf(field)), reviewed: false }
-  })
-  const tooDeep = entries.filter((entry) => typeof entry === "string")
-  return tooDeep.length > 0
-    ? Result.fail(tooDeep)
-    : Result.succeed(entries.filter((entry) => typeof entry !== "string"))
+  const parsed = spec.fields.map((field) => ({
+    field,
+    description: markdownTree(field.description),
+  }))
+  const problems = parsed.flatMap(({ field, description }) => problemsOf(field, description))
+  if (problems.length > 0) return Result.fail(problems)
+  const sections = sectionsIn(spec)
+  const entries = parsed.flatMap(({ field, description }): ReadonlyArray<Entry> =>
+    description === undefined
+      ? []
+      : [
+          {
+            field,
+            description,
+            section: sections.find(({ name }) => name === field.section),
+            value: fill(field, startOf(field)),
+            reviewed: false,
+          },
+        ],
+  )
+  // Fields in no section first; the sort keeps field order within each.
+  const rank = ({ section }: Entry) => (section === undefined ? -1 : sections.indexOf(section))
+  return Result.succeed([...entries].sort((a, b) => rank(a) - rank(b)))
+}
+
+/**
+ * The sections the form's fields are in, in order, each once: what the
+ * window folds them in. A section no field is in is left out.
+ */
+export function sectionsOf(form: Form): ReadonlyArray<Section> {
+  const found = new Map<string, Section>()
+  for (const { section } of form)
+    if (section !== undefined && !found.has(section.name)) found.set(section.name, section)
+  return [...found.values()]
 }
 
 /** Why a value is not one the field's type holds. */
@@ -160,8 +247,13 @@ function check(form: Form): ReadonlyArray<Checked> {
   })
 }
 
-/** A client is shown the field: it is asked for, and not `hidden`. */
-const isShown = ({ asked, field }: Checked): boolean => asked && !field.hidden
+/**
+ * A client is shown the field: it is asked for, and not `hidden`, or hidden
+ * with an error, which it shows locked, so a block never waits on a field
+ * nobody can see.
+ */
+const isShown = ({ asked, error, field }: Checked): boolean =>
+  asked && (!field.hidden || error !== undefined)
 
 /**
  * Puts `values` in the fields they name. A value an agent enters is reviewed;
@@ -174,7 +266,14 @@ export function enter(
   origin: Origin,
 ): { readonly form: Form; readonly rejected: Record<string, string> } {
   const sent = new Map(Object.entries(values))
-  const settable = form.filter((entry) => !entry.field.hidden).map((entry) => entry.field)
+  const shown = new Set(
+    check(form)
+      .filter(isShown)
+      .map(({ field }) => field.name),
+  )
+  const settable = form
+    .filter((entry) => !entry.field.hidden || shown.has(entry.field.name))
+    .map((entry) => entry.field)
   const rejected = Array.from(sent.keys()).flatMap((name): Array<[string, string]> => {
     const field = settable.find((candidate) => candidate.name === name)
     if (field === undefined) {
@@ -185,12 +284,12 @@ export function enter(
       const hint = near === undefined ? "" : ` Did you mean "${near}"?`
       return [[name, `The form has no field "${name}".${hint}`]]
     }
-    return field.locked ? [[name, `"${name}" is read-only.`]] : []
+    return isLocked(field) ? [[name, `"${name}" is read-only.`]] : []
   })
   return {
     form: form.map((entry) => {
       const sentValue = sent.get(entry.field.name)
-      if (sentValue === undefined || entry.field.locked || entry.field.hidden) return entry
+      if (sentValue === undefined || isLocked(entry.field)) return entry
       const value = fill(entry.field, sentValue)
       const changed = !sameValue(revealed(entry), value === undefined ? undefined : reveal(value))
       return { ...entry, value, reviewed: reviewedAfter(entry, origin, changed) }
@@ -243,6 +342,7 @@ export const confirm = (form: Form): Form =>
   check(form).map((checked) => ({
     field: checked.field,
     description: checked.description,
+    section: checked.section,
     value: checked.value,
     reviewed: checked.reviewed || isShown(checked),
   }))
@@ -276,7 +376,7 @@ export function inputIn(form: Form, input: string): "absent" | "empty" | "ready"
 /** The fields a client is shown that nobody has set or confirmed. A locked field has nothing to review. */
 export const unreviewedOf = (form: Form): ReadonlyArray<string> =>
   check(form)
-    .filter((checked) => isShown(checked) && !checked.reviewed && !checked.field.locked)
+    .filter((checked) => isShown(checked) && !checked.reviewed && !isLocked(checked.field))
     .map(({ field }) => field.name)
 
 /** The fields a client is shown, sensitive values hidden. */
@@ -298,27 +398,30 @@ export const fieldViews = (form: Form): ReadonlyArray<FieldView> =>
         : { schemaInstanceLabel: field.schemaInstanceLabel }),
       ...(value === undefined ? {} : { value: visible(value) }),
       ...(field.default === undefined || field.sensitive ? {} : { default: field.default }),
-      readOnly: field.locked,
+      readOnly: isLocked(field),
       ...(error === undefined ? {} : { error }),
       validations: field.validations,
-      reviewed: reviewed || field.locked,
+      reviewed: reviewed || isLocked(field),
       unresolved: [],
     }))
 
 /**
- * The values a block that reads the form gets, each redacted, a sensitive
- * one or not. A field its `showWhen` hides gives its default, not what was
- * entered before it was hidden.
+ * What a block that reads the form gets of a field: what it holds. A field
+ * its `showWhen` hides gives its default, not what was entered before it was
+ * hidden. A field with an error gives what an empty one does, so the form
+ * publishes only valid values: a reader's run waits for a form without
+ * errors anyway, so only a reader's instruction ever meets one.
  */
+const givenOf = (checked: Checked): FieldValue =>
+  (!checked.asked
+    ? startOf(checked.field)
+    : checked.error === undefined
+      ? revealed(checked)
+      : undefined) ?? emptyOf(checked.field)
+
+/** The values a block that reads the form gets (`givenOf`), each redacted, a sensitive one or not. */
 export const valuesOf = (form: Form): TaskValues =>
-  new Map(
-    check(form).map((checked) => [
-      checked.field.name,
-      Redacted.make(
-        (checked.asked ? revealed(checked) : startOf(checked.field)) ?? emptyOf(checked.field),
-      ),
-    ]),
-  )
+  new Map(check(form).map((checked) => [checked.field.name, Redacted.make(givenOf(checked))]))
 
 /**
  * A submitted form's outputs: each declared output is the value of the field

@@ -71,7 +71,6 @@ import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, ParseResult, RunbookDocument } from "../document/document.ts"
 import type { FileFact } from "../document/files.ts"
-import { MAX_NESTING } from "../document/mdx.ts"
 import { nearest } from "../document/nearest.ts"
 import { SHOWN_SHARED_PROPS, startParse } from "../document/parse.ts"
 import {
@@ -118,6 +117,7 @@ import {
   type Form,
   inputIn,
   makeForm,
+  sectionsOf,
   outputsOf,
   restoreValues,
   savedValuesOf,
@@ -436,8 +436,8 @@ const readBlocks = Effect.fnUntraced(function* (
 
 /**
  * A block's form. Its props are not sent: they define the form, and may
- * hold a sensitive field's default. A field whose description nests too
- * deep for the window to draw is a configuration error, one for each.
+ * hold a sensitive field's default. Each reason the form cannot be made
+ * (`makeForm`) is a configuration error.
  */
 const readForm = (
   document: RunbookDocument,
@@ -448,15 +448,9 @@ const readForm = (
     onSuccess: (spec) =>
       Result.match(makeForm(spec), {
         onSuccess: (form) => ({ node, form: Option.some(form), props: Option.none() }),
-        onFailure: (names) => ({
-          node: names
-            .map((name) =>
-              openError(
-                document,
-                node,
-                `The description of the field "${name}" is nested more than ${MAX_NESTING} levels deep. A description may nest its quotes and lists, and the parts inside them, at most ${MAX_NESTING} levels deep.`,
-              ),
-            )
+        onFailure: (problems) => ({
+          node: problems
+            .map((problem) => openError(document, node, problem))
             .reduce(withError, node),
           form: Option.none(),
           props: Option.none(),
@@ -555,7 +549,10 @@ function blockOf(node: BlockNode, registry: Registry): AnyBlock {
   return block
 }
 
-/** Whether `node`, which has no configuration errors, is a progress step: `block` is its registry block. */
+/**
+ * Whether `node`, which has no configuration errors, is a progress step:
+ * `block` is its registry block. A task's own form is not: its task is.
+ */
 function isStep(node: BlockNode, block: AnyBlock): boolean {
   switch (block.class) {
     case "display":
@@ -563,6 +560,7 @@ function isStep(node: BlockNode, block: AnyBlock): boolean {
     case "credential":
       return true
     case "form":
+      return node.nestedIn === undefined && (block.step?.(node.props) ?? true)
     case "task":
       return block.step?.(node.props) ?? true
   }
@@ -635,6 +633,7 @@ function documentViewOf(
         _tag: "Configured",
         ...placed,
         step: isStep(node, block),
+        ...(node.nestedIn === undefined ? {} : { nestedIn: node.nestedIn }),
         effects: block.effects,
         ...(sent === undefined ? {} : { props: sent }),
         ...(scriptFiles.length === 0 ? {} : { scriptFiles: scriptFiles.map((held) => held.path) }),
@@ -1454,7 +1453,9 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         break
     }
     if (slot.node.errors.length > 0) return { _tag: "Misconfigured" }
-    if (submitted.has(slot.index)) return notReady(slot) ?? { _tag: "Done", outcome: "success" }
+    // A task's own form has no Submit: it counts as submitted, as today's app has it.
+    if (submitted.has(slot.index) || slot.node.nestedIn !== undefined)
+      return notReady(slot) ?? { _tag: "Done", outcome: "success" }
     const run = runs.get(slot.index)
     if (run !== undefined) {
       switch (run.state._tag) {
@@ -1965,8 +1966,11 @@ export const makeSession = Effect.fnUntraced(function* (options: {
         return credentialSlotAt.has(slot.index) && credentials.acts(slot.index)
           ? ["credential"]
           : []
-      // "run" submits a form.
+      // "run" submits a form. A task's own form has no Submit, so nothing to run or undo.
       case "form":
+        return slot.node.nestedIn === undefined
+          ? [...runActionsOf(slot, status), ...values]
+          : values
       case "task":
         return [...runActionsOf(slot, status), ...values]
     }
@@ -2056,12 +2060,14 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       : undefined
     const instruction = instructionOf(slot)
     const shown = onDisk.get(slot.id)
+    const sections = form === undefined ? [] : sectionsOf(form)
     return {
       ...summaryOf(slot),
       ...(instruction === undefined ? {} : { instruction }),
       ...(run === undefined ? {} : { log: logPage(run, logOffset, logLimit) }),
       outputs: outputs === undefined ? {} : outputsView(outputs),
       ...(form === undefined ? {} : { fields: fieldViews(form) }),
+      ...(sections.length === 0 ? {} : { sections }),
       ...(credential === undefined ? {} : { credential }),
       ...(run === undefined || run.files.size === 0
         ? {}
