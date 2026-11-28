@@ -154,6 +154,80 @@ describe("a block's frame", () => {
     expect(shown).toContain("Read this first.")
     expect(shown).not.toContain("can&#x27;t show")
   })
+
+  /** The page with one display block drawn by a view that shows its props, or nothing. */
+  const displayed = (block: DocumentBlock) => {
+    const Note: View<Schema.Json> = ({ props, children }) =>
+      props === "gone" ? null : (
+        <div className="note">
+          {JSON.stringify(props)} {children}
+        </div>
+      )
+    return renderToStaticMarkup(
+      <ViewsContext value={{ Example: Note }}>
+        <Markdown
+          document={{
+            tree: {
+              type: "root",
+              children: [{ type: "block", index: 0, children: [text("Its markdown.")] }],
+            },
+            blocks: [block],
+          }}
+          runbook={RUNBOOK}
+          session={SESSION}
+        />
+      </ViewsContext>,
+    )
+  }
+
+  it("lets a display block's view draw all of it: the frame draws no header and no description around it", () => {
+    const shown = displayed(
+      placed({
+        id: "careful",
+        class: "display",
+        step: false,
+        title: "Careful",
+        description: "Read this.",
+        props: { title: "Careful" },
+      }),
+    )
+    expect(shown).toContain('<section class="block-bare"')
+    expect(shown).toContain('id="runbook-block-careful"')
+    expect(shown).toContain(
+      '<div class="note">{&quot;title&quot;:&quot;Careful&quot;} <p>Its markdown.</p></div>',
+    )
+    expect(shown).not.toContain("block-header")
+    expect(shown).not.toContain("Read this.")
+    // A view that draws nothing leaves only the bare frame: `block-bare` has no box (app.css styles `block`), so it takes no room.
+    const gone = displayed(
+      placed({ class: "display", step: false, title: "Careful", props: "gone" }),
+    )
+    expect(gone).not.toContain("Careful")
+    expect(gone).not.toContain("Its markdown.")
+  })
+
+  it("draws a misconfigured display block in the frame: its header, its description and its errors", () => {
+    const shown = displayed(
+      placed({
+        _tag: "Misconfigured",
+        class: "display",
+        title: "Careful",
+        description: "Read this.",
+        errors: [
+          {
+            _tag: "ConfigError",
+            code: "badProp",
+            message: "the `type` prop of <Example>: unknown",
+            location: { file: RUNBOOK, span: SPAN },
+          },
+        ],
+      }),
+    )
+    expect(shown).toContain('<section class="block"')
+    expect(shown).toContain('<span class="block-title">Careful</span>')
+    expect(shown).toContain('<p class="block-description">Read this.</p>')
+    expect(shown).toContain("Line 3: the `type` prop of &lt;Example&gt;: unknown")
+  })
 })
 
 /** A block's view as the engine sends it, for `following`. */
