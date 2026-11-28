@@ -62,7 +62,7 @@ import type {
 import { BlockLink, frameId } from "./blockLink.tsx"
 import { FollowingContext, useBlockView, useHidden, useInstructionMode } from "./following.ts"
 import { FormView } from "./formView.tsx"
-import { linkTarget } from "./markdown.tsx"
+import { linkTarget, Markdown } from "./markdown.tsx"
 import { place } from "./place.ts"
 import { ScriptChange } from "./scriptChange.tsx"
 import { SourceView } from "./sourceView.tsx"
@@ -268,7 +268,12 @@ export function BlockFrame({
               )}
               {said === undefined ? null : <p className="block-said">{said}</p>}
               {instructed ? (
-                <InstructionBody instruction={view?.instruction} fields={fields}>
+                <InstructionBody
+                  instruction={view?.instruction}
+                  fields={fields}
+                  runbook={runbook}
+                  session={session}
+                >
                   {children}
                 </InstructionBody>
               ) : (
@@ -682,10 +687,15 @@ function Log({ page }: { readonly page: LogPage }) {
 function InstructionBody({
   instruction,
   fields,
+  runbook,
+  session,
   children,
 }: {
   readonly instruction: Instruction | undefined
   readonly fields: ReactNode
+  /** The runbook and session a text step's markdown is walked with, as a form's descriptions are. */
+  readonly runbook: string
+  readonly session: string
   readonly children: ReactNode
 }) {
   return (
@@ -695,7 +705,7 @@ function InstructionBody({
       {instruction === undefined ? null : (
         <div className="block-instruction">
           {instruction.map((step, index) => (
-            <InstructionStep key={index} step={step} />
+            <InstructionStep key={index} step={step} runbook={runbook} session={session} />
           ))}
         </div>
       )}
@@ -703,10 +713,23 @@ function InstructionBody({
   )
 }
 
-function InstructionStep({ step }: { readonly step: Instruction[number] }) {
+function InstructionStep({
+  step,
+  runbook,
+  session,
+}: {
+  readonly step: Instruction[number]
+  readonly runbook: string
+  readonly session: string
+}) {
   switch (step.kind) {
     case "text":
-      return <p>{step.markdown}</p>
+      // A step with no tree nests too deep to draw: its markdown as written.
+      return step.tree === undefined ? (
+        <p>{step.markdown}</p>
+      ) : (
+        <Markdown document={{ tree: step.tree, blocks: [] }} runbook={runbook} session={session} />
+      )
     case "code":
       // One click selects the whole command, to copy with the keyboard (app.css).
       return (
