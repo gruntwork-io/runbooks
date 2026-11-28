@@ -35,6 +35,7 @@ import {
   TaskFailed,
 } from "@runbooks/blocks-core/contract"
 import type { ProviderConfig, ProviderInfo } from "../credential/provider.ts"
+import { MAX_NESTING } from "../document/mdx.ts"
 import { testCredentialProviders } from "../test-utils/TestCredentialProviders.ts"
 import { makeTestFileSystem } from "../test-utils/TestFileSystem.ts"
 import { testSessionStore } from "../test-utils/TestSessionStore.ts"
@@ -104,6 +105,22 @@ const registryWith = (scripts: Readonly<Record<string, Script>>) => ({
         ).join(" "),
       },
     ],
+    plugins: [],
+  }),
+  /** A task whose instruction is its `markdown` prop, as written. */
+  Writes: defineTask({
+    name: "Writes",
+    since: "0.1.0",
+    class: "task",
+    props: Schema.Struct({ markdown: Schema.String }),
+    children: { kind: "none" },
+    references: {},
+    runbookFiles: () => [],
+    provides: ["run"],
+    effects: [],
+    outputs: (): OutputDecls<string> => ({}),
+    run: () => Stream.empty,
+    instruction: (p) => [{ kind: "text", markdown: p.markdown }],
     plugins: [],
   }),
   /** A task that is a progress step only when its props say it makes something, as TemplateInline is. */
@@ -1229,7 +1246,7 @@ describe("a block's instruction", () => {
           { kind: "code", language: "bash", code: "tofu apply" },
         ])
         expect((yield* on("cloud")).instruction).toEqual([
-          { kind: "text", markdown: "Sign in to the account 111." },
+          { kind: "text", markdown: "Sign in to the account 111.", tree: expect.anything() },
           { kind: "link", label: "The cloud's console", url: "https://console.example.com/" },
         ])
         expect(yield* on("config")).not.toHaveProperty("instruction")
@@ -1244,12 +1261,54 @@ describe("a block's instruction", () => {
         const view = yield* opened(person)
         const says = yield* person.GetBlock({ session: view.session, block: blockId("says") })
         expect(says.instruction).toEqual([
-          { kind: "text", markdown: `region="<redacted>" token="<redacted>"` },
+          {
+            kind: "text",
+            markdown: `region="<redacted>" token="<redacted>"`,
+            tree: expect.anything(),
+          },
         ])
         for (const text of printed(says)) {
           expect(text).not.toContain("us-east-1")
           expect(text).not.toContain(SECRET_DEFAULT)
         }
+      }),
+    )
+  })
+
+  it("gives a text step's markdown as the tree the window walks, and none when it nests too deep to draw", async () => {
+    const deep = `${"> ".repeat(MAX_NESTING)}deep`
+    const runbook = [
+      '<Writes id="marked" markdown="Run **this** with `tofu`." />',
+      `<Writes id="deep" markdown="${deep}" />`,
+    ].join("\n\n")
+    await withClients({ runbook }, ({ person }) =>
+      Effect.gen(function* () {
+        const view = yield* opened(person)
+        const on = (block: string) =>
+          person.GetBlock({ session: view.session, block: blockId(block) })
+        const text = (value: string) => ({ type: "text", value })
+        expect((yield* on("marked")).instruction).toEqual([
+          {
+            kind: "text",
+            markdown: "Run **this** with `tofu`.",
+            tree: {
+              type: "root",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [
+                    text("Run "),
+                    { type: "strong", children: [text("this")] },
+                    text(" with "),
+                    { type: "inlineCode", value: "tofu" },
+                    text("."),
+                  ],
+                },
+              ],
+            },
+          },
+        ])
+        expect((yield* on("deep")).instruction).toEqual([{ kind: "text", markdown: deep }])
       }),
     )
   })

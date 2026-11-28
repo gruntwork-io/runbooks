@@ -221,9 +221,19 @@ export const FileChange = Schema.Struct({
 })
 export type FileChange = typeof FileChange.Type
 
-/** One step of an instruction: the contract's `InstructionStep`. */
+/**
+ * One step of an instruction: the contract's `InstructionStep`. A text
+ * step's markdown also comes as the tree the window walks, as a field's
+ * description does: the core parses it (`markdownTree`), and the window
+ * only walks it. `tree` is absent when the markdown nests too deep to
+ * draw, and the window then shows the markdown as written.
+ */
 export const InstructionStep = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("text"), markdown: Schema.String }),
+  Schema.Struct({
+    kind: Schema.Literal("text"),
+    markdown: Schema.String,
+    tree: Schema.optionalKey(TreeNode),
+  }),
   Schema.Struct({ kind: Schema.Literal("code"), language: Schema.String, code: Schema.String }),
   Schema.Struct({ kind: Schema.Literal("link"), label: Schema.String, url: Schema.String }),
 ])

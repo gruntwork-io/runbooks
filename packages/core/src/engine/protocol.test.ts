@@ -337,7 +337,13 @@ describe("engine protocol", () => {
   })
 
   it("carries the contract's instruction, every kind of step, through JSON", () => {
-    expectTypeOf<Instruction>().toEqualTypeOf<ContractInstruction>()
+    // The contract's steps, and a text step's tree beside its markdown.
+    expectTypeOf<Omit<Extract<Instruction[number], { kind: "text" }>, "tree">>().toEqualTypeOf<
+      Extract<ContractInstruction[number], { kind: "text" }>
+    >()
+    expectTypeOf<Exclude<Instruction[number], { kind: "text" }>>().toEqualTypeOf<
+      Exclude<ContractInstruction[number], { kind: "text" }>
+    >()
     const json = Schema.toCodecJson(BlockView)
     const view: BlockView = {
       block: greet,
@@ -346,6 +352,23 @@ describe("engine protocol", () => {
       actions: [],
       outputs: {},
       instruction: [
+        {
+          kind: "text",
+          markdown: "Run **this**:",
+          tree: {
+            type: "root",
+            children: [
+              {
+                type: "paragraph",
+                children: [
+                  { type: "text", value: "Run " },
+                  { type: "strong", children: [{ type: "text", value: "this" }] },
+                  { type: "text", value: ":" },
+                ],
+              },
+            ],
+          },
+        },
         { kind: "text", markdown: "Run this command:" },
         { kind: "code", language: "bash", code: "echo hi" },
         { kind: "link", label: "The docs", url: "https://docs.example.com/" },

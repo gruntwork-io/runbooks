@@ -71,6 +71,7 @@ import type { CredentialEnv } from "../credential/provider.ts"
 import { ConfigError, ConfigWarning } from "../document/configError.ts"
 import type { BlockNode, ContentHash, ParseResult, RunbookDocument } from "../document/document.ts"
 import type { FileFact } from "../document/files.ts"
+import { markdownTree } from "../document/markdown.ts"
 import { nearest } from "../document/nearest.ts"
 import { SHOWN_SHARED_PROPS, startParse } from "../document/parse.ts"
 import {
@@ -2090,11 +2091,19 @@ export const makeSession = Effect.fnUntraced(function* (options: {
     return { offset: from, total: run.log.end(), lines: run.log.slice(from, from + limit) }
   }
 
-  /** A task's or credential block's instruction. It gets no services, so it is built in any trust state. */
+  /**
+   * A task's or credential block's instruction, each text step with the tree
+   * the window walks. It gets no services, so it is built in any trust state.
+   */
   const instructionOf = (slot: Slot): Instruction | undefined => {
-    if (Option.isSome(slot.runnable))
-      return slot.runnable.value.block.instruction(slot.node.props, readsFor(slot))
-    return credentialSlotAt.get(slot.index)?.block.instruction(slot.node.props)
+    const written = Option.isSome(slot.runnable)
+      ? slot.runnable.value.block.instruction(slot.node.props, readsFor(slot))
+      : credentialSlotAt.get(slot.index)?.block.instruction(slot.node.props)
+    return written?.map((step) => {
+      if (step.kind !== "text") return step
+      const tree = markdownTree(step.markdown)
+      return tree === undefined ? step : { ...step, tree }
+    })
   }
 
   /** The paths a block names, as the parser named them from its props: none when they don't decode. */
