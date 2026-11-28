@@ -10,6 +10,7 @@ import {
 } from "@runbooks/core/protocol"
 import { type Following, FollowingContext } from "./following.ts"
 import { makeLiveStore } from "./live.ts"
+import { makeReloadingStore } from "./reload.ts"
 import { Runbook } from "./runbook.tsx"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore, type Trusting } from "./trust.ts"
@@ -103,8 +104,10 @@ const page = (blocks: ReadonlyArray<Record<string, unknown>>, shown: Shown = {})
       Schema.decodeUnknownSync(Settings)({ ...SETTINGS, instructionMode }),
     ),
     trusting: store,
+    reloading: makeReloadingStore(),
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
+    reload: () => Effect.void,
   }
   const document = Schema.decodeUnknownSync(DocumentView)({
     hash: HASH,

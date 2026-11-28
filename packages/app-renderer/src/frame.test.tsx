@@ -16,6 +16,7 @@ import { buttonsFor, ViewsContext } from "./frame.tsx"
 import { type Following, FollowingContext, followingOf } from "./following.ts"
 import { follow, type Live, makeLiveStore } from "./live.ts"
 import { Markdown } from "./markdown.tsx"
+import { makeReloadingStore } from "./reload.ts"
 import { makeSettingsStore } from "./settings.ts"
 import { makeTrustingStore } from "./trust.ts"
 
@@ -159,8 +160,10 @@ const followingViews = (...views: BlockView[]): Following => {
     live,
     settings: makeSettingsStore(undefined),
     trusting: makeTrustingStore(),
+    reloading: makeReloadingStore(),
     act: () => Effect.succeed(undefined),
     trust: () => Effect.void,
+    reload: () => Effect.void,
   }
 }
 
@@ -579,8 +582,10 @@ describe("a block's frame, following the engine", () => {
           live: store,
           settings: makeSettingsStore(undefined),
           trusting: makeTrustingStore(),
+          reloading: makeReloadingStore(),
           act: () => Effect.never,
           trust: () => Effect.void,
+          reload: () => Effect.void,
         },
         placed({ id: "greet" }),
       )
