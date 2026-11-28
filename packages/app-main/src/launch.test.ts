@@ -3,8 +3,9 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "nod
 import os from "node:os"
 import path from "node:path"
 import { Effect, Result } from "effect"
+import type { WatchMode } from "@runbooks/core/protocol"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
-import { findLaunchRunbook, launchArgument } from "./launch.ts"
+import { findLaunchRunbook, launchArgument, watchModeOf } from "./launch.ts"
 
 describe("launchArgument", () => {
   const cases: Array<[string, ReadonlyArray<string>, boolean, string | undefined]> = [
@@ -40,6 +41,51 @@ describe("launchArgument", () => {
   ]
   it.each(cases)("takes %s", (_name, argv, defaultApp, expected) => {
     expect(launchArgument(argv, defaultApp)).toBe(expected)
+  })
+})
+
+describe("watchModeOf", () => {
+  const cases: Array<[string, ReadonlyArray<string>, WatchMode]> = [
+    ["notice with no flags", ["Runbooks", "./rb"], "notice"],
+    ["runbookAndFiles for --watch", ["Runbooks", "--watch", "./rb"], "runbookAndFiles"],
+    [
+      "runbook for --watch --disable-live-file-reload",
+      ["Runbooks", "--watch", "--disable-live-file-reload", "./rb"],
+      "runbook",
+    ],
+    [
+      "runbook for the two the other way round, after the runbook",
+      ["Runbooks", "./rb", "--disable-live-file-reload", "--watch"],
+      "runbook",
+    ],
+    [
+      "notice for --disable-live-file-reload alone, as the old app's watched script files",
+      ["Runbooks", "--disable-live-file-reload", "./rb"],
+      "notice",
+    ],
+    [
+      "runbookAndFiles among switches, as Playwright launches the app",
+      [
+        "electron",
+        "--inspect=0",
+        "--remote-debugging-port=0",
+        "app-out/main/index.js",
+        "--user-data-dir=/tmp/x",
+        "--watch",
+        "/abs/rb",
+      ],
+      "runbookAndFiles",
+    ],
+    ["runbookAndFiles for --watch twice", ["Runbooks", "--watch", "--watch"], "runbookAndFiles"],
+    [
+      "notice for a switch that only starts as --watch does, which is not one of the app's",
+      ["Runbooks", "--watch=true", "--watcher", "./rb"],
+      "notice",
+    ],
+    ["notice with no arguments", ["Runbooks"], "notice"],
+  ]
+  it.each(cases)("gives %s", (_name, argv, expected) => {
+    expect(watchModeOf(argv)).toBe(expected)
   })
 })
 

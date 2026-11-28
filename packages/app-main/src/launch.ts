@@ -16,6 +16,11 @@
  *   serves the page only once that open is done. A page that asks before then
  *   waits in main's queue (`ipcServer.ts`), and `ListSessions` finds the
  *   session.
+ * - It opens in the watch mode the command line's flags ask for
+ *   (`watchModeOf`), as does each runbook a later launch names: the flags are
+ *   read only when they start the app, as the old app's were, so a later
+ *   launch's runbook opens in the first launch's mode, whatever flags it
+ *   passes.
  * - What keeps it from opening goes to `log`, one line each: main's standard
  *   error. A line shows a remote source without its credentials, and no
  *   token (`redactSecrets`). The page cannot learn of an open it did not make
@@ -32,7 +37,12 @@ import type { Rpc, RpcClientError, RpcServer } from "effect/rpc"
 import { redactSecrets } from "@runbooks/core/domain/vcs/redact"
 import type { RemoteSourceError } from "@runbooks/core/errors"
 import { makeInProcessClient } from "@runbooks/core/inProcess"
-import type { EngineCommand, Forbidden, RunbookUnreadable } from "@runbooks/core/protocol"
+import type {
+  EngineCommand,
+  Forbidden,
+  RunbookUnreadable,
+  WatchMode,
+} from "@runbooks/core/protocol"
 import { isRemoteSource, redactSourceCredentials } from "@runbooks/core/remote-source"
 import type { Environment } from "@runbooks/core/services/Environment"
 import { FileSystem } from "@runbooks/core/services/FileSystem"
@@ -56,6 +66,34 @@ export function launchArgument(
 ): string | undefined {
   const positional = argv.slice(1).filter((argument) => !argument.startsWith("-"))
   return positional[defaultApp ? 1 : 0]
+}
+
+/** The flag that has the app reload a runbook each time it is saved. */
+const WATCH_FLAG = "--watch"
+
+/** The flag that, with `--watch`, keeps the files a runbook's blocks name at the text the session holds. */
+const DISABLE_LIVE_FILE_RELOAD_FLAG = "--disable-live-file-reload"
+
+/**
+ * The watch mode `argv` (`process.argv`) asks for, as the old app's flags
+ * did. Each flag is a switch, matched whole, anywhere on the line. Any other
+ * switch is Chromium's or Electron's, and ignored, as `launchArgument`
+ * ignores it.
+ *
+ * - No flags: `notice`. A session watches the files its blocks name, and a
+ *   block whose files change says so until the person reloads them.
+ * - `--watch`: `runbookAndFiles`. Each save of the runbook reloads it, and
+ *   the files it names are read again.
+ * - `--watch --disable-live-file-reload`: `runbook`. Each save reloads the
+ *   runbook, and the files it names keep the text the session holds.
+ * - `--disable-live-file-reload` alone: `notice`. It says what a reload of
+ *   the runbook reads, and without `--watch` the runbook doesn't reload. The
+ *   old app took it so too, and still watched its blocks' script files.
+ */
+export function watchModeOf(argv: ReadonlyArray<string>): WatchMode {
+  const flags = new Set(argv.slice(1))
+  if (!flags.has(WATCH_FLAG)) return "notice"
+  return flags.has(DISABLE_LIVE_FILE_RELOAD_FLAG) ? "runbook" : "runbookAndFiles"
 }
 
 /** Why the runbook a launch names could not be found. */
@@ -172,6 +210,8 @@ export interface Launches {
   readonly first: Launch | undefined
   /** The runbooks later launches name (`waitToOpen`). */
   readonly later: Queue.Dequeue<Launch>
+  /** The watch mode each runbook opens in: the one the app's own command line asks for (`watchModeOf`). */
+  readonly watch: WatchMode
   /** The folder a remote source is cloned into. */
   readonly clones: string
   /** Main's standard error, one line at a time. */
@@ -182,7 +222,8 @@ export interface Launches {
 
 /**
  * Opens the runbook `launch` names, as the person who launched the app, on
- * the engine in context, and succeeds with whether it opened. A remote
+ * the engine in context, in the app's watch mode (`Launches.watch`), and
+ * succeeds with whether it opened. A remote
  * source is cloned into `clones` first. What kept it from opening goes to
  * `log`: a line for the runbook, then one for each error the engine found
  * in it. When the engine fails instead of answering, as a runbook nested
@@ -191,7 +232,7 @@ export interface Launches {
  */
 const openLaunch = (
   launch: Launch,
-  { clones, log }: Launches,
+  { clones, log, watch }: Launches,
 ): Effect.Effect<boolean, never, Rpc.ToHandler<EngineCommand> | FileSystem | RemoteServices> => {
   const say = (line: string) => log(redactSecrets(line))
   const remote = isRemoteSource(launch.argument)
@@ -201,7 +242,7 @@ const openLaunch = (
       ? yield* resolveRemoteRunbook(launch.argument, clones)
       : yield* findLaunchRunbook(launch.argument, launch.startedIn)
     const client = yield* makeInProcessClient("person")
-    const result = yield* client.OpenSession({ path: runbook })
+    const result = yield* client.OpenSession({ path: runbook, watch })
     if (result._tag === "Opened") return true
     say(`Runbooks could not open ${remote ? shown : runbook}:`)
     for (const error of result.errors) {
