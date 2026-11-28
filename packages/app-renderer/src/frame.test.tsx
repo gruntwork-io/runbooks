@@ -616,8 +616,12 @@ describe("a block's frame, following the engine", () => {
           const engine = yield* makeEngineClient(main.bridge)
           const shown = yield* Queue.unbounded<Live>()
           yield* Effect.forkScoped(
-            follow(engine, Schema.decodeSync(SessionId)(SESSION), OPENED, (live) =>
-              Queue.offerUnsafe(shown, live),
+            follow(
+              engine,
+              Schema.decodeSync(SessionId)(SESSION),
+              OPENED,
+              makeSettingsStore(undefined),
+              (live) => Queue.offerUnsafe(shown, live),
             ),
           )
           seen.push(shownAfter(yield* Queue.take(shown)))
@@ -712,6 +716,22 @@ describe("instruction mode", () => {
     )
     expect(shown).toContain(">Run</button>")
     expect(shown).not.toContain("tofu apply")
+  })
+
+  it("is the mode the window last read the session for, once it has, not the setting", () => {
+    const deploy = view("deploy", { _tag: "Idle" }, { actions: ["run"], instruction: DEPLOY })
+    const readFor = (instructionMode: boolean, setting: boolean) => {
+      const following = inInstructionMode(followingViews(deploy), setting)
+      const live = makeLiveStore()
+      live.set({ ...following.live.get(), instructionMode })
+      return page({ ...following, live }, placed({ id: "deploy" }))
+    }
+    const onInSettings = readFor(false, true)
+    expect(onInSettings).toContain(">Run</button>")
+    expect(onInSettings).not.toContain("tofu apply")
+    const onAsRead = readFor(true, false)
+    expect(onAsRead).toContain("tofu apply")
+    expect(onAsRead).not.toContain(">Run</button>")
   })
 
   it("shows a credential block's instruction, its links as links, and a form as it is", () => {
@@ -916,7 +936,7 @@ describe("instruction mode", () => {
     expect(statuses).toEqual(["Idle", "Running"])
   })
 
-  it("shows a change of the setting as the engine streams it, without a reload", async () => {
+  it("shows a change of the setting as the engine streams it, without a reload, once the window has read the session for it", async () => {
     const deploy = {
       block: "deploy",
       tag: "Example",
@@ -951,7 +971,6 @@ describe("instruction mode", () => {
           })
           const changes = yield* Queue.unbounded<void>()
           following.live.subscribe(() => Queue.offerUnsafe(changes, undefined))
-          following.settings.subscribe(() => Queue.offerUnsafe(changes, undefined))
           yield* Effect.acquireRelease(Effect.sync(following.start), (stop) => Effect.sync(stop))
           yield* Queue.take(changes)
           shown.push(page(following, placed({ id: "deploy" })))

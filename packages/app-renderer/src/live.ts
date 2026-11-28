@@ -10,9 +10,13 @@
  *   each of them again with `GetBlock` before it shows the batch: their
  *   status, actions, log and instruction come from that read, never from
  *   the event.
- * - A block's instruction is built from the values and outputs it reads, so
- *   an event that changes a value or an output reads every block that has
- *   an instruction again.
+ * - A block's instruction is built from the values and outputs it reads,
+ *   and the window shows it only in instruction mode, as the settings give
+ *   it (`Settings.instructionMode`). In the mode, an event that changes a
+ *   value or an output reads every block that has an instruction again.
+ *   Out of it, the event reads only the blocks it names. When the mode
+ *   turns on, the window reads every block that has an instruction again,
+ *   then shows the mode (`instructionMode`). Turning it off reads nothing.
  * - A block's log is its latest run's last page: a log longer than one
  *   page is read again from `total - defaultLogLimit`.
  * - Why the session holds back a reload is its view's `reloadHeld`, then
@@ -37,9 +41,12 @@
  * - When the session closes, its events end, or the engine fails a read or
  *   can't be reached, the window says so (`ended`) and stops following.
  *
- * Reads run in turn, a few at a time, and the next batch waits for them.
+ * Reads run in turn, a few at a time, and the next batch, or change of the
+ * mode, waits for them. The window's queue of events holds `EVENTS_AHEAD`,
+ * and while it is full the client stops acking, so events that main sends
+ * faster than the window reads wait in main, not in the window's memory.
  */
-import { Cause, Effect, Stream } from "effect"
+import { Cause, Effect, Queue, Stream } from "effect"
 import {
   type BlockView,
   type DocumentView,
@@ -53,6 +60,7 @@ import {
   type Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
+import { instructionModeOf, type SettingsStore } from "./settings.ts"
 
 type BlockId = BlockView["block"]
 
@@ -66,6 +74,11 @@ export interface Live {
    * publishes to.
    */
   readonly document?: DocumentView
+  /**
+   * Whether the window shows instructions: the instruction mode it has read
+   * each block's instruction for. Absent in a store no follower publishes to.
+   */
+  readonly instructionMode?: boolean
   /** The session's trust, as the engine had it after the last batch. Absent until the session is read. */
   readonly trust?: TrustState
   /** Why the session holds back a reload of its runbook, while it does. */
@@ -81,6 +94,8 @@ interface Stale {
   readonly blocks: Set<BlockId>
   /** A value or an output changed, so every block's instruction may have. */
   readers: boolean
+  /** The instruction mode the batch's last change of it gives, if one does. */
+  instructionMode: boolean | undefined
   /** The trust the batch's last `TrustChanged` gives, if one does. */
   trust: TrustState | undefined
   /** The session reloaded its runbook, so every block may have changed. */
@@ -93,6 +108,9 @@ interface Stale {
 }
 
 const READS_AT_ONCE = 4
+
+/** The events the window's queue holds: enough for a round of reads to gather a burst, such as a command's log lines. */
+export const EVENTS_AHEAD = 256
 
 const CLOSED = "This runbook's session closed, so the window shows it as it was left."
 
@@ -166,14 +184,46 @@ const readBlock = (engine: EngineClient, session: SessionId, block: BlockId) =>
     })
   })
 
+type Events = ReturnType<EngineClient["Events"]>
+
+/** What the window follows, in turn: each event, and each change of the instruction mode. */
+type Change = Stream.Success<Events> | boolean
+
 /**
- * Follows `session`, whose runbook the window opened as `opened`, calling
- * `publish` with what to show at the start and after each batch of events.
+ * Offers to `modes` the instruction mode each time `settings` change it
+ * from `shown`, the mode the window shows, until the scope closes: first
+ * the mode now, if they changed it before.
+ */
+const offerInstructionModes = (
+  settings: SettingsStore,
+  shown: boolean,
+  modes: Queue.Queue<boolean>,
+) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      let last = shown
+      const offer = () => {
+        const now = instructionModeOf(settings)
+        if (now === last) return
+        last = now
+        Queue.offerUnsafe(modes, now)
+      }
+      offer()
+      return settings.subscribe(offer)
+    }),
+    (unsubscribe) => Effect.sync(unsubscribe),
+  )
+
+/**
+ * Follows `session`, whose runbook the window opened as `opened`, in the
+ * instruction mode `settings` give, calling `publish` with what to show at
+ * the start and after each batch of events or change of the mode.
  */
 export const follow = (
   engine: EngineClient,
   session: SessionId,
   opened: DocumentView,
+  settings: SettingsStore,
   publish: (live: Live) => void,
 ): Effect.Effect<void> => {
   const blocks = new Map<string, BlockView>()
@@ -189,6 +239,7 @@ export const follow = (
     )
   const approvalFor = (approval: string) =>
     [...blocks.values()].find((view) => view.approval?.approval === approval)?.block
+  let instructionMode = false
   let trust: TrustState | undefined
   let document = opened
   let held: ReloadHeld | undefined
@@ -197,54 +248,84 @@ export const follow = (
     publish({
       blocks: new Map(blocks),
       document,
+      instructionMode,
       ...(trust === undefined ? {} : { trust }),
       ...(held === undefined ? {} : { reloadHeld: held }),
       ...(unwatched === undefined ? {} : { unwatched }),
       ...(ended === undefined ? {} : { ended }),
     })
   return Effect.gen(function* () {
+    instructionMode = instructionModeOf(settings)
     const view = yield* engine.GetSession({ session })
     trust = view.trust
     held = view.reloadHeld
     unwatched = view.unwatched
     if (view.trust.hash !== document.hash) document = yield* engine.GetDocument({ session })
     yield* read(withLifecycle(view))
+    const events = yield* Queue.bounded<Stream.Success<Events>, Stream.Error<Events> | Cause.Done>(
+      EVENTS_AHEAD,
+    )
+    // Started at once, so the window follows the events by the time it shows the session.
+    yield* Effect.forkScoped(
+      Stream.runIntoQueue(
+        engine.Events({
+          session,
+          ...(view.sequence === undefined ? {} : { after: view.sequence }),
+        }),
+        events,
+      ),
+      { startImmediately: true },
+    )
+    // Only the latest mode matters, and the settings' listener never waits.
+    const modes = yield* Queue.sliding<boolean>(1)
+    yield* offerInstructionModes(settings, instructionMode, modes)
     show()
     let closed = false
-    yield* Stream.runForEachArray(
-      engine.Events({ session, ...(view.sequence === undefined ? {} : { after: view.sequence }) }),
-      (batch) =>
-        Effect.gen(function* () {
-          const stale: Stale = {
-            blocks: new Set(),
-            readers: false,
-            trust: undefined,
-            document: false,
-            held: undefined,
-            unwatched: undefined,
-            closed: false,
-          }
-          for (const { event } of batch) mark(event, stale, approvalFor)
-          if (stale.document) {
-            const now = yield* engine.GetSession({ session })
-            document = yield* engine.GetDocument({ session })
-            blocks.clear()
-            yield* read(withLifecycle(now))
-          } else {
-            if (stale.readers)
-              for (const [, known] of blocks)
-                if (known.instruction !== undefined) stale.blocks.add(known.block)
-            yield* read(stale.blocks)
-          }
-          trust = stale.trust ?? trust
-          if (stale.held !== undefined) held = stale.held.now
-          unwatched = stale.unwatched ?? unwatched
-          closed = stale.closed
-          show(closed ? CLOSED : undefined)
-        }),
+    const changes: Stream.Stream<Change, Stream.Error<Events>> = Stream.merge(
+      Stream.fromQueue(events),
+      Stream.fromQueue(modes),
+      // The modes never end; the session's events do.
+      { haltStrategy: "left" },
+    )
+    yield* Stream.runForEachArray(changes, (batch) =>
+      Effect.gen(function* () {
+        const stale: Stale = {
+          blocks: new Set(),
+          readers: false,
+          instructionMode: undefined,
+          trust: undefined,
+          document: false,
+          held: undefined,
+          unwatched: undefined,
+          closed: false,
+        }
+        for (const change of batch)
+          if (typeof change === "boolean") stale.instructionMode = change
+          else mark(change.event, stale, approvalFor)
+        const mode = stale.instructionMode ?? instructionMode
+        if (stale.document) {
+          const now = yield* engine.GetSession({ session })
+          document = yield* engine.GetDocument({ session })
+          blocks.clear()
+          yield* read(withLifecycle(now))
+        } else {
+          // Out of the mode no instruction shows. One the window holds may be stale when the mode turns on.
+          if (mode && (stale.readers || !instructionMode))
+            for (const [, known] of blocks)
+              if (known.instruction !== undefined) stale.blocks.add(known.block)
+          yield* read(stale.blocks)
+        }
+        instructionMode = mode
+        trust = stale.trust ?? trust
+        if (stale.held !== undefined) held = stale.held.now
+        unwatched = stale.unwatched ?? unwatched
+        closed ||= stale.closed
+        show(closed ? CLOSED : undefined)
+      }),
     )
     if (!closed) show(CLOSED)
   }).pipe(
+    Effect.scoped,
     Effect.catchTags({
       UnknownSession: () => Effect.sync(() => show(CLOSED)),
       UnknownSequence: (error) =>

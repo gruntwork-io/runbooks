@@ -35,7 +35,12 @@ import {
   type ScriptFilesShown,
   type ScriptFilesStore,
 } from "./scriptFiles.ts"
-import { followSettings, makeSettingsStore, type SettingsStore } from "./settings.ts"
+import {
+  followSettings,
+  instructionModeOf,
+  makeSettingsStore,
+  type SettingsStore,
+} from "./settings.ts"
 import {
   askToTrust,
   changeOver,
@@ -93,11 +98,19 @@ export function useBlockView(block: string | undefined): BlockView | undefined {
   return useSyncExternalStore(live.subscribe, select, select)
 }
 
-/** Whether the window shows instructions in place of running blocks. Off until the settings are read. */
+/**
+ * Whether the window shows instructions in place of running blocks: as
+ * the settings give it until the window has read the session, then the
+ * mode the window has read each instruction for (`Live.instructionMode`).
+ * Off until the settings are read.
+ */
 export function useInstructionMode(): boolean {
-  const { settings } = useContext(FollowingContext)
-  const select = () => settings.get()?.instructionMode === true
-  return useSyncExternalStore(settings.subscribe, select, select)
+  const { live, settings } = useContext(FollowingContext)
+  const selectRead = () => live.get().instructionMode
+  const read = useSyncExternalStore(live.subscribe, selectRead, selectRead)
+  const selectSetting = () => instructionModeOf(settings)
+  const setting = useSyncExternalStore(settings.subscribe, selectSetting, selectSetting)
+  return read ?? setting
 }
 
 /** The session's runbook as the engine holds it, once the window has read the session. */
@@ -203,7 +216,7 @@ export function followingOf(
       const fiber = Effect.runFork(
         Effect.all(
           [
-            follow(engine, session, opened.document, live.set),
+            follow(engine, session, opened.document, settingsNow, live.set),
             followSettings(engine, settingsNow.set),
           ],
           {
