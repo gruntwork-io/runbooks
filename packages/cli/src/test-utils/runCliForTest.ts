@@ -10,9 +10,11 @@ import path from "node:path"
 import { Console, Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import type { Registry } from "@runbooks/blocks-core/registry"
+import type { CredentialProviders } from "@runbooks/core/credential/provider"
 import { FileSystem as RunbooksFileSystem } from "@runbooks/core/services/FileSystem"
 import { NodeFileSystemLive } from "@runbooks/platform-node/layers/NodeFileSystem"
 import { type ExitCode, runCli } from "../cli.ts"
+import { NoCredentialProviders } from "../testIsolation.ts"
 
 export interface CliRun {
   readonly code: ExitCode
@@ -52,6 +54,8 @@ export interface RunOptions {
   readonly fileSystem?: Layer.Layer<RunbooksFileSystem>
   /** Completes when the test presses Ctrl-C. Never, by default. */
   readonly interrupted?: Effect.Effect<void>
+  /** What credential blocks sign in with. None can be opened, by default. */
+  readonly credentialProviders?: Layer.Layer<CredentialProviders, never, RunbooksFileSystem>
 }
 
 export async function runCliForTest(
@@ -76,6 +80,7 @@ export async function runCliForTest(
       cwd: options.cwd,
       env: options.env ?? {},
       interrupted: options.interrupted ?? Effect.never,
+      credentialProviders: options.credentialProviders ?? NoCredentialProviders,
     }).pipe(
       Effect.provide(Layer.merge(parserLayer, options.fileSystem ?? NodeFileSystemLive)),
       Effect.provideService(Console.Console, console),

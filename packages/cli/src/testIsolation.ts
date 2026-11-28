@@ -7,9 +7,10 @@
  *   app to resume.
  * - No settings file. The settings are the defaults: no CA bundle and no
  *   proxy. The app's settings file is neither read nor written.
- * - No credential providers. Each credential block is Unavailable, so a
- *   step that expects one to succeed fails. Running providers belongs to
- *   the plugin transport (work product 2.12).
+ * - Credential providers the caller gives: the entry point's sign in only
+ *   with the fake's logins (`@runbooks/blocks/fakes`) until the plugin
+ *   transport runs the real ones, and a test's own may open none
+ *   (`NoCredentialProviders`).
  *
  * The working and state folders are the caller's: a temporary folder per
  * test case (`testRun.ts`).
