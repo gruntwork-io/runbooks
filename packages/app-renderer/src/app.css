@@ -213,6 +213,7 @@
   .block-step[data-done="true"] {
     color: var(--color-green-700);
   }
+  /* The line a view draws when the window can't draw the block (blocks/views.ts). */
   .block-no-view {
     color: var(--color-zinc-500);
     font-style: italic;
@@ -409,6 +410,21 @@
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     white-space: pre;
+  }
+
+  /* The common auth view's tabs (authView.tsx): the chosen method's is underlined. */
+  .auth-tabs {
+    display: flex;
+    gap: calc(var(--spacing) * 4);
+    margin-top: calc(var(--spacing) * 2);
+    border-bottom: 1px solid var(--color-zinc-300);
+  }
+  .auth-tabs [aria-selected="true"] {
+    border-bottom: 2px solid currentColor;
+    font-weight: var(--font-weight-medium);
+  }
+  .auth-targets {
+    margin-top: calc(var(--spacing) * 2);
   }
 
   /* A form's fields (formView.tsx): each a label, a control, a description and an error. */

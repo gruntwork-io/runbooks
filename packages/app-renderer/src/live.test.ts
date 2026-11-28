@@ -352,6 +352,32 @@ describe("the window following a session", () => {
     )
   })
 
+  it("re-reads a credential block whose state changed, and shows the state its view gives", async () => {
+    const engine: Engine = { aws: task("aws"), other: task("other") }
+    const main = fakeMain(answering(engine))
+    const ready = {
+      _tag: "Ready",
+      identity: { principal: "dev@example.com", kind: "user", method: "token", targets: {} },
+      source: "env",
+    }
+    await following(main, (next) =>
+      Effect.gen(function* () {
+        expect((yield* next).blocks.get("aws")?.credential).toBeUndefined()
+        engine.aws = task("aws", { class: "credential", credential: ready })
+        // The event says only that it changed: the window reads the block for its state.
+        main.stream("Events", [event({ _tag: "CredentialChanged", block: "aws", state: ready })])
+        const changed = yield* next
+        expect(changed.blocks.get("aws")?.credential?._tag).toBe("Ready")
+        const reads = main.asked.filter(({ tag }) => tag === "GetBlock")
+        expect(reads.map(({ payload }) => (payload as { block: string }).block)).toEqual([
+          "aws",
+          "other",
+          "aws",
+        ])
+      }),
+    )
+  })
+
   it("re-reads a block whose files changed on disk, and shows what its view says of them", async () => {
     const engine: Engine = { greet: task("greet"), other: task("other") }
     const main = fakeMain(answering(engine))
