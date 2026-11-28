@@ -102,7 +102,14 @@ By default, the block looks for credentials in the standard AWS environment vari
 
 `detectCredentials={false}` turns detection off: the user always signs in.
 
-The block looks once the runbook is trusted. A `{ block }` source that hasn't run by then has no outputs, so the block finds nothing there: run that block, then choose **Check again** on the AwsAuth block.
+The block looks once the runbook is trusted, at each source in order, and offers the first credentials it finds. At a `{ block }` source whose block hasn't run yet, it waits for that block, and shows that it does, before it looks at any source after it. Once that block has run, the block looks at its outputs. If that block failed, or its outputs hold no credentials, or credentials that don't work, the block goes on to the next source.
+
+| `detectCredentials` | What the block does |
+|---------------------|---------------------|
+| `{[{ block: 'assume-role' }, 'env']}` | Waits for `assume-role` first, and falls back to the environment if it fails or gives no credentials |
+| `{['env', { block: 'assume-role' }]}` | Checks the environment first, and waits for `assume-role` only if the environment has no credentials |
+
+If no source has credentials that work, the user signs in, and the block says why the first credentials it found didn't work. Once the block has found credentials, or asks the user to sign in, a later run of the source's block changes nothing. **Check again** looks at every source again, from the first.
 
 Two `{ block }` sources are a configuration error, which shows in the block's place.
 
