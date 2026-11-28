@@ -12,7 +12,8 @@
  * up. The cases that need a real account are in a group of their own,
  * tagged `[account]` in its name; a subject without account scenarios
  * does not register it, so a job without credentials runs the rest. The
- * refresh case there also needs the `refreshable` scenario.
+ * refresh case there also needs the `refreshable` scenario, and the
+ * requirement case the `requirementNotMet` one.
  */
 import { describe, expect, it } from "bun:test"
 import {
@@ -63,8 +64,13 @@ export const ContractScenarios = Schema.Struct({
       signIn: ContractSignIn,
       /** One whose pins the login cannot reach. */
       pinMismatch: ContractSignIn,
-      /** One whose requirements the login does not meet. */
-      requirementNotMet: ContractSignIn,
+      /**
+       * One whose requirements the login does not meet. A provider whose
+       * logins no requirement can fail gives none, and that case is not
+       * registered: AWS evaluates no requirement kind (it refuses one as
+       * invalidParams), and Google skips them for a service account.
+       */
+      requirementNotMet: Schema.optionalKey(ContractSignIn),
       /** One whose login has expired: the sign-in or env answers expired. */
       expired: ContractSignIn,
       /**
@@ -332,13 +338,15 @@ export function credentialProviderContract(name: string, subject: CredentialSubj
       expect(kind).toBe("pinMismatch")
     })
 
-    it("answers requirementNotMet, saying what is unmet", async () => {
-      const error = await withProvider("account", (provider) =>
-        Effect.flip(Stream.runDrain(signInWith(provider, account.requirementNotMet))),
-      )
-      expect(error.kind).toBe("requirementNotMet")
-      expect(error.unmet?.length ?? 0).toBeGreaterThan(0)
-    })
+    const requirementNotMet = account.requirementNotMet
+    if (requirementNotMet !== undefined)
+      it("answers requirementNotMet, saying what is unmet", async () => {
+        const error = await withProvider("account", (provider) =>
+          Effect.flip(Stream.runDrain(signInWith(provider, requirementNotMet))),
+        )
+        expect(error.kind).toBe("requirementNotMet")
+        expect(error.unmet?.length ?? 0).toBeGreaterThan(0)
+      })
 
     it("answers expired for an expired login, at sign-in or at env", async () => {
       const kind = await withProvider("account", (provider) =>
