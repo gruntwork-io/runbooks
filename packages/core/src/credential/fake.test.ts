@@ -394,6 +394,98 @@ describe("the fake credential plugin", () => {
     expect(result).toEqual({ env: "notSignedIn", file: false })
   })
 
+  it("names its values as a script's names say, none for a part they leave out, and reads its token by that name", async () => {
+    const script: FakeScript = {
+      ...FAKE_SCRIPT,
+      names: { token: "CLOUD_SECRET", account: "CLOUD_ACCOUNT_ID" },
+      methods: [
+        {
+          name: "keys",
+          label: "Keys",
+          tokenField: "secret",
+          fields: [
+            { name: "keyId", label: "Key ID", required: true, secret: false },
+            { name: "secret", label: "Secret", required: true, secret: true },
+          ],
+        },
+      ],
+    }
+    const result = await withFake(
+      (provider) =>
+        Effect.gen(function* () {
+          const names = (yield* provider.describe).names
+          const detected = yield* provider.detect(
+            [
+              { kind: "env", prefix: Option.some("TEST_") },
+              {
+                kind: "values",
+                from: "keys",
+                values: { CLOUD_SECRET: { value: Redacted.make(TOKEN), secret: true } },
+              },
+            ],
+            NONE,
+          )
+          const events = yield* signIn(
+            provider,
+            "keys",
+            { keyId: "KEY1", secret: TOKEN },
+            { pins: { account: "222222222222" }, requirements: [] },
+          )
+          const values = yield* revealedEnv(provider)
+          return { names, detected, events, values }
+        }),
+      { script, environment: { TEST_CLOUD_SECRET: "fake-browser-token-0001" } },
+    )
+    expect(result.names).toEqual(["CLOUD_SECRET", "CLOUD_ACCOUNT_ID"])
+    expect(Option.map(result.detected, ({ identity }) => identity.principal)).toEqual(
+      Option.some("fake-browser@example.com"),
+    )
+    expect(result.events).toMatchObject([{ _tag: "SignedIn", identity: { method: "keys" } }])
+    expect(result.values.map(({ name, value }) => [name, value])).toEqual([
+      ["CLOUD_SECRET", TOKEN],
+      ["CLOUD_ACCOUNT_ID", "222222222222"],
+    ])
+  })
+
+  it("selects the targets a login comes with, and answers pinMismatch for a pin that names another", async () => {
+    const script: FakeScript = {
+      ...FAKE_SCRIPT,
+      logins: [
+        ...FAKE_SCRIPT.logins,
+        {
+          token: "fake-key-0001",
+          principal: "fake-key@example.com",
+          kind: "user",
+          targets: { account: "222222222222", role: "Admin" },
+        },
+      ],
+    }
+    const result = await withFake(
+      (provider) =>
+        Effect.gen(function* () {
+          const detected = yield* provider.detect([{ kind: "env", prefix: Option.none() }], NONE)
+          const pinned = yield* kindOf(
+            Stream.runCollect(
+              provider.signIn(
+                "token",
+                { token: Redacted.make("fake-key-0001") },
+                { pins: { account: "111111111111" }, requirements: [] },
+              ),
+            ),
+          )
+          return { detected, pinned }
+        }),
+      { script, environment: { FAKE_TOKEN: "fake-key-0001" } },
+    )
+    expect(Option.map(result.detected, ({ identity }) => identity.targets)).toEqual(
+      Option.some({
+        account: { id: "222222222222", name: "Staging" },
+        role: { id: "Admin", name: "Admin" },
+      }),
+    )
+    expect(result.pinned).toBe("pinMismatch")
+  })
+
   it("answers any error a script names, one this app does not know included", async () => {
     const kinds = await withFake(
       (provider) => Effect.all([kindOf(provider.detect([], NONE)), kindOf(provider.env)]),

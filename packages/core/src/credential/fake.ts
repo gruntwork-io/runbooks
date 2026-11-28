@@ -35,7 +35,7 @@ import type { CredentialProviders } from "./provider.ts"
 
 /** A login the fake knows, by the token that signs in as it. */
 export interface FakeLogin {
-  /** Typed into a method's `token` field, or found by a detection source under `<prefix>_TOKEN`. */
+  /** Typed into a method's token field, or found by a detection source under the token's name. */
   readonly token: string
   readonly principal: string
   readonly kind: Wire.Identity["kind"]
@@ -53,13 +53,21 @@ export interface FakeLogin {
   readonly refreshable?: boolean
   /** Its credential has expired already: signing in or detecting it answers `expired`. */
   readonly expired?: boolean
+  /**
+   * The target it comes with at each level, by level name, as an access key
+   * comes with its account and role: selected when it signs in or is
+   * detected. A pin that names another answers `pinMismatch`.
+   */
+  readonly targets?: { readonly [level: string]: string }
 }
 
 export interface FakeMethod {
   readonly name: string
   readonly label: string
-  /** A field named `token` holds the token it signs in with. */
+  /** The field `tokenField` names holds the token it signs in with. */
   readonly fields: ReadonlyArray<Wire.Field>
+  /** The field that holds the token: `token` unless it says otherwise. */
+  readonly tokenField?: string
   readonly oneOf?: ReadonlyArray<ReadonlyArray<string>>
   /** Why it cannot be used: signing in with it answers this. */
   readonly unavailable?: { readonly kind: Wire.ErrorKind; readonly message: string }
@@ -98,6 +106,12 @@ export type FakeFault =
 export interface FakeScript {
   /** What every name it sets starts with: `FAKE` gives FAKE_TOKEN and FAKE_ACCOUNT. */
   readonly prefix: string
+  /**
+   * The name of each value `env` gives, by part: `token`, a level's name,
+   * `credentialsFile`. Given, it is every name: a part it leaves out gives
+   * no value. Absent, each part is named from `prefix`.
+   */
+  readonly names?: { readonly [part: string]: string }
   readonly methods: ReadonlyArray<FakeMethod>
   readonly levels: ReadonlyArray<Wire.Level>
   /** The targets at each level, by level name. */
@@ -206,16 +220,22 @@ export const FAKE_SCRIPT: FakeScript = {
   file: true,
 }
 
-/** The name `env` gives a value: `FAKE_TOKEN`, `FAKE_ACCOUNT`. */
-export const fakeName = (script: Pick<FakeScript, "prefix">, part: string) =>
-  `${script.prefix}_${part.toUpperCase()}`
+/** The name `env` gives a part's value: `FAKE_TOKEN`, `FAKE_ACCOUNT`; none for a part `names` leaves out. */
+export const fakeName = (
+  script: Pick<FakeScript, "prefix" | "names">,
+  part: string,
+): string | undefined => {
+  if (script.names === undefined) return `${script.prefix}_${part.toUpperCase()}`
+  return Object.hasOwn(script.names, part) ? script.names[part] : undefined
+}
 
 /** Every name the fake may set: its `configure`'s `names`. */
-export const fakeNames = (script: Pick<FakeScript, "prefix" | "levels" | "file">) => [
-  fakeName(script, "token"),
-  ...script.levels.map((level) => fakeName(script, level.name)),
-  ...(script.file === true ? [fakeName(script, "credentialsFile")] : []),
-]
+export const fakeNames = (script: Pick<FakeScript, "prefix" | "names" | "levels" | "file">) =>
+  [
+    "token",
+    ...script.levels.map((level) => level.name),
+    ...(script.file === true ? ["credentialsFile"] : []),
+  ].flatMap((part) => fakeName(script, part) ?? [])
 
 /** The file `env` names, in the state directory. */
 const CREDENTIALS_FILE = "credentials.json"
@@ -323,6 +343,12 @@ export const fakeCredentialPlugin =
           for (const [level, id] of Object.entries(pins))
             if (!mayReach(script, login, level, id))
               return yield* refusal("pinMismatch", `The login cannot reach ${level} ${id}.`)
+          for (const [level, id] of Object.entries(pins))
+            if (login.targets?.[level] !== undefined && login.targets[level] !== id)
+              return yield* refusal(
+                "pinMismatch",
+                `The login comes with ${level} ${login.targets[level]}.`,
+              )
           const unmet = requirements.flatMap((requirement): Array<Wire.Requirement> => {
             if (requirement.kind === "scopes") {
               const missing = requirement.scopes.filter((scope) => !login.scopes?.includes(scope))
@@ -336,7 +362,7 @@ export const fakeCredentialPlugin =
               unmet,
             })
           const selected = new Map<string, Wire.Target | null>()
-          for (const [level, id] of Object.entries(pins)) {
+          for (const [level, id] of Object.entries({ ...login.targets, ...pins })) {
             const target = targetOf(script, level, id)
             if (target !== undefined) selected.set(level, target)
           }
@@ -371,6 +397,7 @@ export const fakeCredentialPlugin =
         Effect.gen(function* () {
           const wire = yield* decodeParams(Wire.DetectParams, params, "detect")
           yield* checkConstraints(script, wire.pins, wire.requirements)
+          // A script that names no token value has none to find.
           const tokenName = fakeName(script, "token")
           for (const source of wire.sources) {
             const named = script.named ?? {}
@@ -378,9 +405,18 @@ export const fakeCredentialPlugin =
               return yield* invalid(`The fake names no source ${source.name}.`)
             const found =
               source.kind === "env"
-                ? { token: environment[`${source.prefix ?? ""}${tokenName}`], source: "env" }
+                ? {
+                    token:
+                      tokenName === undefined
+                        ? undefined
+                        : environment[`${source.prefix ?? ""}${tokenName}`],
+                    source: "env",
+                  }
                 : source.kind === "values"
-                  ? { token: source.values[tokenName], source: source.from }
+                  ? {
+                      token: tokenName === undefined ? undefined : source.values[tokenName],
+                      source: source.from,
+                    }
                   : { token: named[source.name], source: source.name }
             if (found.token === undefined) continue
             const login = loginOf(script, found.token)
@@ -424,7 +460,7 @@ export const fakeCredentialPlugin =
               return yield* invalid(`Give exactly one of ${group.join(", ")}.`)
           yield* checkConstraints(script, wire.pins, wire.requirements)
 
-          const token = wire.fields["token"] ?? method.signsInAs ?? ""
+          const token = wire.fields[method.tokenField ?? "token"] ?? method.signsInAs ?? ""
           for (const kind of method.prompts ?? []) {
             const code = faulty("secretInPrompt") ? token : "FAKE-CODE"
             yield* notify(
@@ -506,25 +542,29 @@ export const fakeCredentialPlugin =
             else if (now >= expiry.value)
               return yield* refusal("expired", "The credential has expired: sign in again.")
           }
-          const values: Array<Wire.EnvValue> = [
-            {
-              name: fakeName(script, "token"),
+          const values: Array<Wire.EnvValue> = []
+          const tokenName = fakeName(script, "token")
+          if (tokenName !== undefined)
+            values.push({
+              name: tokenName,
               value: state.login.token,
               sensitive: !faulty("secretNotSensitive"),
               to: ["env"],
               file: false,
-            },
-          ]
-          for (const [level, target] of state.selected)
-            if (target !== null)
+            })
+          for (const [level, target] of state.selected) {
+            const name = fakeName(script, level)
+            if (target !== null && name !== undefined)
               values.push({
-                name: fakeName(script, level),
+                name,
                 value: target.id,
                 sensitive: false,
                 to: ["env", "output"],
                 file: false,
               })
-          if (script.file === true) {
+          }
+          const fileName = fakeName(script, "credentialsFile")
+          if (script.file === true && fileName !== undefined) {
             const file = faulty("fileOutsideStateDir")
               ? path.join(path.dirname(stateDir), CREDENTIALS_FILE)
               : path.join(stateDir, CREDENTIALS_FILE)
@@ -541,7 +581,7 @@ export const fakeCredentialPlugin =
               })),
             )
             values.push({
-              name: fakeName(script, "credentialsFile"),
+              name: fileName,
               value: file,
               sensitive: false,
               to: ["env"],
@@ -550,7 +590,7 @@ export const fakeCredentialPlugin =
           }
           if (faulty("undeclaredName"))
             values.push({
-              name: fakeName(script, "undeclared"),
+              name: `${script.prefix}_UNDECLARED`,
               value: "x",
               sensitive: false,
               to: ["env"],
