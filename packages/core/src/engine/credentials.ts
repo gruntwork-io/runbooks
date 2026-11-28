@@ -15,8 +15,10 @@
  *   it, and takes only CheckAgain, which starts the walk over. A source
  *   whose login the provider refuses is passed over too, and the first
  *   refusal is why the block is signed out if no later source has a login.
- *   A login that lacks what the block requires ends the walk:
- *   RequirementNotMet, not a later source's login.
+ *   A login that lacks what the block requires is passed over as well,
+ *   for a later source's that meets it (the human, 2026-11-28: "cycle
+ *   credentials if possible"). If none does, the first such login is why
+ *   the block is RequirementNotMet, over any refusal.
  *   Once the walk ends, a later run of a source's block changes nothing.
  * - Open decision 7: a login detected for a block that pins nothing waits
  *   in Found for the person; one detected for a block that pins its
@@ -284,15 +286,6 @@ function isUnavailable(kind: CredentialErrorKind): boolean {
       return false
   }
 }
-
-/**
- * Whether an error a detection source gives ends the walk: the provider
- * cannot serve the block, or the source holds a login that lacks what the
- * block requires. That login is the person's to fix (RequirementNotMet),
- * not one to pass over for a later source's.
- */
-const endsWalk = (kind: CredentialErrorKind): boolean =>
-  isUnavailable(kind) || kind === "requirementNotMet"
 
 /** The pinned levels whose target, in `identity`, is not the pin. */
 const unmetPins = (pins: CredentialRequest["pins"], identity: Identity) =>
@@ -731,9 +724,11 @@ export function makeCredentials(
    * The first login the request's detection sources hold, asking of each
    * in order in a call of its own: no source after a block's outputs is
    * asked before that block is done or has failed. A source whose login
-   * the provider refuses is passed over; if no later one has a login, the
-   * walk fails with the first refusal. An error that ends the walk
-   * (`endsWalk`) fails it at once.
+   * the provider refuses, or whose login lacks what the block requires, is
+   * passed over. If no later one has a login, the walk fails with the first
+   * login that lacks a requirement, or else the first refusal. An error
+   * that means the provider cannot serve the block (`isUnavailable`) fails
+   * it at once.
    */
   const walk = (
     credential: Credential,
@@ -742,6 +737,7 @@ export function makeCredentials(
   ): Effect.Effect<Option.Option<Detected>, CredentialError> =>
     Effect.gen(function* () {
       const { request } = credential.slot
+      let unmet: CredentialError | undefined
       let refused: CredentialError | undefined
       for (const source of request.detect) {
         const resolved = yield* resolve(credential, turn, source)
@@ -751,15 +747,17 @@ export function makeCredentials(
           provider.detect([resolved.value], constraintsOf(request)),
         ).pipe(
           Effect.catchIf(
-            (error) => !endsWalk(error.kind),
+            (error) => !isUnavailable(error.kind),
             (error) => {
-              refused ??= error
+              if (error.kind === "requirementNotMet") unmet ??= error
+              else refused ??= error
               return Effect.succeed(Option.none<Detected>())
             },
           ),
         )
         if (Option.isSome(found)) return found
       }
+      if (unmet !== undefined) return yield* unmet
       if (refused !== undefined) return yield* refused
       return Option.none<Detected>()
     })

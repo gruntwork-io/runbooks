@@ -301,12 +301,14 @@ const walking = (env: () => Holds) =>
       }),
   })
 
+/** A resolved source's name: `env`, or the block a values source reads. */
+const nameOf = (source: ResolvedSource | undefined) =>
+  source?.kind === "values" ? source.from : source?.kind
+
 /** The sources `block`'s provider was asked to detect from, over all its calls: `env`, or the block a values source read. */
 const askedOf = (block: string) =>
   argsOf(block, "detect").flatMap(([sources]) =>
-    (sources as ReadonlyArray<ResolvedSource>).map((source) =>
-      source.kind === "values" ? source.from : source.kind,
-    ),
+    (sources as ReadonlyArray<ResolvedSource>).map(nameOf),
   )
 
 /** The statuses `block` went through, as the session logged them. */
@@ -800,7 +802,7 @@ describe("walking a credential block's detection sources in order", () => {
     expect(askedOf("cloud")).toEqual(["env"])
   })
 
-  it("stops at a login that lacks what the block requires, asking of no source after it", async () => {
+  it("goes past a login that lacks what the block requires, to a later source's login that meets it", async () => {
     const unmet = [{ kind: "scopes" as const, scopes: ["repo"] }]
     await withCloud(
       runbookOf(
@@ -819,14 +821,81 @@ describe("walking a credential block's detection sources in order", () => {
       (rb) =>
         Effect.gen(function* () {
           yield* rb.run("keys")
-          expect(yield* rb.until("cloud", "RequirementNotMet")).toEqual({
-            _tag: "RequirementNotMet",
-            unmet,
+          expect(yield* rb.until("cloud", "Found")).toEqual({
+            _tag: "Found",
+            identity: who("222"),
+            source: "keys",
           })
         }),
     )
-    expect(askedOf("cloud")).toEqual(["env"])
+    expect(askedOf("cloud")).toEqual(["env", "keys"])
   })
+
+  it("is RequirementNotMet with what the first source's login lacks, when no source's login meets what the block requires", async () => {
+    const lacks = (scope: string) => [{ kind: "scopes" as const, scopes: [scope] }]
+    await withCloud(
+      runbookOf(
+        KEYS,
+        '<CloudLogin id="cloud" scopes={["repo", "admin"]} sources={["env", { block: "keys" }]} />',
+      ),
+      {
+        cloud: cloud({
+          detect: (sources) =>
+            Effect.fail(
+              sources[0]?.kind === "env"
+                ? credentialError("requirementNotMet", "No repo scope.", { unmet: lacks("repo") })
+                : credentialError("requirementNotMet", "No admin scope.", {
+                    unmet: lacks("admin"),
+                  }),
+            ),
+        }),
+      },
+      (rb) =>
+        Effect.gen(function* () {
+          yield* rb.run("keys")
+          expect(yield* rb.until("cloud", "RequirementNotMet")).toEqual({
+            _tag: "RequirementNotMet",
+            unmet: lacks("repo"),
+          })
+        }),
+    )
+    expect(askedOf("cloud")).toEqual(["env", "keys"])
+  })
+
+  it.each([
+    ["a later", "env"],
+    ["an earlier", "keys"],
+  ] as const)(
+    "is RequirementNotMet when no source's login meets what the block requires, though %s source's is refused",
+    async (_, lacking) => {
+      const unmet = [{ kind: "scopes" as const, scopes: ["repo"] }]
+      await withCloud(
+        runbookOf(
+          KEYS,
+          '<CloudLogin id="cloud" scopes={["repo"]} sources={["env", { block: "keys" }]} />',
+        ),
+        {
+          cloud: cloud({
+            detect: (sources) =>
+              Effect.fail(
+                nameOf(sources[0]) === lacking
+                  ? credentialError("requirementNotMet", "No repo scope.", { unmet })
+                  : credentialError("accessDenied", "The login is not valid."),
+              ),
+          }),
+        },
+        (rb) =>
+          Effect.gen(function* () {
+            yield* rb.run("keys")
+            expect(yield* rb.until("cloud", "RequirementNotMet")).toEqual({
+              _tag: "RequirementNotMet",
+              unmet,
+            })
+          }),
+      )
+      expect(askedOf("cloud")).toEqual(["env", "keys"])
+    },
+  )
 
   it("stays Ready while the block source it found its login in runs again, and so does a run that names it", async () => {
     await withCloud(
