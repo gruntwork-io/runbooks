@@ -408,4 +408,46 @@
     font-size: var(--text-sm);
     white-space: pre;
   }
+
+  /* A form's fields (formView.tsx): each a label, a control, a description and an error. */
+  .form {
+    display: grid;
+    gap: calc(var(--spacing) * 4);
+    margin-top: calc(var(--spacing) * 2);
+  }
+  .form-field {
+    display: grid;
+    gap: calc(var(--spacing) * 1);
+  }
+  .form-label {
+    font-weight: var(--font-weight-medium);
+  }
+  .form-required,
+  .form-error {
+    color: var(--color-red-700);
+  }
+  .form-read-only,
+  .form-description,
+  .form-hidden {
+    color: var(--color-zinc-500);
+    font-size: var(--text-sm);
+  }
+  .form-hidden {
+    font-style: italic;
+  }
+  .form-check {
+    display: flex;
+    gap: calc(var(--spacing) * 2);
+    align-items: center;
+  }
+  .form-field :where(input:not([type="checkbox"]), select) {
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 2);
+    border: 1px solid var(--color-zinc-300);
+    border-radius: var(--radius-md);
+    background: var(--color-white);
+  }
+  .form-field :where(input, select):disabled {
+    color: var(--color-zinc-500);
+    background: var(--color-zinc-100);
+  }
 }
