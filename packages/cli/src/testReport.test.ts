@@ -54,6 +54,31 @@ describe("the junit report", () => {
   })
 })
 
+describe("the fuzz seed", () => {
+  const fuzzed = { ...report("one", "deploys"), fuzzSeed: "a&b" }
+  const options = { cwd: "/work", verbose: false }
+
+  it("is a property of each suite in junit, and absent with none", () => {
+    expect(renderTestReport(fuzzed, "junit", options)).toContain(
+      'time="1.500">\n    <properties>\n      <property name="fuzzSeed" value="a&amp;b"/>\n    </properties>\n    <testcase',
+    )
+    expect(renderTestReport(report("one", "deploys"), "junit", options)).not.toContain(
+      "<properties>",
+    )
+  })
+
+  it("follows the results in text, with how to draw the same values, and is absent with none", () => {
+    expect(renderTestReport(fuzzed, "text", options)).toEndWith(
+      "Results: 0 passed, 1 failed, 0 skipped (total: 1.50s)\nFuzz seed: a&b (--fuzz-seed a&b draws the same values)\n",
+    )
+    expect(renderTestReport(report("one", "deploys"), "text", options)).not.toContain("Fuzz seed")
+  })
+
+  it("is in the json report", () => {
+    expect(JSON.parse(renderTestReport(fuzzed, "json", options)).fuzzSeed).toBe("a&b")
+  })
+})
+
 describe("the text report", () => {
   it("names each runbook by its path from the working directory, with the failed step's log", () => {
     const text = renderTestReport(report("one\ntwo", "deploys"), "text", {
