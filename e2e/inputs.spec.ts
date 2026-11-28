@@ -87,6 +87,29 @@ test.describe("Inputs in the window", () => {
     await expectOutputs(greet, { said: "hello world" })
   })
 
+  test("end-to-end: every keystroke typed fast is kept, and a reader gets all of it", async ({
+    launch,
+  }) => {
+    const { page } = await launch({ args: [testdata("end-to-end")] })
+    const config = page.locator("#runbook-block-config")
+    const deploy = page.locator("#runbook-block-deploy")
+    await trust(page)
+
+    const name = config.getByRole("textbox", { name: "Name" })
+    const typed = "web-frontend-in-eu-west-1-for-the-payments-team-0123456789"
+    await name.pressSequentially(typed.slice(0, 1))
+    const submit = config.getByRole("button", { name: "Submit" })
+    await expect(submit).toBeVisible()
+    // The rest with no delay between keys, then Submit at once, while the engine may still be answering them.
+    await name.pressSequentially(typed.slice(1))
+    await submit.click()
+    await expect(name).toHaveValue(typed)
+    await expect(config.locator(".block-status")).toHaveText("Done")
+
+    await run(deploy)
+    await expectOutputs(deploy, { seen: `${typed}/us-east-1/2` })
+  })
+
   test("path: forms read from a folder's boilerplate.yaml and from a file", async ({ launch }) => {
     const { page } = await launch({ args: [testdata("path")] })
     const network = page.locator("#runbook-block-network")
