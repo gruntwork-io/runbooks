@@ -773,6 +773,35 @@ describe("engine protocol", () => {
     expect(Schema.decodeUnknownSync(view)(wire)).toEqual(held)
   })
 
+  it("says the session stopped watching, and why, through JSON", () => {
+    const message =
+      "Runbooks could not watch /rb/runbook.mdx for changes: ENOSPC: System limit for number of file watchers reached."
+    const json = Schema.toCodecJson(EventEnvelope)
+    const envelope: EventEnvelope = {
+      session,
+      sequence: 0,
+      at,
+      event: { _tag: "Unwatched", message },
+    }
+    const wire = JSON.parse(JSON.stringify(Schema.encodeSync(json)(envelope)))
+    expect(wire.event).toEqual({ _tag: "Unwatched", message })
+    expect(Schema.decodeUnknownSync(json)(wire)).toEqual(envelope)
+
+    const view = Schema.toCodecJson(SessionView)
+    const unwatched: SessionView = {
+      session,
+      name: "rb",
+      path: "/rb/runbook.mdx",
+      blocks: [],
+      trust: { trusted: true, hash },
+      warnings: [],
+      unwatched: { message },
+    }
+    const viewWire = JSON.parse(JSON.stringify(Schema.encodeSync(view)(unwatched)))
+    expect(viewWire.unwatched).toEqual({ message })
+    expect(Schema.decodeUnknownSync(view)(viewWire)).toEqual(unwatched)
+  })
+
   it("serves every baseline MCP tool with a command (decision 12)", () => {
     expect(Object.keys(BASELINE_MCP_TOOLS)).toHaveLength(10)
     for (const command of Object.values(BASELINE_MCP_TOOLS)) {

@@ -390,6 +390,17 @@ export const ReloadHeld = Schema.Union([
 ])
 export type ReloadHeld = typeof ReloadHeld.Type
 
+/**
+ * Why a session in a mode that watches (`notice`, `runbook`,
+ * `runbookAndFiles`) watches nothing on disk: the system refused a watch,
+ * as Linux does past its limit on file watches. From then on, saving the
+ * runbook or a file it names shows nothing: no block says its files
+ * changed, and nothing reloads. It lasts until the session closes.
+ * `message` says why, and what to do.
+ */
+export const Unwatched = Schema.Struct({ message: Schema.String })
+export type Unwatched = typeof Unwatched.Type
+
 export const SessionView = Schema.Struct({
   ...SessionSummary.fields,
   /**
@@ -406,6 +417,8 @@ export const SessionView = Schema.Struct({
   resumed: Schema.optionalKey(Resumed),
   /** Present while the session holds back a reload of its runbook: why. */
   reloadHeld: Schema.optionalKey(ReloadHeld),
+  /** Present once the session watches nothing its watch mode watches: why. */
+  unwatched: Schema.optionalKey(Unwatched),
 })
 export type SessionView = typeof SessionView.Type
 
@@ -812,6 +825,11 @@ export const EngineEvent = Schema.Union([
   Schema.TaggedStruct("DocumentChanged", { hash: ContentHash }),
   /** `SessionView.reloadHeld` changed: `held` is what it is now, absent when no reload is held. */
   Schema.TaggedStruct("ReloadHeldChanged", { held: Schema.optionalKey(ReloadHeld) }),
+  /**
+   * The session stopped watching, as `SessionView.unwatched` now says. It
+   * comes once, and nothing clears it while the session is open.
+   */
+  Schema.TaggedStruct("Unwatched", { message: Schema.String }),
   Schema.TaggedStruct("BlockStatusChanged", { block: BlockId, status: BlockStatus }),
   /** Batched: the engine sends lines as they arrive, at most a few batches a second. */
   Schema.TaggedStruct("LogLines", {
@@ -875,6 +893,9 @@ const block = { session: SessionId, block: BlockId }
  * reload keeps its trust while the session is open (`DocumentChanged`),
  * so only a person chooses one: an agent's `OpenSession` that names one
  * is `Forbidden`.
+ *
+ * A watch the system refuses ends the session's watching, in every mode
+ * that watches: `SessionView.unwatched` says so (`Unwatched`).
  */
 export const WatchMode = Schema.Literals(["off", "notice", "runbook", "runbookAndFiles"])
 export type WatchMode = typeof WatchMode.Type
