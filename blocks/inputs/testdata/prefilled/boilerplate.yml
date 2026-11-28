@@ -1,0 +1,9 @@
+variables:
+  - name: Region
+    type: string
+    default: us-east-1
+  - name: Environment
+    type: enum
+    options: [staging, production]
+    default: staging
+    x-locked: true

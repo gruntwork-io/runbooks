@@ -1,0 +1,343 @@
+---
+title: <Inputs>
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The `<Inputs>` block renders a form to collect user input. Other blocks use the collected values through their `inputsId` prop: [Command](/authoring/blocks/command/), [Check](/authoring/blocks/check/) and [Finish](/authoring/blocks/finish/) blocks in their scripts, [Template](/authoring/blocks/template/) and [TemplateInline](/authoring/blocks/templateinline/) blocks in their templates, and most other blocks in their props.
+
+## Basic usage
+
+`````mdx
+<Inputs id="config">
+```yaml
+variables:
+  - name: ProjectName
+    type: string
+    description: Name of your project
+    validations:
+      - required
+```
+</Inputs>
+`````
+
+## vs. Template
+
+Inputs and [Template](/authoring/blocks/template/) both render forms to collect variable values:
+
+| Feature | `<Inputs>` | `<Template>` |
+|---------|------------|--------------|
+| Collects variables | Yes | Yes |
+| Generates files | No | Yes |
+| Button text | "Submit" | "Generate" |
+| Use case | Collect values for other blocks | Generate files from a Boilerplate template directory |
+
+## Props
+
+### Required props
+
+- `id` (string): unique identifier for this block. Other blocks reference this ID through `inputsId` to read the collected values. Two blocks with the same ID are a configuration error on the second: other blocks read the first.
+- The form's variables, in one of two places. Setting both, or neither, is a configuration error.
+  - Inline YAML: a ` ```yaml ` code fence inside the block. See [Inline YAML](#inline-yaml).
+  - `path` (string): path to a `boilerplate.yml` file, or to the folder that holds one, relative to the runbook's folder. See [Loading from a path](#loading-from-a-path).
+
+### Optional props
+
+- `prefilledVariables` (object): variable names to values that pre-populate the form's fields. These values override any `default` values defined in the YAML. Each name must be a variable of the form: a name it doesn't have is a configuration error. See [Prefilled variables](#prefilled-variables).
+
+## Declaring variables
+
+Variables use the [Boilerplate variable syntax](/authoring/boilerplate/#the-boilerplateyml-file). Declare them as inline YAML or load them with `path`. A block takes one or the other. A dropdown's [options](/authoring/boilerplate/#options) can have labels.
+
+### Inline YAML
+
+Write the variable definitions inside the `<Inputs>` tags in the style of a `boilerplate.yml` file, wrapped in a ` ```yaml ` code fence:
+
+`````mdx
+<Inputs id="user-settings">
+```yaml
+variables:
+  - name: Username
+    type: string
+    description: Your username
+    validations:
+      - required
+  - name: NotifyByEmail
+    type: bool
+    description: Receive email notifications
+    default: true
+```
+</Inputs>
+`````
+
+The code fence is required. Without it, MDX parses the YAML as Markdown paragraphs and lists and loses its indentation, so the block has no variables, which is a configuration error that asks you to write them in a code fence. Runbooks reads the YAML only from the fence: a `yaml` prop written on the tag is ignored, with a warning.
+
+A `description` can use markdown, such as **bold**, links and lists. Write a multi-line one as a YAML block scalar:
+
+`````mdx
+<Inputs id="platform">
+```yaml
+variables:
+  - name: SubscriptionLayout
+    type: enum
+    options: [single, caf]
+    description: |
+      How many subscriptions the platform uses:
+      - **single**: one subscription for everything.
+      - **caf**: four subscriptions, as Microsoft's [Cloud Adoption Framework](https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/) recommends.
+```
+</Inputs>
+`````
+
+See [Field descriptions](/authoring/boilerplate/#field-descriptions) for what renders.
+
+### Loading from a path
+
+Load variables from a `boilerplate.yml` file in the runbook's folder:
+
+```mdx
+<Inputs id="vpc-config" path="templates/vpc" />
+```
+
+`path` names the file itself, such as `path="templates/vpc/variables.yml"`, or the folder that holds it. For a folder, Runbooks reads its `boilerplate.yml`, or, if it has none, its `boilerplate.yaml`. A folder with neither is a configuration error. Runbook tests read the same file.
+
+The file must be inside the runbook's folder, so a path that leaves it, such as `../shared`, is a configuration error. Runbooks reads it when it opens the runbook, as part of what you trust.
+
+## Configuration errors
+
+Each setting in the YAML is checked when Runbooks opens the runbook. A malformed setting is a configuration error: the block shows it, with the variable it's on and its line, and doesn't work until you fix it. Other blocks that read the form wait for it. These are errors:
+
+- A setting of the wrong kind: an `order` that isn't a whole number; a `sensitive`, `x-locked` or `x-hidden`, or a section's `collapsed`, that isn't `true` or `false`; a `description`, `x-section` or `x-schema-instance-label` that isn't text; `options` or `x-options` that are neither a list nor a block's output, `validations` that aren't a list, or an entry in one of them that Runbooks can't read; an `x-schema` that isn't a map of keys to types; a `default` that isn't a value a field can hold.
+- An [`x-show-when`](/authoring/boilerplate/#x-show-when) that isn't a map of variable names to values, names a variable the form doesn't have, gives an `enum` a value that isn't one of its options, or depends on itself through other conditions.
+- An [`x-sections`](/authoring/boilerplate/#x-sections) that isn't a list, an entry in it without a `name`, or one that names a section no variable is in.
+- A variable without a `name`, or two variables with the same `name`. A `variables` that isn't a list.
+- A [`prefilledVariables`](#prefilled-variables) name the form doesn't have.
+
+Two settings are read leniently, and are not errors: a `type` Runbooks doesn't know, or none, is `string`, and a type in another case is read in lowercase (`Enum` is `enum`); a validation Runbooks doesn't know is never checked. A config with no `variables` is a form with no fields.
+
+<Aside type="caution">
+A [default that uses other variables](/authoring/boilerplate/#defaults-that-use-other-variables) and [options from a block's output](/authoring/boilerplate/#options-from-a-blocks-output) aren't supported yet. Either one is a configuration error that names the variable.
+</Aside>
+
+## Prefilled variables
+
+Pre-populate form fields with specific values. These override any `default` values, and are what a field's **Reset** button puts back:
+
+`````mdx
+<Inputs 
+    id="aws-config" 
+    path="templates/aws-settings"
+    prefilledVariables={{ 
+        AwsRegion: "us-west-2", 
+        Environment: "production" 
+    }}
+/>
+`````
+
+`prefilledVariables` also sets [locked and hidden](/authoring/boilerplate/#x-locked) fields, which the user can't change. A runbook that loads a shared `boilerplate.yml` can use it to set their values for itself.
+
+## When other blocks get the values
+
+Until the user first clicks **Submit**, other blocks get the values the form started with: each field's prefilled value or `default`, not what the user has typed. A block that reads a required field that starts empty waits for the form until that first Submit, even once the user has typed a value.
+
+Once the form has been submitted, other blocks get each change as the user makes it, without another Submit. They get only valid values: a field whose value fails one of its validations gives them no value, and a block that reads it waits until it's fixed. Resetting the form doesn't undo its first Submit, and neither does closing Runbooks: a resumed session's form gives its values as it did before.
+
+An Inputs block [embedded in a Command or Check](#embedded-in-command-or-check) has no Submit: its parent, and any other block that reads it, always gets the current values. In a [runbook test](/authoring/testing/), the test's `inputs` reach each block that reads them, with no Submit.
+
+## Using variables in Commands and Checks
+
+Command, Check, Finish, Template and TemplateInline blocks read the values of an Inputs block through `inputsId`. A Command or Check whose `env` references `{{ .inputs.X }}` needs `inputsId` or an [embedded](#embedded-in-command-or-check) Inputs block.
+
+### Reference by `inputsId`
+
+`````mdx
+<Inputs id="vpc-config">
+```yaml
+variables:
+  - name: VpcName
+    type: string
+    description: Name for the VPC
+  - name: CidrBlock
+    type: string
+    description: CIDR block for the VPC
+    default: "10.0.0.0/16"
+```
+</Inputs>
+
+<Command 
+    id="create-vpc" 
+    env={{ CIDR_BLOCK: "{{ .inputs.CidrBlock }}", VPC_NAME: "{{ .inputs.VpcName }}" }}
+    command='aws ec2 create-vpc --cidr-block "$CIDR_BLOCK" --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME}]"'
+    inputsId="vpc-config"
+    title="Create VPC"
+    successMessage="VPC {{ .inputs.VpcName }} created!"
+/>
+`````
+
+### Reference multiple Inputs
+
+You can reference multiple Inputs blocks by passing an array of IDs. Variables are merged in order, with later IDs overriding earlier ones:
+
+`````mdx
+<Inputs id="global-config">
+```yaml
+variables:
+  - name: Environment
+    type: enum
+    options: [dev, staging, prod]
+    default: dev
+```
+</Inputs>
+
+<Inputs id="app-config">
+```yaml
+variables:
+  - name: AppName
+    type: string
+  - name: Port
+    type: int
+    default: 8080
+```
+</Inputs>
+
+<Command
+    id="deploy" 
+    path="scripts/deploy.sh"
+    inputsId={["global-config", "app-config"]}
+    env={{
+        ENVIRONMENT: "{{ .inputs.Environment }}",
+        APP_NAME: "{{ .inputs.AppName }}",
+        PORT: "{{ .inputs.Port }}",
+    }}
+    title="Deploy Application"
+/>
+`````
+
+### Embedded in Command or Check
+
+You can embed Inputs directly inside a Command or Check block:
+
+`````mdx
+<Command 
+    id="greet" 
+    env={{ NAME: "{{ .inputs.Name }}" }}
+    command='echo "Hello, $NAME!"'
+    title="Say Hello"
+>
+    <Inputs id="greeting-inputs">
+    ```yaml
+    variables:
+      - name: Name
+        type: string
+        description: Your name
+        validations:
+          - required
+    ```
+    </Inputs>
+</Command>
+`````
+
+When embedded, the Inputs form renders inline within the parent block without a separate Submit button, and the parent can use its variables. It isn't a step of the runbook of its own: its parent is.
+
+Other blocks can still reference embedded Inputs using the standard `inputsId` pattern.
+
+## Sections
+
+Group related variables under section headers using the `x-section` extension:
+
+```yaml
+variables:
+  - name: FunctionName
+    type: string
+    description: Name of the Lambda function
+    x-section: Basic Configuration
+
+  - name: Runtime
+    type: enum
+    options: [python3.12, nodejs20.x]
+    x-section: Basic Configuration
+
+  - name: MemorySize
+    type: int
+    description: Memory allocation in MB
+    default: 128
+    x-section: Advanced Settings
+
+  - name: Timeout
+    type: int
+    description: Timeout in seconds
+    default: 30
+    x-section: Advanced Settings
+```
+
+Variables with the same `x-section` value are grouped together in the form under a section header. Variables without one come first.
+
+The same YAML can also lay the form out further. [`order`](/authoring/boilerplate/#field-order) places fields, [`x-sections`](/authoring/boilerplate/#x-sections) folds sections, and [`x-locked`](/authoring/boilerplate/#x-locked) and [`x-hidden`](/authoring/boilerplate/#x-hidden) show a field read-only or leave it out, for values the runbook sets itself.
+
+## Complete example
+
+`````mdx
+# Create a GitHub Repository
+
+Enter your repository settings:
+
+<Inputs id="repo-settings">
+```yaml
+variables:
+  - name: OrgName
+    type: string
+    description: GitHub organization name
+    validations:
+      - required
+  - name: RepoName
+    type: string
+    description: Repository name
+    validations:
+      - required
+  - name: Visibility
+    type: enum
+    description: Repository visibility
+    options:
+      - private
+      - public
+    default: private
+```
+</Inputs>
+
+First, verify you're authenticated to GitHub:
+
+<Check 
+    id="check-auth" 
+    command="gh auth status"
+    title="Verify GitHub Authentication"
+    successMessage="Authenticated to GitHub!"
+    failMessage="Not authenticated. Run 'gh auth login' first."
+/>
+
+Now create the repository:
+
+<Command 
+    id="create-repo" 
+    env={{
+        ORG: "{{ .inputs.OrgName }}",
+        REPO: "{{ .inputs.RepoName }}",
+        VISIBILITY: "{{ .inputs.Visibility }}",
+    }}
+    command='gh repo create "$ORG/$REPO" "--$VISIBILITY"'
+    inputsId="repo-settings"
+    title="Create Repository"
+    successMessage="Repository {{ .inputs.OrgName }}/{{ .inputs.RepoName }} created!"
+    failMessage="Failed to create repository"
+/>
+
+Verify the repository was created:
+
+<Check 
+    id="verify-repo" 
+    env={{ ORG: "{{ .inputs.OrgName }}", REPO: "{{ .inputs.RepoName }}" }}
+    command='gh repo view "$ORG/$REPO"'
+    inputsId="repo-settings"
+    title="Verify Repository Exists"
+    successMessage="Repository verified!"
+/>
+`````

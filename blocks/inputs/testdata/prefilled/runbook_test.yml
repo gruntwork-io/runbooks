@@ -1,0 +1,16 @@
+version: 1
+settings:
+  use_temp_working_dir: true
+  timeout: 1m
+tests:
+  - name: prefilled
+    steps:
+      - block: settings
+        expect: success
+      - block: show
+        expect: success
+        assertions:
+          - type: output_equals
+            block: show
+            output: where
+            value: production@eu-west-1

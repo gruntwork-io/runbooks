@@ -1,0 +1,50 @@
+# Inputs, end to end
+
+Each block here checks something Inputs promises, so an Inputs that breaks one fails the test.
+
+`config` is a form written in a fence inside the block. Its fields are in the form's order: `Name`, whose `order` is lowest, comes first.
+
+<Inputs id="config">
+```yaml
+variables:
+  - name: Region
+    type: enum
+    options: [us-east-1, eu-west-1]
+    default: us-east-1
+  - name: Count
+    type: int
+    default: 2
+  - name: Name
+    type: string
+    order: -1
+    validations:
+      - required
+```
+</Inputs>
+
+`deploy` reads it through `inputsId`. It runs once the required `Name` has a value.
+
+<Command
+  id="deploy"
+  inputsId="config"
+  env={{ NAME: "{{ .inputs.Name }}", REGION: "{{ .inputs.Region }}", COUNT: "{{ .inputs.Count }}" }}
+  outputs={["seen"]}
+  command={`echo "seen=$NAME/$REGION/$COUNT" >> "$RUNBOOK_OUTPUT"`}
+/>
+
+`greet` has a form of its own, inside it, which has no Submit.
+
+<Command
+  id="greet"
+  env={{ WHO: "{{ .inputs.Who }}" }}
+  outputs={["said"]}
+  command={`echo "said=hello $WHO" >> "$RUNBOOK_OUTPUT"`}
+>
+<Inputs id="who">
+```yaml
+variables:
+  - name: Who
+    default: world
+```
+</Inputs>
+</Command>

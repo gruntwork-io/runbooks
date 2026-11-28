@@ -7,3 +7,4 @@
  * (`@runbooks/blocks-core/registry`).
  */
 export { command as Command } from "./command/block.ts"
+export { inputs as Inputs } from "./inputs/block.ts"

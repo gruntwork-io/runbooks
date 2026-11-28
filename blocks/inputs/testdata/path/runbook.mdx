@@ -1,0 +1,19 @@
+# Inputs from a file
+
+`network` names a folder, so its fields are the folder's `boilerplate.yaml`: it has no `boilerplate.yml`.
+
+<Inputs id="network" path="config/vpc" />
+
+`tags` names the file itself.
+
+<Inputs id="tags" path="config/tags.yml" />
+
+`describe` reads both, in order.
+
+<Command
+  id="describe"
+  inputsId={["network", "tags"]}
+  env={{ CIDR: "{{ .inputs.CidrBlock }}", OWNER: "{{ .inputs.Owner }}" }}
+  outputs={["summary"]}
+  command={`echo "summary=$OWNER:$CIDR" >> "$RUNBOOK_OUTPUT"`}
+/>
