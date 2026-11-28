@@ -540,6 +540,35 @@ describe("detecting a credential", () => {
     expect(values.map(({ value }) => Redacted.value(value))).toEqual(["AKIAKEYS", "keys-SECRET"])
   })
 
+  it("pauses on a block a prop names inside its value until it has run, then detects from its outputs", async () => {
+    await withCloud(
+      runbookOf(KEYS, '<CloudLogin id="cloud" sources={[{ block: "keys" }]} />'),
+      { cloud: cloud({ detect: () => found(who("111"), "keys") }) },
+      (rb) =>
+        Effect.gen(function* () {
+          expect(yield* rb.status("cloud")).toEqual({
+            _tag: "Blocked",
+            by: [{ _tag: "WaitingFor", block: blockId("keys"), capability: "run" }],
+          })
+          expect(calls).toEqual([])
+          expect(yield* rb.run("keys")).toEqual(done)
+          yield* rb.until("cloud", "Found")
+        }),
+    )
+    const [sources] = argsOf("cloud", "detect")[0] ?? []
+    expect(sources).toEqual([
+      { kind: "env", prefix: Option.none() },
+      {
+        kind: "values",
+        from: "keys",
+        values: {
+          accessKey: { value: expect.anything(), secret: false },
+          secretKey: { value: expect.anything(), secret: true },
+        },
+      },
+    ])
+  })
+
   it("names the block a login was found through", async () => {
     await withCloud(
       runbookOf(KEYS, '<CloudLogin id="cloud" keysFrom="keys" />'),

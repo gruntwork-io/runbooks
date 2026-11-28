@@ -90,18 +90,34 @@ export type RunbookTexts = ReadonlyMap<string, string>
 /** A reference prop's decoded value: one block, or an ordered list of them. */
 export type ReferenceValue = BlockId | ReadonlyArray<BlockId>
 
-/** The props of `P` whose decoded value can name other blocks. */
-export type ReferenceProp<P> = {
-  readonly [K in keyof P]-?: NonNullable<P[K]> extends ReferenceValue ? K : never
-}[keyof P] &
-  string
+/**
+ * A reference prop whose decoded value holds the blocks it names inside it,
+ * such as AwsAuth's `detectCredentials={["env", { block: "assume_role" }]}`.
+ */
+export interface NestedReference<V> {
+  /** What each block the prop names must provide. */
+  readonly capability: Capability
+  /**
+   * The blocks `value`, the prop's decoded value, names, in order. The
+   * parser calls it while it parses, so it must not throw.
+   */
+  readonly ids: (value: V) => ReadonlyArray<BlockId>
+}
 
 /**
- * A block's own reference props, each with the capability its target must
- * provide. The props every block of a class shares (`dependsOn`, `envFrom`,
- * `inputsId`) are the host's and are not listed here.
+ * A block's own reference props. A prop whose decoded value is a
+ * `ReferenceValue` may give the capability alone; any prop may give a
+ * `NestedReference`. Each block a reference prop names is an edge, as a
+ * `{{ .outputs.<id>.<key> }}` is: the block waits for it, and an id no
+ * block has is a configuration error. The props every block of a class
+ * shares (`dependsOn`, `envFrom`, `inputsId`) are the host's and are not
+ * listed here.
  */
-export type References<P> = { readonly [K in ReferenceProp<P>]?: Capability }
+export type References<P> = {
+  readonly [K in keyof P & string]?:
+    | (NonNullable<P[K]> extends ReferenceValue ? Capability : never)
+    | NestedReference<NonNullable<P[K]>>
+}
 
 /** The props of `P` whose decoded value is text. */
 export type TextProp<P> = {
