@@ -203,6 +203,8 @@
   }
   .block-description {
     color: var(--color-zinc-600);
+    /* A long path or URL wraps inside the frame. */
+    overflow-wrap: anywhere;
   }
   .block-body {
     margin-top: calc(var(--spacing) * 2);
