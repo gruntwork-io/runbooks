@@ -46,11 +46,23 @@ export type ViewRequest = ViewRpc extends infer R
     : never
   : never
 
+/**
+ * What the person asked the block's runbook not to show again, by key, as a
+ * note's "Don't show me this again" asks. It lasts across launches, and a
+ * key hides only in the runbook it was hidden in. The window may not keep a
+ * hide, so a view that hides itself also stops drawing itself at once.
+ */
+export interface Hidden {
+  readonly has: (key: string) => boolean
+  readonly hide: (key: string) => void
+}
+
 export interface ViewProps<P> {
   readonly props: P
   /** Absent for a display block, which has no lifecycle. */
   readonly status: BlockStatus | undefined
   readonly act: (request: ViewRequest) => void
+  readonly hidden: Hidden
   /** The block's markdown children, rendered. */
   readonly children?: ReactNode
 }

@@ -128,6 +128,7 @@ const page = (
     enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
+    hide: () => Effect.void,
   }
   return renderToStaticMarkup(
     <FollowingContext value={following}>

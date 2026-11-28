@@ -1,0 +1,17 @@
+# Don't show me this again
+
+Confirm the welcome note with "Don't show me this again" ticked, and it
+stays hidden the next time this runbook opens. Another runbook's note with
+the same `storageKey` still shows.
+
+<Admonition
+  id="welcome"
+  type="info"
+  title="Welcome!"
+  description="This is your first time running this runbook."
+  confirmationText="I've read the introduction"
+  allowPermanentHide={true}
+  storageKey="welcome-message"
+/>
+
+<Admonition id="always" type="note" description="This note has no storageKey, so it shows every time." confirmationText="Got it" />

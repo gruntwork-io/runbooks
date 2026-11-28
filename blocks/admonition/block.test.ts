@@ -141,6 +141,56 @@ describe("Admonition", () => {
     ])
   })
 
+  it("hides for good under a storageKey, which goes with allowPermanentHide and confirmationText", async () => {
+    const fine = await opened(
+      '<Admonition type="info" confirmationText="Got it" allowPermanentHide={true} storageKey="welcome" />',
+      ({ document }) => Effect.succeed(document.blocks[0]),
+    )
+    expect(fine).toMatchObject({
+      _tag: "Configured",
+      props: {
+        type: "info",
+        confirmationText: "Got it",
+        allowPermanentHide: true,
+        storageKey: "welcome",
+      },
+    })
+    expect(
+      await errorsIn(
+        [
+          '<Admonition type="info" allowPermanentHide={true} />',
+          "",
+          '<Admonition type="info" storageKey="welcome" />',
+          "",
+          `<Admonition type="info" confirmationText="Got it" allowPermanentHide={true} storageKey="${"k".repeat(65)}" />`,
+          "",
+          '<Admonition type="info" confirmationText="Got it" allowPermanentHide={false} storageKey="welcome" />',
+        ].join("\n"),
+      ),
+    ).toEqual([
+      [
+        "badProp",
+        1,
+        'the `allowPermanentHide` prop of <Admonition>: it needs `confirmationText`: its "Don\'t show me this again" box is under that button; it needs `storageKey`, the name the hide is kept under, such as storageKey="welcome"',
+      ],
+      [
+        "badProp",
+        3,
+        "the `storageKey` prop of <Admonition>: it names a hide, so it does nothing without allowPermanentHide={true}",
+      ],
+      [
+        "badProp",
+        5,
+        "the `storageKey` prop of <Admonition>: Expected a value with a length of at most 64",
+      ],
+      [
+        "badProp",
+        7,
+        "the `storageKey` prop of <Admonition>: it names a hide, so it does nothing without allowPermanentHide={true}",
+      ],
+    ])
+  })
+
   it("ignores inputsId, and warns of the references in its text: nothing fills them in", async () => {
     const parsed = await opened(
       '<Admonition type="info" title="Hello {{ .inputs.name }}" inputsId="config" />',

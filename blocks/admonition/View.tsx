@@ -3,10 +3,23 @@
  * heading, its description, the markdown written inside it, and the
  * buttons that dismiss it. The frame draws nothing around it
  * (`drawsItself`), so closing or confirming takes all of it off the page,
- * until the runbook is drawn again.
+ * until the runbook is drawn again. Confirmed with "Don't show me this
+ * again" ticked, it asks the window to keep its `storageKey` hidden in its
+ * runbook (`hidden`), and draws nothing while it is.
  */
 import { type ReactNode, useState } from "react"
 import type { AdmonitionProps, AdmonitionType } from "./block.ts"
+
+/**
+ * What the person hid in the block's runbook: `blocks/views.ts`'s `Hidden`,
+ * which a block may not import (`no-import-between-blocks`). The view map's
+ * type checks the view against it, so a change there that breaks this view
+ * fails the build.
+ */
+interface Hidden {
+  readonly has: (key: string) => boolean
+  readonly hide: (key: string) => void
+}
 
 /**
  * Each type's name, its box's colors and its button's. A warning's button
@@ -43,14 +56,20 @@ const LOOK: {
 
 export function AdmonitionView({
   props,
+  hidden,
   children,
 }: {
   readonly props: AdmonitionProps
+  readonly hidden: Hidden
   /** The markdown written inside it, rendered. */
   readonly children?: ReactNode
 }) {
   const [dismissed, setDismissed] = useState(false)
-  if (dismissed) return null
+  const [forGood, setForGood] = useState(false)
+  // Its props schema takes `storageKey` only with `allowPermanentHide` and
+  // `confirmationText`, and the view map decodes the props with it.
+  const key = props.storageKey
+  if (dismissed || (key !== undefined && hidden.has(key))) return null
   const look = LOOK[props.type]
   const heading = props.title === undefined || props.title === "" ? look.name : props.title
   return (
@@ -68,10 +87,23 @@ export function AdmonitionView({
           <button
             type="button"
             className={`mt-3 cursor-pointer rounded-md px-4 py-2 font-medium ${look.button}`}
-            onClick={() => setDismissed(true)}
+            onClick={() => {
+              if (forGood && key !== undefined) hidden.hide(key)
+              setDismissed(true)
+            }}
           >
             {props.confirmationText}
           </button>
+        )}
+        {key === undefined ? null : (
+          <label className="mt-3 flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={forGood}
+              onChange={(event) => setForGood(event.target.checked)}
+            />
+            Don&apos;t show me this again
+          </label>
         )}
       </div>
       {props.closable === true ? (

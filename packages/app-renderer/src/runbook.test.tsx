@@ -63,6 +63,7 @@ const followingWith = (live: Live): Following => {
     enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
+    hide: () => Effect.void,
   }
 }
 
@@ -192,6 +193,7 @@ describe("the runbook page", () => {
             enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
             trust: () => Effect.void,
             reload: () => Effect.void,
+            hide: () => Effect.void,
           }}
         >
           <Runbook session={session} document={document({})} />

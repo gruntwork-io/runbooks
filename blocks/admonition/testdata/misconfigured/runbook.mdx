@@ -7,4 +7,10 @@ danger. A misconfigured one shows its error in its place.
 
 <Admonition id="unknown_type" type="tip" description="There is no tip type." />
 
+A hide for good needs its `storageKey`, and its confirmation button.
+
+<Admonition id="no_storage_key" type="info" description="Hidden under what?" confirmationText="Got it" allowPermanentHide={true} />
+
+<Admonition id="no_hide" type="info" description="A storageKey alone hides nothing." storageKey="welcome" />
+
 <Admonition id="fine" type="note" description="The runbook's other blocks still work." />

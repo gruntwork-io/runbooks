@@ -112,6 +112,7 @@ const page = (blocks: ReadonlyArray<Record<string, unknown>>, shown: Shown = {})
     enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
+    hide: () => Effect.void,
   }
   const document = Schema.decodeUnknownSync(DocumentView)({
     hash: HASH,

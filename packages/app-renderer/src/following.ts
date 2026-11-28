@@ -5,14 +5,14 @@
  * trust the session (`trust.ts`) or to reload a block's files
  * (`reload.ts`), the script files of each block whose source view is open
  * (`scriptFiles.ts`), and a way to ask the engine to act on a block, enter a
- * form's values, trust the session, or reload a block's files. The app
- * provides it (`app.tsx`).
+ * form's values, trust the session, reload a block's files, or keep a key
+ * hidden in a runbook (`hidden.ts`). The app provides it (`app.tsx`).
  * With none, as a page rendered on its own, no block has a view, no trust
  * or setting is read, and nothing is asked.
  */
 import { Cause, Effect, Semaphore } from "effect"
 import { createContext, useContext, useSyncExternalStore } from "react"
-import type { ViewRequest } from "@runbooks/blocks/views"
+import type { Hidden, ViewRequest } from "@runbooks/blocks/views"
 import type {
   ActResult,
   BlockView,
@@ -28,6 +28,7 @@ import type {
   Unwatched,
 } from "@runbooks/core/protocol"
 import { clientErrorText, defectText } from "./defect.ts"
+import { askToHide, hiddenKeysIn } from "./hidden.ts"
 import { follow, type LiveStore, makeLiveStore } from "./live.ts"
 import { askToReload, makeReloadingStore, type Reloading, type ReloadingStore } from "./reload.ts"
 import {
@@ -101,6 +102,12 @@ export interface Following {
    * drawn now, and keeps that it is asking until the engine answers.
    */
   readonly reload: (block: BlockView["block"], hash: Reloading["hash"]) => Effect.Effect<void>
+  /**
+   * Asks the engine to keep `key` hidden in `runbook` (`hidden.ts`), each
+   * ask once the one before was answered, so each starts from the settings
+   * the last one kept.
+   */
+  readonly hide: (runbook: string, key: string) => Effect.Effect<void>
 }
 
 export const FollowingContext = createContext<Following>({
@@ -113,6 +120,7 @@ export const FollowingContext = createContext<Following>({
   enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
   trust: () => Effect.void,
   reload: () => Effect.void,
+  hide: () => Effect.void,
 })
 
 /** The view of `block` the engine sent last, if it sent one. */
@@ -185,6 +193,20 @@ export function useReloading(block: BlockView["block"]): Reloading | undefined {
   return useSyncExternalStore(reloading.subscribe, select, select)
 }
 
+/** What the person hid in `runbook`, as the settings now say, and a way to hide more there. */
+export function useHidden(runbook: string): Hidden {
+  const { settings, hide } = useContext(FollowingContext)
+  const select = () => settings.get()?.hiddenInRunbooks
+  const hidden = useSyncExternalStore(settings.subscribe, select, select)
+  const keys = hiddenKeysIn(hidden ?? [], runbook)
+  return {
+    has: (key) => keys.includes(key),
+    hide: (key) => {
+      Effect.runFork(hide(runbook, key))
+    },
+  }
+}
+
 /** What `block`'s open source views show, or nothing while none is open. */
 export function useScriptFiles(block: BlockView["block"]): ScriptFilesShown | undefined {
   const { scriptFiles } = useContext(FollowingContext)
@@ -210,6 +232,7 @@ export function followingOf(
   const scriptFiles = makeScriptFilesStore(engine, session, live)
   // A semaphore lets its waiters in in the order they came.
   const inTurn = Semaphore.makeUnsafe(1)
+  const hidesInTurn = Semaphore.makeUnsafe(1)
   return {
     live,
     settings: settingsNow,
@@ -238,6 +261,7 @@ export function followingOf(
           Effect.sync(() => reloading.set(block, { hash, drawn, answer })),
         )
       }),
+    hide: (runbook, key) => hidesInTurn.withPermit(askToHide(engine, settingsNow, runbook, key)),
     start: () => {
       const stopReading = scriptFiles.start()
       const fiber = Effect.runFork(

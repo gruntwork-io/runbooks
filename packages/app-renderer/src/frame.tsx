@@ -50,7 +50,7 @@
  */
 import { Effect, type Schema } from "effect"
 import { createContext, Fragment, type ReactNode, useContext, useState } from "react"
-import { type View, type ViewRequest, views } from "@runbooks/blocks/views"
+import { type Hidden, type View, type ViewRequest, views } from "@runbooks/blocks/views"
 import type {
   BlockAction,
   BlockView,
@@ -60,7 +60,7 @@ import type {
   OutputView,
 } from "@runbooks/core/protocol"
 import { BlockLink, frameId } from "./blockLink.tsx"
-import { FollowingContext, useBlockView, useInstructionMode } from "./following.ts"
+import { FollowingContext, useBlockView, useHidden, useInstructionMode } from "./following.ts"
 import { FormView } from "./formView.tsx"
 import { linkTarget } from "./markdown.tsx"
 import { place } from "./place.ts"
@@ -177,6 +177,7 @@ export function BlockFrame({
   const following = useContext(FollowingContext)
   const instructionMode = useInstructionMode()
   const instructed = instructionMode && instructedIn(block.class)
+  const hidden = useHidden(runbook)
   const [said, setSaid] = useState<string>()
   // Ends once the engine answered, and the frame says what it answered.
   const ask = (request: ViewRequest): Effect.Effect<void> =>
@@ -276,6 +277,7 @@ export function BlockFrame({
                     block={block}
                     view={view}
                     act={act}
+                    hidden={hidden}
                     fields={fields}
                     offers={!instructionMode}
                   >
@@ -484,6 +486,7 @@ function Body({
   block,
   view,
   act,
+  hidden,
   fields,
   offers,
   children,
@@ -491,6 +494,8 @@ function Body({
   readonly block: Configured
   readonly view: BlockView | undefined
   readonly act: (request: ViewRequest) => void
+  /** What the person hid in the block's runbook, for its own view. */
+  readonly hidden: Hidden
   /** The block's fields, a form's or a task's own, drawn. */
   readonly fields: ReactNode
   /** Whether the frame offers the block's actions: not in instruction mode, which runs nothing. */
@@ -501,7 +506,7 @@ function Body({
   if (Own !== undefined && block.props !== undefined)
     return (
       <div className="block-body">
-        <Own props={block.props} status={view?.status} act={act}>
+        <Own props={block.props} status={view?.status} act={act} hidden={hidden}>
           {children}
         </Own>
       </div>

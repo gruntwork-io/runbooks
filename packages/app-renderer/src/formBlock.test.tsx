@@ -104,6 +104,7 @@ function page(view: BlockView, instructionMode = false, said?: string) {
       }),
     trust: () => Effect.void,
     reload: () => Effect.void,
+    hide: () => Effect.void,
   }
   render(
     <FollowingContext value={following}>
