@@ -148,6 +148,26 @@ describe("a block's kind", () => {
   })
 })
 
+describe("the blocks a test names", () => {
+  it("are each id's first block, as the parser and the graph take it: a later one is a duplicateId error", () => {
+    const parsed = parseRunbook(
+      [
+        '<Form id="x">\n```yaml\n- name: region\n  type: string\n```\n</Form>',
+        '<Run id="x" command="echo hi" />',
+      ].join("\n\n"),
+      REGISTRY,
+      { file: "/rb/runbook.mdx", appVersion: "0.31.0" },
+    )
+    if (parsed._tag !== "Parsed") throw new Error("the runbook does not parse")
+    expect(parsed.document.blocks[1]?.errors.map((error) => error.code)).toEqual(["duplicateId"])
+    expect(targetsOf(parsed.document, REGISTRY).get("x")).toMatchObject({
+      tag: "Form",
+      kind: "form",
+      takesInputs: true,
+    })
+  })
+})
+
 describe("runbook_test.yml", () => {
   it("decodes a file with every key the format has", () => {
     const { file, message } = decode(FULL)
