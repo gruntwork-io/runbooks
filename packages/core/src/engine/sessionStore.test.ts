@@ -416,7 +416,7 @@ describe("retention", () => {
 // ---------------------------------------------------------------------------
 
 const RESUMED_RUNBOOK = [
-  '<Form id="form" variables={[{ name: "region", type: "string" }]} />',
+  ['<Form id="form">', "```yaml", "- name: region", "  type: string", "```", "</Form>"].join("\n"),
   '<Run id="deploy" path="deploy.sh" />',
   '<Run id="check" command="true" />',
   '<CloudLogin id="cloud" />',

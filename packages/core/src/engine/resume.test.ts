@@ -85,8 +85,17 @@ const REGISTRY = {
   }),
 }
 
-const FORM =
-  '<Form id="form" variables={[{ name: "region", type: "string" }, { name: "token", type: "string", sensitive: true }]} />'
+const FORM = [
+  '<Form id="form">',
+  "```yaml",
+  "- name: region",
+  "  type: string",
+  "- name: token",
+  "  type: string",
+  "  sensitive: true",
+  "```",
+  "</Form>",
+].join("\n")
 const DEPLOY = '<Run id="deploy" command="deploy" outputs={["url", "secretToken"]} />'
 const FORM_AND_DEPLOY = `${FORM}\n\n${DEPLOY}`
 
@@ -533,7 +542,15 @@ describe("resuming a session", () => {
 
   it("brings back a form's first Submit: a reader gets its values once it was submitted, even if reset since, and its starting values if never", async () => {
     const runbook = [
-      '<Form id="form" variables={[{ name: "region", type: "string", required: true }]} />',
+      [
+        '<Form id="form">',
+        "```yaml",
+        "- name: region",
+        "  type: string",
+        "  required: true",
+        "```",
+        "</Form>",
+      ].join("\n"),
       '<Run id="read" command="none" inputsId="form" />',
     ].join("\n\n")
     const heldByForm = {
