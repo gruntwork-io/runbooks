@@ -14,7 +14,7 @@ import { makeTrustingStore } from "./trust.ts"
 // what it draws from the engine's view, and what it asks the engine for.
 const uninstall = installDom()
 afterAll(uninstall)
-const { cleanup, render, screen } = await import("@testing-library/react")
+const { act, cleanup, render, screen } = await import("@testing-library/react")
 const { userEvent } = await import("@testing-library/user-event")
 const { FollowingContext } = await import("./following.ts")
 const { Markdown } = await import("./markdown.tsx")
@@ -33,6 +33,20 @@ const placed = (kind: "form" | "task") =>
     effects: [],
   })
 
+/** The form's one field, holding `value` if given. */
+const regionField = (value?: string) => ({
+  name: "region",
+  type: "string",
+  description: { type: "root", children: [] },
+  required: true,
+  sensitive: false,
+  readOnly: false,
+  validations: [],
+  reviewed: false,
+  unresolved: [],
+  ...(value === undefined ? {} : { value: { _tag: "Shown", value } }),
+})
+
 const viewOf = (
   status: Record<string, unknown>,
   actions: ReadonlyArray<string>,
@@ -42,28 +56,21 @@ const viewOf = (
     block: "config",
     tag: "Example",
     class: "form",
-    ...rest,
     status,
     actions,
     outputs: {},
-    fields: [
-      {
-        name: "region",
-        type: "string",
-        description: { type: "root", children: [] },
-        required: true,
-        sensitive: false,
-        readOnly: false,
-        validations: [],
-        reviewed: false,
-        unresolved: [],
-      },
-    ],
+    fields: [regionField()],
+    ...rest,
   })
 
-/** The page with the block alone in it, the engine holding `view` of it; each request is kept, and answered at once. */
-function page(view: BlockView, instructionMode = false) {
+/**
+ * The page with the block alone in it, the engine holding `view` of it; each
+ * request is kept, and answered at once. Each value entered logs one event
+ * after the view's, and its answer says `said`.
+ */
+function page(view: BlockView, instructionMode = false, said?: string) {
   const asked: ViewRequest[] = []
+  let logged = view.sequence ?? -1
   const live = makeLiveStore()
   live.set({ blocks: new Map([[view.block, view]]), instructionMode })
   const following: Following = {
@@ -88,6 +95,12 @@ function page(view: BlockView, instructionMode = false) {
     reloading: makeReloadingStore(),
     scriptFiles: NO_SCRIPT_FILES,
     act: (_, request) => Effect.sync(() => (asked.push(request), undefined)),
+    enter: (_, values) =>
+      Effect.sync(() => {
+        asked.push({ _tag: "SetValues", values })
+        logged += 1
+        return { said, sequence: logged }
+      }),
     trust: () => Effect.void,
     reload: () => Effect.void,
   }
@@ -103,13 +116,15 @@ function page(view: BlockView, instructionMode = false) {
       />
     </FollowingContext>,
   )
-  return asked
+  return { asked, live }
 }
 
 describe("a form block's frame", () => {
   it("sends the values typed, then Submit as a run and Undo Submit as a reset", async () => {
     const user = userEvent.setup()
-    const asked = page(viewOf({ _tag: "Done", outcome: "success" }, ["run", "reset", "setValues"]))
+    const { asked } = page(
+      viewOf({ _tag: "Done", outcome: "success" }, ["run", "reset", "setValues"]),
+    )
     expect(screen.getByText("Done").className).toBe("block-status")
     await user.type(screen.getByRole("textbox", { name: "Region*" }), "eu")
     await user.click(screen.getByRole("button", { name: "Submit" }))
@@ -124,18 +139,50 @@ describe("a form block's frame", () => {
 
   it("in instruction mode, takes the values typed and offers no Submit or Reset", async () => {
     const user = userEvent.setup()
-    const asked = page(viewOf({ _tag: "Idle" }, ["run", "setValues"]), true)
+    const { asked } = page(viewOf({ _tag: "Idle" }, ["run", "setValues"]), true)
     expect(screen.getByText("Ready").className).toBe("block-status")
     await user.type(screen.getByRole("textbox", { name: "Region*" }), "e")
     expect(screen.queryAllByRole("button")).toEqual([])
     expect(asked).toEqual([{ _tag: "SetValues", values: { region: "e" } }])
   })
+
+  it("says what the engine answered the values typed with", async () => {
+    const user = userEvent.setup()
+    page(viewOf({ _tag: "Idle" }, ["run", "setValues"]), false, "region: It is read-only.")
+    await user.type(screen.getByRole("textbox", { name: "Region*" }), "e")
+    expect(screen.getByText("region: It is read-only.").className).toBe("block-said")
+  })
+
+  it.each(["form", "task"])(
+    "shows, in a %s's fields, another writer's value once a view is read at or after the answer to what was typed",
+    async (kind) => {
+      const user = userEvent.setup()
+      const viewAt = (sequence: number, fields?: ReadonlyArray<unknown>) =>
+        viewOf({ _tag: "Idle" }, ["run", "setValues"], {
+          class: kind,
+          sequence,
+          ...(fields === undefined ? {} : { fields }),
+        })
+      const { live } = page(viewAt(4))
+      const box = screen.getByRole("textbox", { name: "Region*" }) as HTMLInputElement
+      // The engine answers at 5.
+      await user.type(box, "e")
+      const shown = (sequence: number) =>
+        act(() =>
+          live.set({ blocks: new Map([["config", viewAt(sequence, [regionField("us")])]]) }),
+        )
+      shown(4)
+      expect(box.value).toBe("e")
+      shown(5)
+      expect(box.value).toBe("us")
+    },
+  )
 })
 
 describe("a task's own form", () => {
   it("draws the task's fields above Run, and sends their values and the run", async () => {
     const user = userEvent.setup()
-    const asked = page(viewOf({ _tag: "Idle" }, ["run", "setValues"], { class: "task" }))
+    const { asked } = page(viewOf({ _tag: "Idle" }, ["run", "setValues"], { class: "task" }))
     const region = screen.getByRole("textbox", { name: "Region*" })
     const run = screen.getByRole("button", { name: "Run" })
     expect(region.compareDocumentPosition(run) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -148,7 +195,7 @@ describe("a task's own form", () => {
   it("in instruction mode, draws the fields above the instruction and takes their values", async () => {
     const user = userEvent.setup()
     const instruction = [{ kind: "code", language: "bash", code: "deploy --region eu" }]
-    const asked = page(
+    const { asked } = page(
       viewOf({ _tag: "Idle" }, ["run", "setValues"], { class: "task", instruction }),
       true,
     )

@@ -163,13 +163,24 @@ export function BlockFrame({
   const act = (request: ViewRequest) => {
     Effect.runFork(ask(request))
   }
+  // As `ask`, for a form's values, which instruction mode takes too; it ends with the answer's sequence.
+  const enter = (values: Extract<ViewRequest, { readonly _tag: "SetValues" }>["values"]) =>
+    block.id === undefined
+      ? Effect.succeed(undefined)
+      : Effect.flatMap(following.enter(block.id, values), (entered) =>
+          Effect.sync(() => {
+            setSaid(entered.said)
+            return entered.sequence
+          }),
+        )
   // A form's fields, or a task's own.
   const fields =
     view?.fields === undefined ? null : (
       <FormView
         fields={view.fields}
         sections={view.sections ?? []}
-        enter={(values) => ask({ _tag: "SetValues", values })}
+        sequence={view.sequence}
+        enter={enter}
         runbook={runbook}
         session={session}
       />

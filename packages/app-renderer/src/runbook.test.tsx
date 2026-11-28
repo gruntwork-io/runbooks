@@ -60,6 +60,7 @@ const followingWith = (live: Live): Following => {
     reloading: makeReloadingStore(),
     scriptFiles: NO_SCRIPT_FILES,
     act: () => Effect.succeed(undefined),
+    enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
     trust: () => Effect.void,
     reload: () => Effect.void,
   }
@@ -187,6 +188,7 @@ describe("the runbook page", () => {
             reloading: makeReloadingStore(),
             scriptFiles: NO_SCRIPT_FILES,
             act: () => Effect.succeed(undefined),
+            enter: () => Effect.succeed({ said: undefined, sequence: undefined }),
             trust: () => Effect.void,
             reload: () => Effect.void,
           }}
