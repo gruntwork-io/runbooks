@@ -4,6 +4,7 @@ import type {
   FileReadError,
   FileWriteError,
   FileWatchError,
+  FileWatchLimitError,
 } from "../errors/index.ts"
 
 export interface FileStat {
@@ -109,7 +110,7 @@ export interface FileSystemShape {
   readonly watch: (
     paths: string[],
     options?: WatchOptions,
-  ) => Stream.Stream<FileChangeEvent, FileWatchError>
+  ) => Stream.Stream<FileChangeEvent, FileWatchError | FileWatchLimitError>
 }
 
 export class FileSystem extends Context.Service<FileSystem, FileSystemShape>()("FileSystem") {}

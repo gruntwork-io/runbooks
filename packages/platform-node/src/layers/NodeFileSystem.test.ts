@@ -4,7 +4,7 @@ import * as os from "node:os"
 import * as nodePath from "node:path"
 import { Effect, Option, Result, Stream } from "effect"
 import { FileSystem, type FileSystemShape } from "@runbooks/core/services/FileSystem"
-import { NodeFileSystemLive, WALK_BUFFER } from "./NodeFileSystem.ts"
+import { NodeFileSystemLive, WALK_BUFFER, watchErrorOf } from "./NodeFileSystem.ts"
 
 let root = ""
 
@@ -175,5 +175,20 @@ describe("walk", () => {
     // and the entry waiting to go in.
     const ahead = sizes.filter((size) => size === 0).length
     expect(ahead).toBeLessThanOrEqual(2 * WALK_BUFFER + 1)
+  })
+})
+
+describe("watchErrorOf", () => {
+  const failed = (message: string, code: string) => Object.assign(new Error(message), { code })
+
+  it("says a watch past the OS's limit on watches failed for that, by its code", () => {
+    const cause = failed("System limit for number of file watchers reached", "ENOSPC")
+    expect(watchErrorOf(cause)).toMatchObject({ _tag: "FileWatchLimitError", cause })
+  })
+
+  it("says any other failure failed, whatever its message names", () => {
+    const cause = failed("ENOSPC: not the limit", "EPERM")
+    expect(watchErrorOf(cause)).toMatchObject({ _tag: "FileWatchError", cause })
+    expect(watchErrorOf("ENOSPC")).toMatchObject({ _tag: "FileWatchError", cause: "ENOSPC" })
   })
 })

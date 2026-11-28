@@ -104,6 +104,7 @@ import {
   UnknownBlock,
   UnknownSequence,
   UnknownSession,
+  type Unwatched,
   WrongClass,
 } from "./protocol.ts"
 import {
@@ -912,6 +913,12 @@ export interface Session {
     facts: ReadonlyMap<RunbookPath, FileFact>,
   ) => Effect.Effect<void, UnknownSession>
   /**
+   * What the session's watcher does when the system refuses a watch, as it
+   * stops: from then on the session watches nothing (`SessionView.unwatched`),
+   * and says why once (`Unwatched`).
+   */
+  readonly unwatched: (message: string) => Effect.Effect<void, UnknownSession>
+  /**
    * Takes the files `block` names, at the bytes its `filesOnDisk` shows at
    * `hash`: what `filesChanged` was given, never read again. The session
    * parses the runbook it holds with them, and reloads (`reload`).
@@ -996,6 +1003,8 @@ export const makeSession = Effect.fnUntraced(function* (options: {
   let pending: { readonly read: ParsedRunbook; readonly files: ReloadFilesFrom } | undefined
   /** `SessionView.reloadHeld`, as last logged. */
   let heldShown: ReloadHeld | undefined
+  /** Why the session watches nothing, once its watcher stopped. */
+  let unwatched: Unwatched | undefined
   let documentView = documentViewOf(document, opening.props, registry)
   let slots = slotsOf(document, registry)
   const credentialSlots = credentialSlotsOf(slots, registry)
@@ -2243,6 +2252,7 @@ export const makeSession = Effect.fnUntraced(function* (options: {
       warnings: document.warnings,
       ...(resume === undefined ? {} : { resumed: resume.resumed }),
       ...(heldShown === undefined ? {} : { reloadHeld: heldShown }),
+      ...(unwatched === undefined ? {} : { unwatched }),
     }),
 
     documentView: () => documentView,
@@ -2311,6 +2321,17 @@ export const makeSession = Effect.fnUntraced(function* (options: {
               read.add(named)
             }
             refreshOnDisk(emit, read)
+          }),
+        ),
+      ),
+
+    unwatched: (message) =>
+      lock.withPermit(
+        Effect.andThen(
+          notClosing,
+          update((emit) => {
+            unwatched = { message }
+            emit({ _tag: "Unwatched", message })
           }),
         ),
       ),

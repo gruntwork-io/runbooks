@@ -13,13 +13,14 @@
  * batch at a time, so a reload's reads come after every read before them.
  * It watches through the `FileSystem` service, in the session's scope, and
  * watches again what a reload names, however the reload came: from a save,
- * or held back until a run ended.
+ * or held back until a run ended. A watch the system refuses ends the
+ * watching, and the session says why and what to do (`Session.unwatched`).
  */
 import path from "node:path"
 import { Duration, Effect, Option, Stream } from "effect"
 import type { RunbookPath } from "@runbooks/blocks-core/contract"
 import type { FileFact } from "../document/files.ts"
-import type { FileWatchError } from "../errors/index.ts"
+import type { FileWatchError, FileWatchLimitError } from "../errors/index.ts"
 import { isContainedIn } from "../path-validation.ts"
 import { type FileChangeEvent, FileSystem } from "../services/FileSystem.ts"
 import type { EventEnvelope, UnknownSequence, UnknownSession, WatchMode } from "./protocol.ts"
@@ -41,6 +42,8 @@ export interface Watched {
   readonly filesChanged: (paths: ReadonlyArray<RunbookPath>) => Effect.Effect<void, UnknownSession>
   /** Reads the runbook from disk and reloads the session with it (`Engine.reloadRunbook`). */
   readonly reload: (from: ReloadFilesFrom) => Effect.Effect<unknown, UnknownSession>
+  /** Tells the session it watches nothing from now on, and why (`Session.unwatched`). */
+  readonly unwatched: (message: string) => Effect.Effect<void, UnknownSession>
 }
 
 /** What a watcher watches: folders at depth 0, and folders whole. */
@@ -98,9 +101,24 @@ const touched = (
 }
 
 /**
+ * Why a session watches nothing once a watch failed with `error`, and what
+ * to do. Only Linux reports its limit on file watches
+ * (`FileWatchLimitError`), which the person can raise; for any other
+ * failure, opening the runbook again watches it again.
+ */
+const unwatchedMessage = (runbook: string, error: FileWatchError | FileWatchLimitError): string => {
+  const reason = error.cause instanceof Error ? error.cause.message : String(error.cause)
+  const failed = `Runbooks could not watch ${runbook}, or the files it names, for changes (${reason}), so saving them shows nothing here.`
+  return error._tag === "FileWatchLimitError"
+    ? `${failed} Linux's limit on file watches was reached: raise fs.inotify.max_user_watches, then open the runbook again.`
+    : `${failed} Open the runbook again to watch it.`
+}
+
+/**
  * Watches the session's runbook and the files it names in `mode` for the
- * session's lifetime. A watch that fails is logged, and nothing more is
- * watched: the session holds nothing back for it.
+ * session's lifetime. A watch that fails ends the watching: it is logged,
+ * and the session says so (`unwatched`). The session holds nothing back for
+ * it.
  */
 export const watchSession = (
   mode: Exclude<WatchMode, "off">,
@@ -170,16 +188,15 @@ export const watchSession = (
 
     const watchFrom: Effect.Effect<
       void,
-      FileWatchError | UnknownSession | UnknownSequence,
+      FileWatchError | FileWatchLimitError | UnknownSession | UnknownSequence,
       FileSystem
     > = Effect.flatMap(watchOnce, (again) => (again ? watchFrom : Effect.void))
     yield* watchFrom
   }).pipe(
-    Effect.catchTag("FileWatchError", ({ cause }) =>
-      Effect.logWarning(
-        `Runbooks could not watch ${watched.runbook}, or the files it names, for changes (${String(cause)}). Saving them shows nothing until the runbook is opened again.`,
-      ),
-    ),
+    Effect.catchTag(["FileWatchError", "FileWatchLimitError"], (error) => {
+      const message = unwatchedMessage(watched.runbook, error)
+      return Effect.andThen(Effect.logWarning(message), watched.unwatched(message))
+    }),
     // The session is closing.
     Effect.catchTags({ UnknownSession: () => Effect.void, UnknownSequence: () => Effect.void }),
   )

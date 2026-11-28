@@ -328,6 +328,7 @@ export class Engine extends Context.Service<Engine, EngineShape>()("@runbooks/co
                     events: session.events,
                     filesChanged: (paths) => filesChangedOf(session, paths),
                     reload: (from) => reloadOf(session, from),
+                    unwatched: session.unwatched,
                   }).pipe(Effect.provideContext(fileSystem)),
               }
 
