@@ -12,6 +12,7 @@ import { nodeAt, parseYaml, yamlData } from "./yamlData.ts"
 import {
   BlockId,
   type Capability,
+  type NestedReference,
   type ReferenceValue,
   type RunbookPath,
 } from "@runbooks/blocks-core/contract"
@@ -601,7 +602,7 @@ class Parse {
     const own = propKeys(block.props)
     const childrenProp = block.children.kind === "yaml" ? block.children.prop : undefined
     const credentialProp = Object.entries(block.references).find(
-      ([, capability]) => capability === "git-credential",
+      ([, entry]) => entry === "git-credential",
     )?.[0]
 
     const shared: Record<string, PropValue> = {}
@@ -689,13 +690,13 @@ class Parse {
           ...(prop ? { prop } : {}),
         })
       }
-      for (const [prop, capability] of Object.entries(block.references)) {
-        const value: unknown = props.success[prop]
-        if (capability === undefined || !isReferenceValue(value)) continue
+      for (const [prop, entry] of Object.entries(block.references)) {
+        const named = entry === undefined ? undefined : namedBy(entry, props.success[prop])
+        if (named === undefined) continue
         // Read from `githubAuthId`: the edge names the prop the author wrote.
         const alias = prop === credentialProp && !written.has(prop) ? credentialAlias : undefined
         const as = alias === undefined ? prop : GIT_CREDENTIAL_ALIAS
-        this.refer(index, as, capability, alias ?? written.get(prop), value, span)
+        this.refer(index, as, named.capability, alias ?? written.get(prop), named.ids, span)
       }
     }
     // A script runs as written and reads values only from its environment, so a `{{ }}` in it is no reference.
@@ -928,7 +929,10 @@ class Parse {
     )
   }
 
-  /** Each block a reference prop names, in order, with its id as written. */
+  /**
+   * Each block a reference prop names, in order, with its id as the prop
+   * writes it: the first string in the prop that is that id.
+   */
   private refer(
     from: number,
     prop: string,
@@ -938,14 +942,17 @@ class Parse {
     fallback: Span,
   ): void {
     const targets = typeof value === "string" ? [value] : value
-    const written = at === undefined ? [] : Array.isArray(at.value) ? at.value : [at.value]
-    for (const [position, target] of targets.entries()) {
-      const asWritten = written[position]
+    const asWritten = new Map<BlockId, string>()
+    for (const text of at === undefined ? [] : strings(at.value)) {
+      const id = Option.getOrUndefined(blockIdOf(text))
+      if (id !== undefined && !asWritten.has(id)) asWritten.set(id, text)
+    }
+    for (const target of targets) {
       this.references.push({
         from,
         prop,
         target,
-        targetAsWritten: typeof asWritten === "string" ? asWritten : target,
+        targetAsWritten: asWritten.get(target) ?? target,
         source: { _tag: "Prop", prop, capability },
         span: at?.span ?? fallback,
       })
@@ -1206,6 +1213,21 @@ function blocksIn(node: MdxNode): MdxNode[] {
 const isReferenceValue = (value: unknown): value is ReferenceValue =>
   typeof value === "string" ||
   (Array.isArray(value) && value.every((entry) => typeof entry === "string"))
+
+/**
+ * What a `references` entry's prop needs of each block it names, and those
+ * blocks, from the prop's decoded value; nothing for a prop not given. A
+ * capability alone takes the value as the blocks; a `NestedReference`
+ * finds them in it.
+ */
+function namedBy(
+  entry: Capability | NestedReference<unknown>,
+  value: unknown,
+): { readonly capability: Capability; readonly ids: ReferenceValue } | undefined {
+  if (value === undefined) return undefined
+  if (typeof entry !== "string") return { capability: entry.capability, ids: entry.ids(value) }
+  return isReferenceValue(value) ? { capability: entry, ids: value } : undefined
+}
 
 /** Every string in a prop's value, at any depth. */
 function strings(value: unknown): string[] {

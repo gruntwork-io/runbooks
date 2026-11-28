@@ -111,6 +111,22 @@ describe("the reference graph", () => {
     ])
   })
 
+  it("makes an edge for each block a prop names inside its value, in the value's order, at the prop", () => {
+    const doc = parsed([
+      '<Run id="keys" command="keys" />',
+      '<Run id="more-keys" command="keys" />',
+      '<CloudLogin id="cloud" sources={["env", { block: "more-keys" }, { block: "keys" }]} />',
+    ])
+    expect(edges(doc)).toEqual([
+      [2, 1, { _tag: "Prop", prop: "sources", capability: "run" }],
+      [2, 0, { _tag: "Prop", prop: "sources", capability: "run" }],
+    ])
+    expect(doc.edges.map((edge) => edge.span.start)).toEqual([
+      { line: 5, column: 24 },
+      { line: 5, column: 24 },
+    ])
+  })
+
   it("names the prop an *AuthId edge was written as", () => {
     const doc = parsed([
       '<GitHubLogin id="gh" />',
@@ -136,6 +152,34 @@ describe("the reference graph", () => {
         location: { block: { tag: "Run", id: "deploy" }, prop: "dependsOn" },
       })
       expect(missing?.location.span.start.line).toBe(3)
+    })
+
+    it("refuses a block a prop names inside its value that no block has, as written, with the nearest id", () => {
+      const [missing, ...rest] = errors([
+        '<Run id="assume-role" command="assume" />',
+        '<CloudLogin id="cloud" sources={["env", { block: "asume-role" }]} />',
+      ])
+      expect(rest).toEqual([])
+      expect(missing).toMatchObject({
+        code: "missingReference",
+        message:
+          '`sources` on <CloudLogin id="cloud"> names "asume-role", and no block has that id.',
+        suggestion: "assume-role",
+        location: { block: { tag: "CloudLogin", id: "cloud" }, prop: "sources" },
+      })
+      expect(missing?.location.span.start).toEqual({ line: 3, column: 24 })
+    })
+
+    it("refuses a block a prop names inside its value that lacks the capability", () => {
+      expect(
+        brief(errors([INPUTS, '<CloudLogin id="cloud" sources={[{ block: "config" }]} />'])),
+      ).toEqual([
+        [
+          "missingCapability",
+          8,
+          '`sources` on <CloudLogin id="cloud"> names <Form id="config">, which doesn\'t run. Blocks that do: <Bash>, <Clone>, <Run>.',
+        ],
+      ])
     })
 
     it("refuses a template that reads a block that isn't there", () => {

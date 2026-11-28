@@ -227,11 +227,16 @@ const gitLogin = defineCredential({
   instruction: () => [],
 })
 
+/** A detection source as AwsAuth's `detectCredentials` lists one: the environment, or a block's outputs. */
+const CloudSource = Schema.Union([Schema.Literal("env"), Schema.Struct({ block: BlockId })])
+
 /**
  * Credential with every part of a request: detection from the environment
  * (off with `detect={false}`) and from an earlier block's outputs, `account`
  * and `role` pins, required scopes, a region setting, a default method and
- * per-method field defaults. Its provider is named "cloud".
+ * per-method field defaults. Its provider is named "cloud". `keysFrom` names
+ * a block directly; `sources` lists more sources after it, and names its
+ * blocks inside its entries, as AwsAuth's `detectCredentials` does.
  */
 const cloudLogin = defineCredential({
   name: "CloudLogin",
@@ -243,6 +248,7 @@ const cloudLogin = defineCredential({
     detect: Schema.optionalKey(Schema.Boolean),
     prefix: Schema.optionalKey(Schema.String),
     keysFrom: Schema.optionalKey(BlockId),
+    sources: Schema.optionalKey(Schema.Array(CloudSource)),
     scopes: Schema.optionalKey(Schema.Array(Schema.String)),
     region: Schema.optionalKey(Schema.String),
     method: Schema.optionalKey(Schema.String),
@@ -251,7 +257,13 @@ const cloudLogin = defineCredential({
     ),
   }),
   children: { kind: "none" },
-  references: { keysFrom: "run" },
+  references: {
+    keysFrom: "run",
+    sources: {
+      capability: "run",
+      ids: (sources) => sources.flatMap((source) => (source === "env" ? [] : [source.block])),
+    },
+  },
   runbookFiles: () => [],
   provides: ["env"],
   effects: ["network", "browser"],
@@ -266,6 +278,11 @@ const cloudLogin = defineCredential({
         : [
             { kind: "env", prefix: Option.fromUndefinedOr(p.prefix) },
             ...(p.keysFrom === undefined ? [] : [{ kind: "outputs" as const, from: p.keysFrom }]),
+            ...(p.sources ?? []).map((source) =>
+              source === "env"
+                ? { kind: "env" as const, prefix: Option.none() }
+                : { kind: "outputs" as const, from: source.block },
+            ),
           ],
     pins: {
       ...(p.account === undefined ? {} : { account: p.account }),

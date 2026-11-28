@@ -11,6 +11,7 @@ import {
   defineTask,
   endWithExitCode,
   type FormBlock,
+  type NestedReference,
   type PropError,
   type References,
   type RunbookPath,
@@ -238,9 +239,33 @@ describe("what the compiler rejects", () => {
     >()
   })
 
-  it("a reference declared on a prop that cannot name a block", () => {
+  it("a capability alone on a prop that cannot name a block", () => {
     type Refs = References<typeof UrlProps.Type>
-    expectTypeOf<keyof Refs>().toEqualTypeOf<"dependsOn" | "repository" | "envFrom">()
+    expectTypeOf<{ dependsOn: "run"; envFrom: "env" }>().toExtend<Refs>()
+    expectTypeOf<{ url: "run" }>().not.toExtend<Refs>()
+  })
+
+  it("a nested reference whose ids are not block ids, or whose capability is not one", () => {
+    const SourcesProps = Schema.Struct({
+      url: Schema.String,
+      dependsOn: Schema.optionalKey(BlockId),
+      sources: Schema.optionalKey(Schema.Array(Schema.Struct({ block: BlockId }))),
+    })
+    type Sources = NonNullable<typeof SourcesProps.Type.sources>
+    type Refs = References<typeof SourcesProps.Type>
+    const ids = (sources: Sources) => sources.map((source) => source.block)
+    expectTypeOf<{ sources: { capability: "run"; ids: typeof ids } }>().toExtend<Refs>()
+    expectTypeOf<{ url: { capability: "run"; ids: () => [] } }>().toExtend<Refs>()
+    expectTypeOf<{ sources: "run" }>().not.toExtend<Refs>()
+    expectTypeOf<{ sources: { capability: "run" } }>().not.toExtend<Refs>()
+    expectTypeOf<{
+      sources: { capability: "run"; ids: () => ReadonlyArray<string> }
+    }>().not.toExtend<Refs>()
+    expectTypeOf<{ sources: { capability: "read"; ids: typeof ids } }>().not.toExtend<Refs>()
+    // Its function gets the prop's value, never `undefined`.
+    expectTypeOf<Parameters<NonNullable<Refs["sources"]>["ids"]>[0]>().toEqualTypeOf<Sources>()
+    type DependsOn = Extract<NonNullable<Refs["dependsOn"]>, NestedReference<BlockId>>
+    expectTypeOf<Parameters<DependsOn["ids"]>[0]>().toEqualTypeOf<BlockId>()
   })
 
   it("a script in a prop that does not hold text", () => {
