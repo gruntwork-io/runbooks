@@ -993,6 +993,49 @@ describe("instruction mode", () => {
     expect(shown).not.toContain("block-status")
   })
 
+  it("draws a text step's markdown from its tree, and one with no tree as written", () => {
+    const words = (value: string) => ({ type: "text", value })
+    const shown = page(
+      inInstructionMode(
+        followingViews(
+          view(
+            "deploy",
+            { _tag: "Idle" },
+            {
+              actions: ["run"],
+              instruction: [
+                {
+                  kind: "text",
+                  markdown: "Run **this** with `tofu`.",
+                  tree: {
+                    type: "root",
+                    children: [
+                      {
+                        type: "paragraph",
+                        children: [
+                          words("Run "),
+                          { type: "strong", children: [words("this")] },
+                          words(" with "),
+                          { type: "inlineCode", value: "tofu" },
+                          words("."),
+                        ],
+                      },
+                    ],
+                  },
+                },
+                { kind: "text", markdown: "> > too **deep**" },
+              ],
+            },
+          ),
+        ),
+      ),
+      placed({ id: "deploy" }),
+    )
+    expect(shown).toContain("<p>Run <strong>this</strong> with <code>tofu</code>.</p>")
+    expect(shown).not.toContain("**this**")
+    expect(shown).toContain("<p>&gt; &gt; too **deep**</p>")
+  })
+
   it("draws no source view, since the instruction shows the script", () => {
     const deploy = placed({ id: "deploy", scriptFiles: ["deploy.sh"] })
     const following = (on: boolean) =>
