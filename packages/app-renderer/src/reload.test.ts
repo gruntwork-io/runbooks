@@ -34,6 +34,7 @@ const SETTINGS = Schema.decodeUnknownSync(Settings)({
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 })
 
 /** The runbook the window opened, whose hash is DRAWN. */

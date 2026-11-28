@@ -29,6 +29,7 @@ const SETTINGS = Schema.decodeUnknownSync(Settings)({
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 })
 
 const documentOf = (hash: string) => ({

@@ -30,6 +30,7 @@ const VIEW = {
     lastSelectedGitHubHost: null,
     recentGitLabHosts: [],
     lastSelectedGitLabHost: null,
+    hiddenInRunbooks: [],
   },
   file: "/user data/settings.json",
   problems: [],

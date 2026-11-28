@@ -182,6 +182,7 @@ describe("the runbook page", () => {
                 lastSelectedGitHubHost: null,
                 recentGitLabHosts: [],
                 lastSelectedGitLabHost: null,
+                hiddenInRunbooks: [],
               }),
             ),
             trusting: makeTrustingStore(),

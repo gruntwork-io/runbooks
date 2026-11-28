@@ -75,6 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 }
 
 export interface SettingsStoreShape {

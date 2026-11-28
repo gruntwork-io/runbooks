@@ -36,6 +36,7 @@ const SETTINGS = {
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 }
 
 const session = Schema.decodeUnknownSync(SessionSummary)({

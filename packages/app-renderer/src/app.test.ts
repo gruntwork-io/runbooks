@@ -133,6 +133,7 @@ describe("what the window shows", () => {
                   lastSelectedGitHubHost: null,
                   recentGitLabHosts: [],
                   lastSelectedGitLabHost: null,
+                  hiddenInRunbooks: [],
                 },
                 file: "/data/settings.json",
                 problems: [],

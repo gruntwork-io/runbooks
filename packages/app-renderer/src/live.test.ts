@@ -124,6 +124,7 @@ const settingsWith = (on: boolean, fields: Record<string, unknown> = {}) =>
     lastSelectedGitHubHost: null,
     recentGitLabHosts: [],
     lastSelectedGitLabHost: null,
+    hiddenInRunbooks: [],
     ...fields,
   })
 

@@ -33,6 +33,7 @@ const SETTINGS = {
   lastSelectedGitHubHost: null,
   recentGitLabHosts: [],
   lastSelectedGitLabHost: null,
+  hiddenInRunbooks: [],
 }
 
 /** The `greet` block as the document places it. */
